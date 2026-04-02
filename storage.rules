@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(coProId) {
+      return isSignedIn() &&
+        exists(/databases/(default)/documents/copros/$(coProId)/members/$(request.auth.uid));
+    }
+
+    match /copros/{coProId}/{allPaths=**} {
+      allow read: if isMember(coProId);
+      allow write: if isMember(coProId) && request.resource.size < 10 * 1024 * 1024;
+    }
+  }
+}

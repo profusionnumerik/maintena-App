@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Suppression de compte - Maintena</title><style>body{font-family:Arial,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.6;color:#0f172a}form{display:grid;gap:12px;margin-top:20px}input,textarea,button{font:inherit;padding:12px 14px;border-radius:12px;border:1px solid #cbd5e1}button{background:#2563eb;color:#fff;border:none;font-weight:700;cursor:pointer}.card{background:#fff;border:1px solid #e2e8f0;border-radius:18px;padding:24px;box-shadow:0 8px 24px rgba(15,23,42,.05)}.ok,.err{display:none;padding:12px 14px;border-radius:12px;margin-top:12px}.ok{background:#dcfce7;color:#166534}.err{background:#fee2e2;color:#991b1b}</style></head>
+<body>
+<div class="card">
+<h1>Suppression de compte</h1>
+<p>Vous pouvez supprimer votre compte directement dans l'application via <strong>Profil &gt; Supprimer mon compte</strong>. Si vous n'avez plus accès à l'application, utilisez ce formulaire public pour demander la suppression de votre compte.</p>
+<p>Les données strictement nécessaires à des obligations légales, contractuelles ou de sécurité peuvent être conservées ou anonymisées pendant la durée applicable.</p>
+<form id="deletion-form">
+<input type="email" name="email" placeholder="Votre email" required>
+<textarea name="reason" rows="4" placeholder="Motif facultatif"></textarea>
+<button type="submit">Envoyer ma demande</button>
+</form>
+<div class="ok" id="ok">Votre demande a bien été enregistrée.</div>
+<div class="err" id="err">Impossible d'envoyer la demande pour le moment.</div>
+</div>
+<script>
+const form=document.getElementById('deletion-form');
+form.addEventListener('submit', async (e)=>{
+ e.preventDefault();
+ document.getElementById('ok').style.display='none';
+ document.getElementById('err').style.display='none';
+ const data=Object.fromEntries(new FormData(form).entries());
+ const res=await fetch('/api/account/deletion-request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).catch(()=>null);
+ if(res&&res.ok){form.reset();document.getElementById('ok').style.display='block';}
+ else{document.getElementById('err').style.display='block';}
+});
+</script>
+</body></html>

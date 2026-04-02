@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && request.auth.token.superAdmin == true;
+    }
+
+    function isMember(coProId) {
+      return isSignedIn() && exists(/databases/$(database)/documents/copros/$(coProId)/members/$(request.auth.uid));
+    }
+
+    function memberData(coProId) {
+      return get(/databases/$(database)/documents/copros/$(coProId)/members/$(request.auth.uid)).data;
+    }
+
+    function isCoProAdmin(coProId) {
+      return isMember(coProId) && memberData(coProId).role == 'admin';
+    }
+
+    function canReadCopro(coProId) {
+      return isSuperAdmin() || isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
+    }
+
+    match /users/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /accountDeletionRequests/{requestId} {
+      allow create: if true;
+      allow read, update, delete: if isSuperAdmin();
+    }
+
+    match /inviteCodes/{code} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && (
+        isSuperAdmin() ||
+        (
+          request.resource.data.coProId is string &&
+          isCoProAdmin(request.resource.data.coProId)
+        )
+      );
+    }
+
+    match /guestInterventionInvites/{inviteId} {
+      allow read, write: if false;
+    }
+
+    match /copros/{coProId} {
+      allow read: if canReadCopro(coProId);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(coProId));
+
+      match /members/{userId} {
+        allow read: if isSignedIn() && (isSuperAdmin() || isMember(coProId));
+        allow write: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(coProId) || request.auth.uid == userId);
+      }
+
+      match /interventions/{interventionId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role != 'propriétaire';
+        allow update: if isSignedIn() && isMember(coProId) && (
+          memberData(coProId).role != 'propriétaire' ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])
+        );
+        allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+      }
+
+      match /signalements/{signalementId} {
+        allow create, read: if isSignedIn() && isMember(coProId);
+        allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+      }
+
+      match /announcements/{announcementId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isCoProAdmin(coProId);
+        allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+      }
+    }
+
+    match /{path=**}/members/{memberId} {
+      allow read: if isSignedIn();
+    }
+  }
+}
