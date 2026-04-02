@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+.expo
+server_dist
+dist
+web-build
+__MACOSX
+*.log
