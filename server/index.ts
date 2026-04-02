@@ -113,6 +113,10 @@ function configureStatic(app: express.Application) {
   const assetsPath = path.resolve(process.cwd(), "assets");
   const staticBuildPath = path.resolve(process.cwd(), "static-build");
 
+  app.get("/", (_req, res) => {
+    return res.status(200).send(`${appName} API OK`);
+  });
+
   app.get("/healthz", (_req, res) => {
     return res.status(200).json({ ok: true, app: appName });
   });
