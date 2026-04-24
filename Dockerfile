@@ -1,15 +1,15 @@
-FROM node:20-alpine AS builder
+FROM node:20 AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY server/ ./server/
 COPY shared/ ./shared/
-RUN npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist
+RUN npm run server:build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev --ignore-scripts
 COPY --from=builder /app/server_dist ./server_dist
 COPY server/templates/ ./server/templates/
 COPY public/ ./public/
