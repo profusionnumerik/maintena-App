@@ -554,6 +554,10 @@ async function sendGuestInviteEmail(params: {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   app.get("/", (_req: Request, res: Response) => {
     const html = `<!DOCTYPE html>
 <html lang="fr">

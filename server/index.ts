@@ -33,8 +33,15 @@ function setupCors(app: express.Application) {
       }
     });
 
+    if (process.env.ALLOWED_ORIGINS) {
+      process.env.ALLOWED_ORIGINS.split(",").forEach((d) => {
+        origins.add(d.trim());
+      });
+    }
+
     const requestOrigin = req.header("origin");
     const normalizedOrigin = requestOrigin?.replace(/\/$/, "");
+
     const isLocalhost =
       normalizedOrigin?.startsWith("http://localhost:") ||
       normalizedOrigin?.startsWith("http://127.0.0.1:");
@@ -73,13 +80,7 @@ function setupBodyParsing(app: express.Application) {
       },
     })
   );
-
-  app.use(
-    express.urlencoded({
-      extended: false,
-      limit: "10mb",
-    })
-  );
+  app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 }
 
 function setupRequestLogging(app: express.Application) {
@@ -164,16 +165,9 @@ function setupErrorHandler(app: express.Application) {
 
     const port = parseInt(process.env.PORT || "8080", 10);
 
-    server.listen(
-      {
-        port,
-        host: "0.0.0.0",
-        reusePort: true,
-      },
-      () => {
-        log(`express server serving on port ${port}`);
-      }
-    );
+    server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      log(`express server serving on port ${port}`);
+    });
   } catch (error) {
     console.error("Server bootstrap error:", error);
     process.exit(1);

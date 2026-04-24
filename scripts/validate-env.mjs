@@ -10,11 +10,35 @@ const required = [
   'EXPO_PUBLIC_ANDROID_PACKAGE',
 ];
 
+const placeholders = [
+  'TON_VRAI_FIREBASE_API_KEY',
+  'AIza...',
+  'YOUR_EAS_PROJECT_ID',
+  'YOUR_EXPO_ACCOUNT',
+  'admin@example.com',
+  'pk_live_xxx',
+  'sk_live_xxx',
+  'price_xxx',
+  'whsec_xxx',
+  're_xxx',
+];
+
 const missing = required.filter((key) => !process.env[key] || !String(process.env[key]).trim());
 
 if (missing.length) {
   console.error('Variables manquantes :');
   missing.forEach((key) => console.error(`- ${key}`));
+  process.exit(1);
+}
+
+const withPlaceholders = required.filter((key) => {
+  const val = String(process.env[key] ?? '').trim();
+  return placeholders.some((p) => val === p || val.startsWith(p));
+});
+
+if (withPlaceholders.length) {
+  console.error('Variables contenant des valeurs placeholder (à remplacer) :');
+  withPlaceholders.forEach((key) => console.error(`- ${key} = ${process.env[key]}`));
   process.exit(1);
 }
 

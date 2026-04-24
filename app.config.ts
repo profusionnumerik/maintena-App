@@ -91,8 +91,8 @@ const config: ExpoConfig = {
       projectId: 'f942f5d6-18ac-41c4-89a0-4d9b2fe98138',
     },
     publicLegalUrls: {
-      privacyPolicy: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://maintena.app/privacy-policy',
-      accountDeletion: process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'https://maintena.app/account-deletion',
+      privacyPolicy: process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://maintena.profusionnumerik.fr/privacy-policy',
+      accountDeletion: process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'https://maintena.profusionnumerik.fr/account-deletion',
     },
   },
   owner: process.env.EXPO_OWNER || undefined,
