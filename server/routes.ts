@@ -878,7 +878,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <header class="topbar">
       <div class="container topbar-inner">
         <a href="#top" class="brand">
-          <span class="brand-badge">M</span>
+          <svg width="42" height="42" viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg" style="border-radius:14px;flex-shrink:0;">
+            <rect width="42" height="42" rx="14" fill="url(#lg)"/>
+            <defs><linearGradient id="lg" x1="0" y1="0" x2="42" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#1E40AF"/></linearGradient></defs>
+            <rect x="9" y="20" width="24" height="14" rx="2" fill="white" opacity="0.9"/>
+            <path d="M7 22L21 11L35 22" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="17" y="26" width="8" height="8" rx="1.5" fill="#2563EB"/>
+          </svg>
           <span>Maintena</span>
         </a>
 
@@ -984,40 +990,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
       </section>
 
       <section class="section" id="offre">
-        <div class="container grid-2">
-          <article class="card">
+        <div class="container">
+          <div style="text-align:center;margin-bottom:36px;">
             <span class="pill">Offre</span>
-            <h2>Abonnement Maintena</h2>
-            <div class="price-box">
-              <div class="small">Tarif</div>
-              <div class="price">169 € / an</div>
-              <div class="small">
-                Offre de lancement : une tablette peut être offerte aux premiers
-                clients, selon disponibilité et selon les conditions de l’offre.
+            <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Choisissez votre plan</h2>
+            <p style="color:rgba(255,255,255,0.7);max-width:560px;margin:10px auto 0;">
+              Un seul abonnement par syndic. Copros, prestataires et propriétaires illimités dans chaque copropriété.
+            </p>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;align-items:start;">
+
+            <article class="card" style="border:1px solid rgba(255,255,255,0.1);position:relative;">
+              <span class="pill">Starter</span>
+              <div class="price-box" style="margin:18px 0;">
+                <div class="small">À partir de</div>
+                <div class="price">9 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div class="small" style="margin-top:4px;">ou 89 € / an (2 mois offerts)</div>
               </div>
-            </div>
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+                <li>✅ Jusqu’à <strong>3 copropriétés</strong></li>
+                <li>✅ Prestataires &amp; propriétaires illimités</li>
+                <li>✅ Suivi interventions + photos</li>
+                <li>✅ Alertes résidents</li>
+                <li>✅ Annonces</li>
+              </ul>
+              <a class="btn btn-secondary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
+            </article>
 
-            <p>
-              L’abonnement donne accès à l’utilisation de la solution Maintena
-              dans le cadre de l’activité professionnelle du client.
-            </p>
-          </article>
+            <article class="card" style="border:2px solid var(--primary);position:relative;">
+              <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:0.78rem;font-weight:700;padding:4px 14px;border-radius:999px;white-space:nowrap;">⭐ Le plus populaire</div>
+              <span class="pill">Pro</span>
+              <div class="price-box" style="margin:18px 0;">
+                <div class="small">À partir de</div>
+                <div class="price">19 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div class="small" style="margin-top:4px;">ou 179 € / an (2 mois offerts)</div>
+              </div>
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+                <li>✅ Jusqu’à <strong>15 copropriétés</strong></li>
+                <li>✅ Prestataires &amp; propriétaires illimités</li>
+                <li>✅ Suivi interventions + photos</li>
+                <li>✅ Alertes résidents</li>
+                <li>✅ Annonces</li>
+                <li>✅ Rapports PDF</li>
+              </ul>
+              <a class="btn btn-primary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
+            </article>
 
-          <article class="card">
-            <span class="pill">Paiement</span>
-            <h2>Paiement sécurisé</h2>
-            <p>
-              Les paiements sont traités de manière sécurisée via Stripe.
-            </p>
-            <p>
-              L’inscription se fait en ligne, puis le paiement permet d’activer
-              l’espace syndic et la copropriété.
-            </p>
+            <article class="card" style="border:1px solid rgba(255,255,255,0.1);position:relative;">
+              <span class="pill">Business</span>
+              <div class="price-box" style="margin:18px 0;">
+                <div class="small">À partir de</div>
+                <div class="price">39 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div class="small" style="margin-top:4px;">ou 349 € / an (2 mois offerts)</div>
+              </div>
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+                <li>✅ <strong>Copropriétés illimitées</strong></li>
+                <li>✅ Prestataires &amp; propriétaires illimités</li>
+                <li>✅ Suivi interventions + photos</li>
+                <li>✅ Alertes résidents</li>
+                <li>✅ Annonces</li>
+                <li>✅ Rapports PDF</li>
+                <li>✅ Support prioritaire</li>
+              </ul>
+              <a class="btn btn-secondary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
+            </article>
 
-            <button class="btn btn-primary" type="button" onclick="window.location.href='/inscription'">
-              Accéder à l’inscription
-            </button>
-          </article>
+          </div>
+
+          <p style="text-align:center;margin-top:24px;font-size:0.88rem;color:rgba(255,255,255,0.45);">
+            Paiement sécurisé via Stripe · Sans engagement · Annulation à tout moment
+          </p>
         </div>
       </section>
 

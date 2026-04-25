@@ -38,6 +38,8 @@ import {
   MemberRole,
   UserSubscription,
   Signalement,
+  PLAN_COPRO_LIMITS,
+  type SubscriptionPlan,
 } from "@/shared/types";
 
 const CURRENT_COPRO_KEY = "@maintena_current_copro";
@@ -529,6 +531,17 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       lng?: number
     ): Promise<CoPro> => {
       if (!user) throw new Error("Not authenticated");
+
+      if (!isSuperAdmin) {
+        const plan: SubscriptionPlan = (userSubscription as any)?.plan ?? "starter";
+        const limit = PLAN_COPRO_LIMITS[plan];
+        if (copros.length >= limit) {
+          const planLabel = plan === "starter" ? "Starter (3 copros max)" : plan === "pro" ? "Pro (15 copros max)" : "Business";
+          throw new Error(
+            `Votre plan ${planLabel} est atteint. Passez au plan supérieur pour ajouter d'autres copropriétés.`
+          );
+        }
+      }
 
       const code = generateCode();
       const fullAddress = [

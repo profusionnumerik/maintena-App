@@ -1,5 +1,20 @@
+export type SubscriptionPlan = "starter" | "pro" | "business";
+
+export const PLAN_COPRO_LIMITS: Record<SubscriptionPlan, number> = {
+  starter: 3,
+  pro: 15,
+  business: Infinity,
+};
+
+export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: number; label: string }> = {
+  starter:  { monthly: 9,  annual: 89,  label: "Starter" },
+  pro:      { monthly: 19, annual: 179, label: "Pro" },
+  business: { monthly: 39, annual: 349, label: "Business" },
+};
+
 export interface UserSubscription {
   status: "none" | "active" | "expired";
+  plan?: SubscriptionPlan;
   activatedAt?: string;
   expiresAt?: string;
 }
