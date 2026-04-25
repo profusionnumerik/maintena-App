@@ -912,7 +912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </p>
 
             <div class="hero-actions">
-              <a class="btn btn-primary" href="/inscription">S’inscrire et activer Maintena</a>
+              <a class="btn btn-primary" href="#offre">Voir les offres</a>
               <a class="btn btn-secondary" href="#contact">Nous contacter</a>
             </div>
           </div>
@@ -922,8 +922,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             <ul class="hero-list">
               <li><strong>Éditeur :</strong> Profusion Numérik</li>
               <li><strong>Produit :</strong> Maintena</li>
-              <li><strong>Type d’offre :</strong> abonnement annuel</li>
+              <li><strong>Type d’offre :</strong> abonnement mensuel ou annuel</li>
               <li><strong>Public visé :</strong> syndics et gestionnaires de copropriétés</li>
+              <li><strong>À partir de :</strong> 9 € / mois</li>
               <li><strong>Paiement :</strong> sécurisé via Stripe</li>
             </ul>
           </aside>
@@ -1008,7 +1009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <div class="price">9 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
                 <div class="small" style="margin-top:4px;">ou 89 € / an (2 mois offerts)</div>
               </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
                 <li>✅ Jusqu’à <strong>3 copropriétés</strong></li>
                 <li>✅ Prestataires &amp; propriétaires illimités</li>
                 <li>✅ Suivi interventions + photos</li>
@@ -1026,7 +1027,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <div class="price">19 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
                 <div class="small" style="margin-top:4px;">ou 179 € / an (2 mois offerts)</div>
               </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
                 <li>✅ Jusqu’à <strong>15 copropriétés</strong></li>
                 <li>✅ Prestataires &amp; propriétaires illimités</li>
                 <li>✅ Suivi interventions + photos</li>
@@ -1044,7 +1045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 <div class="price">39 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
                 <div class="small" style="margin-top:4px;">ou 349 € / an (2 mois offerts)</div>
               </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:rgba(255,255,255,0.85);font-size:0.95rem;">
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
                 <li>✅ <strong>Copropriétés illimitées</strong></li>
                 <li>✅ Prestataires &amp; propriétaires illimités</li>
                 <li>✅ Suivi interventions + photos</li>
@@ -1059,7 +1060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           </div>
 
           <p style="text-align:center;margin-top:24px;font-size:0.88rem;color:rgba(255,255,255,0.45);">
-            Paiement sécurisé via Stripe · Sans engagement · Annulation à tout moment
+            Paiement sécurisé via Stripe · Résiliation à la fin de la période en cours
           </p>
         </div>
       </section>
@@ -1072,10 +1073,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             <ul class="contact-list">
               <li><strong>Entreprise :</strong> Profusion Numérik</li>
               <li><strong>Email :</strong> <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a></li>
-              <li><strong>Adresse :</strong> À compléter</li>
             </ul>
             <p>
-              Pense à remplacer l’adresse et l’email par tes vraies informations avant publication.
+              Pour toute question sur l’abonnement, un accompagnement à la prise en main
+              ou une démonstration, contactez-nous par email.
             </p>
           </article>
 
@@ -1084,8 +1085,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             <h2>Conditions générales d’information</h2>
             <ul class="legal-list">
               <li>Maintena est une application éditée et exploitée par Profusion Numérik.</li>
-              <li>L’abonnement est annuel.</li>
-              <li>Toute annulation empêche le renouvellement à l’échéance suivante.</li>
+              <li>L’abonnement est disponible en formule mensuelle ou annuelle.</li>
+              <li>La résiliation prend effet à la fin de la période en cours.</li>
               <li>Les demandes de remboursement et les réclamations sont étudiées au cas par cas.</li>
               <li>Les paiements sont traités de façon sécurisée via Stripe.</li>
             </ul>
