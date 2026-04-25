@@ -878,13 +878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <header class="topbar">
       <div class="container topbar-inner">
         <a href="#top" class="brand">
-          <svg width="42" height="42" viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg" style="border-radius:14px;flex-shrink:0;">
-            <rect width="42" height="42" rx="14" fill="url(#lg)"/>
-            <defs><linearGradient id="lg" x1="0" y1="0" x2="42" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#2563EB"/><stop offset="1" stop-color="#1E40AF"/></linearGradient></defs>
-            <rect x="9" y="20" width="24" height="14" rx="2" fill="white" opacity="0.9"/>
-            <path d="M7 22L21 11L35 22" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-            <rect x="17" y="26" width="8" height="8" rx="1.5" fill="#2563EB"/>
-          </svg>
+          <img src="/icon.png" alt="Maintena" width="42" height="42" style="border-radius:14px;flex-shrink:0;" />
           <span>Maintena</span>
         </a>
 
