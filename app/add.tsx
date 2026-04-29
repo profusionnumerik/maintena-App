@@ -570,7 +570,7 @@ export default function AddInterventionScreen() {
   };
 
   const getMaxNewPhotos = () =>
-    Math.max(0, 5 - (isEditMode ? existingPhotos.length : 0));
+    Math.max(0, 3 - (isEditMode ? existingPhotos.length : 0));
 
   const pickPhoto = async () => {
     const remaining = getMaxNewPhotos() - localPhotos.length;
@@ -1945,7 +1945,7 @@ export default function AddInterventionScreen() {
               </ScrollView>
             )}
 
-            {(isEditMode ? existingPhotos.length : 0) + localPhotos.length < 5 && (
+            {(isEditMode ? existingPhotos.length : 0) + localPhotos.length < 3 && (
               <View style={styles.photoActions}>
                 <Pressable style={styles.photoBtn} onPress={takePhoto}>
                   <Ionicons

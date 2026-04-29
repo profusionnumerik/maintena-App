@@ -999,9 +999,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:0.78rem;font-weight:700;padding:4px 18px;border-radius:999px;white-space:nowrap;">🚀 Prix de lancement — 100 premiers inscrits</div>
               <span class="pill">Maintena Pro</span>
               <div class="price-box" style="margin:18px 0;">
-                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 49,99 € / mois</div>
-                <div class="price" style="color:#1d4ed8;">29,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div class="small" style="margin-top:6px;">ou <strong>299 € / an</strong> — 2 mois offerts</div>
+                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 € / mois</div>
+                <div class="price" style="color:#1d4ed8;">19,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div class="small" style="margin-top:6px;">ou <strong>179 € / an</strong> — 2 mois offerts</div>
                 <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.8rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 100 premiers syndics</div>
               </div>
               <ul style="list-style:none;padding:0;margin:0 0 28px;display:flex;flex-direction:column;gap:12px;color:var(--muted);font-size:0.95rem;">
