@@ -987,39 +987,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <section class="section" id="offre">
         <div class="container">
           <div style="text-align:center;margin-bottom:40px;">
-            <span class="pill">Offre</span>
+            <span class="pill">Offre de lancement</span>
             <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Un seul abonnement, tout inclus</h2>
             <p style="color:rgba(255,255,255,0.7);max-width:520px;margin:10px auto 0;">
               Jusqu’à 30 copropriétés, 300 utilisateurs et plus. Toutes les fonctionnalités incluses dès le premier jour.
             </p>
           </div>
 
-          <div style="max-width:480px;margin:0 auto;">
-            <article class="card" style="border:2px solid var(--primary);position:relative;">
-              <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:0.78rem;font-weight:700;padding:4px 18px;border-radius:999px;white-space:nowrap;">🚀 Prix de lancement — 100 premiers inscrits</div>
-              <span class="pill">Maintena Pro</span>
-              <div class="price-box" style="margin:18px 0;">
-                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 € / mois</div>
-                <div class="price" style="color:#1d4ed8;">19,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div class="small" style="margin-top:6px;">ou <strong>179 € / an</strong> — 2 mois offerts</div>
-                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.8rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 100 premiers syndics</div>
+          <div style="max-width:680px;margin:0 auto;display:grid;gap:20px;">
+
+            <!-- PACK TABLETTE -->
+            <article style="background:linear-gradient(135deg,#1e3a8a,#1d4ed8);border-radius:20px;padding:32px;color:white;position:relative;overflow:hidden;">
+              <div style="position:absolute;top:0;right:0;background:#f59e0b;color:#000;font-size:0.75rem;font-weight:800;padding:8px 20px;border-radius:0 20px 0 16px;letter-spacing:0.05em;">⚡ 25 PACKS RESTANTS</div>
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+                <div style="font-size:42px;">📱</div>
+                <div>
+                  <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#93c5fd;margin-bottom:4px;">Pack exclusif — 25 disponibles</div>
+                  <div style="font-size:1.4rem;font-weight:800;">Abonnement annuel + Tablette Android offerte</div>
+                </div>
               </div>
-              <ul style="list-style:none;padding:0;margin:0 0 28px;display:flex;flex-direction:column;gap:12px;color:var(--muted);font-size:0.95rem;">
+              <div style="background:rgba(255,255,255,0.1);border-radius:14px;padding:20px;margin-bottom:24px;">
+                <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+                  <div style="font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;">179 €</div>
+                  <div style="font-size:1rem;color:rgba(255,255,255,0.7);">/ an tout compris</div>
+                </div>
+                <div style="color:#86efac;font-weight:700;margin-top:6px;">+ Tablette Android livrée avec Maintena pré-installé</div>
+                <div style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-top:4px;text-decoration:line-through;">Valeur totale : 350 € +</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px;">
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Tablette Android prête à l’emploi</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Maintena pré-installé</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Jusqu’à 30 copropriétés</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> 300 utilisateurs ou plus</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Toutes les fonctionnalités</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Livraison incluse</div>
+              </div>
+              <a href="mailto:contact@profusionnumerik.com?subject=Pack tablette Maintena" style="display:block;text-align:center;background:white;color:#1d4ed8;font-weight:800;font-size:1rem;padding:16px;border-radius:12px;text-decoration:none;">Réserver mon pack tablette →</a>
+              <p style="text-align:center;margin-top:10px;font-size:0.8rem;color:rgba(255,255,255,0.5);">Paiement sécurisé · Livraison sous 5 jours ouvrés</p>
+            </article>
+
+            <!-- ABONNEMENT SEUL -->
+            <article class="card" style="border:1px solid var(--line);position:relative;">
+              <div style="position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:0.75rem;font-weight:700;padding:4px 16px;border-radius:999px;white-space:nowrap;">🚀 Prix de lancement</div>
+              <span class="pill" style="margin-top:8px;display:inline-block;">Maintena Pro — Mensuel</span>
+              <div class="price-box" style="margin:16px 0;">
+                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 € / mois</div>
+                <div class="price">19,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 30 premiers syndics</div>
+              </div>
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.9rem;">
                 <li>✅ Jusqu’à <strong>30 copropriétés</strong></li>
-                <li>✅ <strong>300 utilisateurs</strong> ou plus</li>
                 <li>✅ Prestataires &amp; propriétaires illimités</li>
                 <li>✅ Suivi interventions + photos</li>
-                <li>✅ Alertes résidents &amp; annonces</li>
+                <li>✅ Alertes résidents, annonces, rapports PDF</li>
                 <li>✅ Accès invité prestataires (sans app)</li>
-                <li>✅ Rapports PDF</li>
-                <li>✅ Disponible iOS &amp; Android</li>
+                <li>✅ iOS &amp; Android</li>
               </ul>
-              <a class="btn btn-primary" href="/inscription" style="display:block;text-align:center;width:100%;box-sizing:border-box;font-size:1rem;">Commencer maintenant →</a>
+              <a class="btn btn-primary" href="/inscription" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Commencer maintenant →</a>
             </article>
+
           </div>
 
-          <p style="text-align:center;margin-top:20px;font-size:0.88rem;color:rgba(255,255,255,0.45);">
-            Paiement sécurisé via Stripe · Résiliation à tout moment · Sans engagement
+          <p style="text-align:center;margin-top:20px;font-size:0.85rem;color:rgba(255,255,255,0.4);">
+            Paiement sécurisé via Stripe · Sans engagement · Résiliation à tout moment
           </p>
         </div>
       </section>
