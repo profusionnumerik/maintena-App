@@ -2173,6 +2173,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/guest-access/create", async (req: Request, res: Response) => {
+    const { coProId, interventionId, invitedProvider, category } = req.body as {
+      coProId?: string;
+      interventionId?: string;
+      category?: string;
+      invitedProvider?: {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        phone?: string;
+        company?: string;
+      };
+    };
+
+    if (!coProId || !interventionId || !invitedProvider?.email) {
+      return res.status(400).json({ error: "coProId, interventionId et invitedProvider.email sont requis." });
+    }
+
+    const db = getAdminDb();
+    if (!db) {
+      return res.status(503).json({ error: "Firebase Admin non configuré." });
+    }
+
+    try {
+      const payload = await createGuestInviteRecord({
+        coProId,
+        interventionId,
+        providerFirstName: invitedProvider.firstName,
+        providerLastName: invitedProvider.lastName,
+        providerEmail: invitedProvider.email,
+        providerPhone: invitedProvider.phone,
+        providerCompany: invitedProvider.company,
+        req,
+      });
+
+      const interventionSnap = await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).get();
+      const coproSnap = await db.collection("copros").doc(coProId).get();
+      const providerName = [invitedProvider.firstName, invitedProvider.lastName].filter(Boolean).join(" ").trim() || invitedProvider.email;
+
+      await sendGuestInviteEmail({
+        to: invitedProvider.email,
+        providerName,
+        coproName: (coproSnap.data() as any)?.name ?? "Copropriété",
+        interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
+        webLink: payload.webLink,
+        completeAccountLink: payload.completeAccountLink,
+      });
+
+      return res.json({
+        token: payload.token,
+        guestWebUrl: payload.webLink,
+        completeAccountUrl: payload.completeAccountLink,
+        appLink: payload.appLink,
+      });
+    } catch (e: any) {
+      console.error("guest-access/create error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.post("/api/guest-invites", async (req: Request, res: Response) => {
     const {
       coProId,
