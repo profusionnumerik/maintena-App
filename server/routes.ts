@@ -1656,17 +1656,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const db = getAdminDb();
-    if (!db) {
-      return res.status(503).json({ message: "Service temporairement indisponible." });
-    }
+    const createdAt = new Date().toISOString();
 
-    await db.collection("accountDeletionRequests").add({
-      email,
-      reason: reason || null,
-      source: "public-web",
-      status: "pending",
-      createdAt: new Date().toISOString(),
-    });
+    if (db) {
+      await db.collection("accountDeletionRequests").add({
+        email,
+        reason: reason || null,
+        source: "public-web",
+        status: "pending",
+        createdAt,
+      });
+    } else {
+      // fallback: send email notification when Firebase Admin is unavailable
+      try {
+        const resendClient = await getUncachableResendClient();
+        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        await resendClient.client.emails.send({
+          from: fromAddress,
+          to: process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "bijourobert1@gmail.com",
+          subject: `[Maintena] Demande de suppression de compte — ${email}`,
+          html: `<p><strong>Email :</strong> ${email}</p><p><strong>Motif :</strong> ${reason || "Non précisé"}</p><p><strong>Date :</strong> ${createdAt}</p>`,
+        });
+      } catch (e) {
+        console.error("deletion-request fallback email failed:", e);
+        return res.status(503).json({ message: "Service temporairement indisponible." });
+      }
+    }
 
     return res.status(200).json({ ok: true });
   });
