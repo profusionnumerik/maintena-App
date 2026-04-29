@@ -117,6 +117,87 @@ function getAdminAuthInstance() {
   }
 }
 
+const SHARED_CSS = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --blue: #2563EB; --blue-dark: #1E40AF; --navy: #0B1628;
+    --text: #0f172a; --muted: #64748b; --border: #e2e8f0;
+    --bg: #f8fafc; --white: #fff;
+    --shadow: 0 8px 30px rgba(15,23,42,.08);
+    --radius: 18px;
+  }
+  html { scroll-behavior: smooth; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  a { color: inherit; text-decoration: none; }
+  .m-nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11,22,40,0.97); backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 0 32px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .m-nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .m-nav-brand img { width: 38px; height: 38px; border-radius: 10px; object-fit: contain; }
+  .m-nav-brand span { color: white; font-weight: 700; font-size: 17px; }
+  .m-nav-back { color: rgba(255,255,255,0.7); font-size: 14px; font-weight: 500; transition: color .2s; }
+  .m-nav-back:hover { color: white; }
+  .m-footer {
+    margin-top: 60px; padding: 28px 32px; text-align: center;
+    font-size: 13px; color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .m-footer a { color: var(--muted); }
+  .m-footer a:hover { color: var(--blue); }
+  .m-container { max-width: 680px; margin: 48px auto; padding: 0 24px; }
+  .m-card { background: var(--white); border-radius: var(--radius); padding: 36px; box-shadow: var(--shadow); }
+  .m-card h1 { font-size: clamp(1.4rem, 3vw, 1.8rem); font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .m-card .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 15px; }
+  .m-label { display: block; font-weight: 600; font-size: 14px; color: var(--text); margin: 16px 0 6px; }
+  .m-input {
+    width: 100%; padding: 12px 14px; border: 1.5px solid var(--border);
+    border-radius: 12px; font-size: 15px; font-family: inherit;
+    transition: border-color .2s; outline: none;
+  }
+  .m-input:focus { border-color: var(--blue); }
+  .m-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .m-btn {
+    display: block; width: 100%; margin-top: 24px;
+    background: var(--blue); color: white; border: none;
+    border-radius: 12px; padding: 15px; font-size: 1rem;
+    font-weight: 700; cursor: pointer; font-family: inherit;
+    transition: background .2s, transform .15s;
+  }
+  .m-btn:hover { background: var(--blue-dark); transform: translateY(-1px); }
+  .m-error { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #fee2e2; color: #991b1b; font-size: 14px; }
+  .m-success { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #dcfce7; color: #166534; font-size: 14px; }
+  @media (max-width: 600px) { .m-row { grid-template-columns: 1fr; } .m-nav { padding: 0 16px; } .m-card { padding: 24px; } }
+`;
+
+function pageShell(title: string, body: string, backLabel = "← Retour à l'accueil", backHref = "/") {
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${title} — Maintena</title>
+  <style>${SHARED_CSS}</style>
+</head>
+<body>
+  <nav class="m-nav">
+    <a href="/" class="m-nav-brand">
+      <img src="/icon.png" alt="Maintena" />
+      <span>Maintena</span>
+    </a>
+    <a href="${backHref}" class="m-nav-back">${backLabel}</a>
+  </nav>
+  ${body}
+  <footer class="m-footer">
+    <p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="/privacy-policy">Confidentialité</a> · <a href="mailto:contact@profusionnumerik.com">Contact</a></p>
+  </footer>
+</body>
+</html>`;
+}
+
 async function extractAuthenticatedUser(req: Request) {
   const authHeader = req.header("authorization") || "";
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -1697,84 +1778,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/inscription", (_req: Request, res: Response) => {
-    const html = `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Inscription Maintena</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:24px}
-    .wrap{max-width:760px;margin:0 auto}
-    .card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
-    h1{margin-top:0}
-    label{display:block;font-weight:700;margin:14px 0 6px}
-    input{width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:12px;box-sizing:border-box}
-    button{margin-top:18px;background:#2563eb;color:#fff;border:0;border-radius:12px;padding:14px 18px;font-weight:700;cursor:pointer}
-    .muted{color:#64748b}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .error{display:none;margin-top:14px;padding:12px 14px;border-radius:12px;background:#fee2e2;color:#991b1b}
-    @media(max-width:700px){.row{grid-template-columns:1fr}}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
+    const html = pageShell("Créer mon espace syndic", `
+  <div class="m-container">
+    <div class="m-card">
       <h1>Créer mon espace syndic</h1>
-      <p class="muted">Créez votre compte Maintena puis finalisez l’activation avec l’abonnement annuel.</p>
+      <p class="subtitle">Créez votre compte Maintena puis finalisez l’activation avec votre abonnement.</p>
 
       <form id="signup-form">
-        <div class="row">
+        <div class="m-row">
           <div>
-            <label for="firstName">Prénom</label>
-            <input id="firstName" required />
+            <label class="m-label" for="firstName">Prénom</label>
+            <input class="m-input" id="firstName" placeholder="Jean" required />
           </div>
           <div>
-            <label for="lastName">Nom</label>
-            <input id="lastName" required />
-          </div>
-        </div>
-
-        <label for="email">Email</label>
-        <input id="email" type="email" required />
-
-        <label for="phone">Téléphone</label>
-        <input id="phone" />
-
-        <label for="password">Mot de passe</label>
-        <input id="password" type="password" minlength="6" required />
-
-        <label for="coProName">Nom de la copropriété</label>
-        <input id="coProName" required />
-
-        <label for="address">Adresse</label>
-        <input id="address" required />
-
-        <div class="row">
-          <div>
-            <label for="postalCode">Code postal</label>
-            <input id="postalCode" required />
-          </div>
-          <div>
-            <label for="city">Ville</label>
-            <input id="city" required />
+            <label class="m-label" for="lastName">Nom</label>
+            <input class="m-input" id="lastName" placeholder="Dupont" required />
           </div>
         </div>
 
-        <button type="submit">Continuer vers le paiement</button>
-        <div class="error" id="error"></div>
+        <label class="m-label" for="email">Email professionnel</label>
+        <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
+
+        <label class="m-label" for="phone">Téléphone</label>
+        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" />
+
+        <label class="m-label" for="password">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 caractères)</span></label>
+        <input class="m-input" id="password" type="password" minlength="6" required />
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;" />
+        <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Votre première copropriété</p>
+
+        <label class="m-label" for="coProName">Nom de la copropriété</label>
+        <input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
+
+        <label class="m-label" for="address">Adresse</label>
+        <input class="m-input" id="address" placeholder="12 rue de la Paix" required />
+
+        <div class="m-row">
+          <div>
+            <label class="m-label" for="postalCode">Code postal</label>
+            <input class="m-input" id="postalCode" placeholder="31000" required />
+          </div>
+          <div>
+            <label class="m-label" for="city">Ville</label>
+            <input class="m-input" id="city" placeholder="Toulouse" required />
+          </div>
+        </div>
+
+        <button class="m-btn" type="submit" id="submit-btn">Continuer vers le paiement →</button>
+        <div class="m-error" id="error"></div>
       </form>
+
+      <p style="text-align:center;margin-top:18px;font-size:13px;color:var(--muted);">
+        🔒 Paiement sécurisé via Stripe · Résiliation à tout moment
+      </p>
     </div>
   </div>
 
   <script>
     const form = document.getElementById("signup-form");
     const errorBox = document.getElementById("error");
+    const btn = document.getElementById("submit-btn");
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorBox.style.display = "none";
-      errorBox.textContent = "";
+      btn.textContent = "Chargement…";
+      btn.disabled = true;
 
       const body = {
         firstName: document.getElementById("firstName").value.trim(),
@@ -1794,92 +1864,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-
         const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Erreur lors de l’inscription");
-        }
-
-        if (data.url) {
-          window.location.href = data.url;
-          return;
-        }
-
+        if (!res.ok) throw new Error(data.error || "Erreur lors de l’inscription");
+        if (data.url) { window.location.href = data.url; return; }
         throw new Error("Session Stripe introuvable");
       } catch (err) {
         errorBox.textContent = err.message || "Erreur inconnue";
         errorBox.style.display = "block";
+        btn.textContent = "Continuer vers le paiement →";
+        btn.disabled = false;
       }
     });
-  </script>
-</body>
-</html>`;
+  </script>`);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);
   });
 
   app.get("/payment-success", (_req: Request, res: Response) => {
-    res.send(`<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Paiement confirmé</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#f8fafc;padding:24px}
-    .box{max-width:680px;margin:60px auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
-    a{display:inline-block;margin-top:18px;padding:12px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:12px}
-    p{line-height:1.6;color:#475569}
-  </style>
-</head>
-<body>
-  <div class="box">
-    <h1>Paiement confirmé</h1>
-    <p>Votre abonnement Maintena a bien été pris en compte.</p>
-    <p>Votre espace est en cours d’activation. Vous recevrez également un email de confirmation.</p>
-    <a href="/">Retour à l’accueil</a>
-  </div>
-</body>
-</html>`);
+    res.send(pageShell("Paiement confirmé", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">✅</div>
+      <h1>Paiement confirmé !</h1>
+      <p class="subtitle">Votre abonnement Maintena a bien été pris en compte. Votre espace est en cours d’activation — vous recevrez un email de confirmation dans quelques minutes.</p>
+      <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l’accueil</a>
+      <p style="margin-top:20px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
+    </div>
+  </div>`));
   });
 
   app.get("/payment-cancel", (_req: Request, res: Response) => {
-    res.send(`
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Paiement annulé — Maintena</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, sans-serif;
-      background: #0b1628; color: #fff;
-      min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .card {
-      background: #142240; border-radius: 24px;
-      padding: 40px 32px; max-width: 400px;
-      text-align: center; border: 1px solid rgba(255,255,255,0.08);
-    }
-    .icon { font-size: 64px; margin-bottom: 20px; }
-    h1 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
-    p { color: rgba(255,255,255,0.6); line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">↩️</div>
-    <h1>Paiement annulé</h1>
-    <p>Le paiement a été annulé. Retournez sur l'application pour réessayer.</p>
-  </div>
-</body>
-</html>
-    `);
+    res.send(pageShell("Paiement annulé", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">↩️</div>
+      <h1>Paiement annulé</h1>
+      <p class="subtitle">Le paiement n’a pas été finalisé. Vous pouvez réessayer à tout moment sans perdre vos informations.</p>
+      <a href="/inscription" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Réessayer</a>
+      <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour à l’accueil</a>
+    </div>
+  </div>`));
   });
 
   app.post("/api/init-user-copros", async (req: Request, res: Response) => {
