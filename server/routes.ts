@@ -999,7 +999,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               <li><strong>Produit :</strong> Maintena</li>
               <li><strong>Type d’offre :</strong> abonnement mensuel ou annuel</li>
               <li><strong>Public visé :</strong> syndics et gestionnaires de copropriétés</li>
-              <li><strong>À partir de :</strong> 9 € / mois</li>
+              <li><strong>À partir de :</strong> 19,99 € / mois</li>
               <li><strong>Paiement :</strong> sécurisé via Stripe</li>
             </ul>
           </aside>
@@ -1114,7 +1114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               <div class="price-box" style="margin:16px 0;">
                 <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 € / mois</div>
                 <div class="price">19,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 30 premiers syndics</div>
+                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 50 premiers syndics</div>
               </div>
               <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.9rem;">
                 <li>✅ Jusqu’à <strong>30 copropriétés</strong></li>
