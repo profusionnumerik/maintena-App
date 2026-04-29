@@ -986,75 +986,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       <section class="section" id="offre">
         <div class="container">
-          <div style="text-align:center;margin-bottom:36px;">
+          <div style="text-align:center;margin-bottom:40px;">
             <span class="pill">Offre</span>
-            <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Choisissez votre plan</h2>
-            <p style="color:rgba(255,255,255,0.7);max-width:560px;margin:10px auto 0;">
-              Un seul abonnement par syndic. Copros, prestataires et propriétaires illimités dans chaque copropriété.
+            <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Un seul abonnement, tout inclus</h2>
+            <p style="color:rgba(255,255,255,0.7);max-width:520px;margin:10px auto 0;">
+              Jusqu’à 30 copropriétés, 300 utilisateurs et plus. Toutes les fonctionnalités incluses dès le premier jour.
             </p>
           </div>
 
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;align-items:start;">
-
-            <article class="card" style="border:1px solid rgba(255,255,255,0.1);position:relative;">
-              <span class="pill">Starter</span>
-              <div class="price-box" style="margin:18px 0;">
-                <div class="small">À partir de</div>
-                <div class="price">9 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div class="small" style="margin-top:4px;">ou 89 € / an (2 mois offerts)</div>
-              </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
-                <li>✅ Jusqu’à <strong>3 copropriétés</strong></li>
-                <li>✅ Prestataires &amp; propriétaires illimités</li>
-                <li>✅ Suivi interventions + photos</li>
-                <li>✅ Alertes résidents</li>
-                <li>✅ Annonces</li>
-              </ul>
-              <a class="btn btn-secondary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
-            </article>
-
+          <div style="max-width:480px;margin:0 auto;">
             <article class="card" style="border:2px solid var(--primary);position:relative;">
-              <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:0.78rem;font-weight:700;padding:4px 14px;border-radius:999px;white-space:nowrap;">⭐ Le plus populaire</div>
-              <span class="pill">Pro</span>
+              <div style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#fff;font-size:0.78rem;font-weight:700;padding:4px 18px;border-radius:999px;white-space:nowrap;">🚀 Prix de lancement — 100 premiers inscrits</div>
+              <span class="pill">Maintena Pro</span>
               <div class="price-box" style="margin:18px 0;">
-                <div class="small">À partir de</div>
-                <div class="price">19 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div class="small" style="margin-top:4px;">ou 179 € / an (2 mois offerts)</div>
+                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 49,99 € / mois</div>
+                <div class="price" style="color:#1d4ed8;">29,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div class="small" style="margin-top:6px;">ou <strong>299 € / an</strong> — 2 mois offerts</div>
+                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.8rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 100 premiers syndics</div>
               </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
-                <li>✅ Jusqu’à <strong>15 copropriétés</strong></li>
+              <ul style="list-style:none;padding:0;margin:0 0 28px;display:flex;flex-direction:column;gap:12px;color:var(--muted);font-size:0.95rem;">
+                <li>✅ Jusqu’à <strong>30 copropriétés</strong></li>
+                <li>✅ <strong>300 utilisateurs</strong> ou plus</li>
                 <li>✅ Prestataires &amp; propriétaires illimités</li>
                 <li>✅ Suivi interventions + photos</li>
-                <li>✅ Alertes résidents</li>
-                <li>✅ Annonces</li>
+                <li>✅ Alertes résidents &amp; annonces</li>
+                <li>✅ Accès invité prestataires (sans app)</li>
                 <li>✅ Rapports PDF</li>
+                <li>✅ Disponible iOS &amp; Android</li>
               </ul>
-              <a class="btn btn-primary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
+              <a class="btn btn-primary" href="/inscription" style="display:block;text-align:center;width:100%;box-sizing:border-box;font-size:1rem;">Commencer maintenant →</a>
             </article>
-
-            <article class="card" style="border:1px solid rgba(255,255,255,0.1);position:relative;">
-              <span class="pill">Business</span>
-              <div class="price-box" style="margin:18px 0;">
-                <div class="small">À partir de</div>
-                <div class="price">39 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div class="small" style="margin-top:4px;">ou 349 € / an (2 mois offerts)</div>
-              </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.95rem;">
-                <li>✅ <strong>Copropriétés illimitées</strong></li>
-                <li>✅ Prestataires &amp; propriétaires illimités</li>
-                <li>✅ Suivi interventions + photos</li>
-                <li>✅ Alertes résidents</li>
-                <li>✅ Annonces</li>
-                <li>✅ Rapports PDF</li>
-                <li>✅ Support prioritaire</li>
-              </ul>
-              <a class="btn btn-secondary" href="#contact" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Nous contacter</a>
-            </article>
-
           </div>
 
-          <p style="text-align:center;margin-top:24px;font-size:0.88rem;color:rgba(255,255,255,0.45);">
-            Paiement sécurisé via Stripe · Résiliation à la fin de la période en cours
+          <p style="text-align:center;margin-top:20px;font-size:0.88rem;color:rgba(255,255,255,0.45);">
+            Paiement sécurisé via Stripe · Résiliation à tout moment · Sans engagement
           </p>
         </div>
       </section>
