@@ -192,7 +192,7 @@ function pageShell(title: string, body: string, backLabel = "← Retour à l'acc
   </nav>
   ${body}
   <footer class="m-footer">
-    <p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="/privacy-policy">Confidentialité</a> · <a href="mailto:contact@profusionnumerik.com">Contact</a></p>
+    <p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="tel:0668183092">06 68 18 30 92</a> · <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a> · <a href="/privacy-policy">Confidentialité</a></p>
   </footer>
 </body>
 </html>`;
