@@ -1850,6 +1850,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const errorBox = document.getElementById("error");
     const btn = document.getElementById("submit-btn");
 
+    // Format automatique téléphone : 06 12 34 56 78
+    const phoneInput = document.getElementById("phone");
+    phoneInput.addEventListener("input", () => {
+      const digits = phoneInput.value.replace(/\D/g, "").slice(0, 10);
+      phoneInput.value = digits.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorBox.style.display = "none";
@@ -1860,7 +1867,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         firstName: document.getElementById("firstName").value.trim(),
         lastName: document.getElementById("lastName").value.trim(),
         email: document.getElementById("email").value.trim().toLowerCase(),
-        phone: document.getElementById("phone").value.trim(),
+        phone: document.getElementById("phone").value.replace(/\s/g, "").trim(),
         password: document.getElementById("password").value,
         coProName: document.getElementById("coProName").value.trim(),
         address: document.getElementById("address").value.trim(),
