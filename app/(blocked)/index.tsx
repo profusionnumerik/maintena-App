@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
-  Share,
   StyleSheet,
   Text,
   View,
@@ -18,6 +17,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
+import { crossShare } from "@/lib/share";
 
 const ANNUAL_PRICE_EUR = 169;
 const LAUNCH_OFFER_LIMIT = 25;
@@ -130,12 +130,11 @@ export default function BlockedScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
-      await Share.share({
-        message:
-          `Rejoignez ma copropriété "${currentCopro.name}" sur Maintena.\n` +
-          `Code d'invitation : ${currentCopro.inviteCode}\n\n` +
-          `Offre de lancement : ${PRICE_LABEL} — ${TABLET_OFFER_LABEL}.`,
-      });
+      await crossShare(
+        `Rejoignez ma copropriété "${currentCopro.name}" sur Maintena.\n` +
+        `Code d'invitation : ${currentCopro.inviteCode}\n\n` +
+        `Offre de lancement : ${PRICE_LABEL} — ${TABLET_OFFER_LABEL}.`
+      );
     } catch {}
   };
 

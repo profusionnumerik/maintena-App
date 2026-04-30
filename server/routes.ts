@@ -1627,7 +1627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
-    const adminAuth = getAdminAuth();
+    const adminAuth = getAdminAuthInstance();
     if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
 
     const email = String(req.body?.email ?? "").trim().toLowerCase();

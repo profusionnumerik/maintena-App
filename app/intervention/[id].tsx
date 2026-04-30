@@ -11,7 +11,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -27,6 +26,7 @@ import { StarRating } from "@/components/StarRating";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { uploadPhoto } from "@/lib/storage";
+import { crossShare } from "@/lib/share";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
 
 function formatFrenchPhone(value?: string): string {
@@ -609,10 +609,7 @@ export default function InterventionDetailScreen() {
         appLink: getAppDownloadUrl(),
       });
 
-      await Share.share({
-        title: "Partager l’intervention",
-        message,
-      });
+      await crossShare(message, "Partager l’intervention");
 
       await updateIntervention(intervention.id, {
         guestInviteLastSharedAt: new Date().toISOString(),

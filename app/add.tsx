@@ -10,7 +10,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -38,6 +37,7 @@ import {
   STATUS_LABELS,
 } from "@/shared/types";
 import { auth } from "@/lib/firebase";
+import { crossShare } from "@/lib/share";
 
 const STATUS_COLORS: Record<Status, string> = {
   planifie: COLORS.warning,
@@ -957,10 +957,7 @@ export default function AddInterventionScreen() {
                 appLink: access.appLink || getAppDownloadUrl(),
               });
 
-              await Share.share({
-                title: "Partager l’intervention",
-                message,
-              });
+              await crossShare(message, "Partager l’intervention");
             } catch (e) {
               console.error("Guest access create/share failed:", e);
             }
@@ -1067,10 +1064,7 @@ export default function AddInterventionScreen() {
                   text: "Partager aussi par SMS",
                   onPress: async () => {
                     try {
-                      await Share.share({
-                        title: "Partager l’intervention",
-                        message,
-                      });
+                      await crossShare(message, "Partager l’intervention");
                     } catch {}
                     router.replace(`/intervention/${createdInterventionId}` as any);
                   },

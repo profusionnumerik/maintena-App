@@ -5,12 +5,13 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator, Alert, Linking, Modal, Platform, Pressable,
-  ScrollView, Share, StyleSheet, Switch, Text, TextInput, View,
+  ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { crossShare } from "@/lib/share";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
@@ -145,10 +146,14 @@ export default function AdminScreen() {
       if (!code) return;
       const message = buildInviteMessage(code);
       if (via === "share") {
-        await Share.share({ message });
+        await crossShare(message);
       } else if (via === "sms") {
-        const sep = Platform.OS === "ios" ? "&" : "?";
-        await Linking.openURL(`sms:${sep}body=${encodeURIComponent(message)}`);
+        if (Platform.OS === "web") {
+          await crossShare(message);
+        } else {
+          const sep = Platform.OS === "ios" ? "&" : "?";
+          await Linking.openURL(`sms:${sep}body=${encodeURIComponent(message)}`);
+        }
       } else if (via === "email") {
         const subject = encodeURIComponent(`Invitation Maintena — ${currentCopro.name}`);
         const body = encodeURIComponent(message);
@@ -281,9 +286,7 @@ export default function AdminScreen() {
 
   const handleShareCode = async () => {
     if (!currentCopro) return;
-    await Share.share({
-      message: `Rejoins notre copropriété "${currentCopro.name}" sur Maintena en tant que collaborateur.\nCode d'invitation : ${currentCopro.inviteCode}`,
-    });
+    await crossShare(`Rejoins notre copropriété "${currentCopro.name}" sur Maintena en tant que collaborateur.\nCode d'invitation : ${currentCopro.inviteCode}`);
   };
 
   const handleCopyOwnerCode = async () => {
@@ -296,9 +299,7 @@ export default function AdminScreen() {
 
   const handleShareOwnerCode = async () => {
     if (!currentCopro?.ownerInviteCode) return;
-    await Share.share({
-      message: `Accédez aux informations de votre copropriété "${currentCopro.name}" sur Maintena.\nCode propriétaire : ${currentCopro.ownerInviteCode}`,
-    });
+    await crossShare(`Accédez aux informations de votre copropriété "${currentCopro.name}" sur Maintena.\nCode propriétaire : ${currentCopro.ownerInviteCode}`);
   };
 
   const handleGenerateOwnerCode = async () => {
@@ -349,9 +350,7 @@ export default function AdminScreen() {
     if (!currentCopro) return;
     const code = currentCopro.categoryInviteCodes?.[cat];
     if (!code) return;
-    await Share.share({
-      message: `Code d'accès Maintena — ${CATEGORY_LABELS[cat]}\n\nCode d'accès : ${currentCopro.inviteCode}\nCode prestation : ${code}\n\nCopropriété : ${currentCopro.name}`,
-    });
+    await crossShare(`Code d'accès Maintena — ${CATEGORY_LABELS[cat]}\n\nCode d'accès : ${currentCopro.inviteCode}\nCode prestation : ${code}\n\nCopropriété : ${currentCopro.name}`);
   };
 
   const handleSetLocation = async () => {
