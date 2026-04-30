@@ -74,7 +74,8 @@ function buildProviderShareMessage(params: {
   description: string;
   date: string;
   categoryLabel: string;
-  categoryInviteCode: string;
+  categoryInviteCode?: string;
+  guestWebUrl?: string;
   appLink?: string;
 }) {
   return (
@@ -85,7 +86,8 @@ function buildProviderShareMessage(params: {
     `Catégorie : ${params.categoryLabel}\n` +
     `Date : ${params.date}\n` +
     `Description : ${params.description}\n\n` +
-    `Code prestation : ${params.categoryInviteCode}\n` +
+    (params.guestWebUrl ? `Accès direct : ${params.guestWebUrl}\n\n` : "") +
+    (params.categoryInviteCode ? `Code prestation : ${params.categoryInviteCode}\n` : "") +
     (params.appLink ? `Application : ${params.appLink}\n` : "")
   );
 }
@@ -584,16 +586,7 @@ export default function InterventionDetailScreen() {
       currentCopro,
       intervention.category
     );
-
-    if (!categoryInviteCode) {
-      Alert.alert(
-        "Code manquant",
-        `Aucun code prestation n'est défini pour la catégorie ${getCategoryLabel(
-          intervention.category
-        )}.`
-      );
-      return;
-    }
+    const guestWebUrl = (intervention as any).guestWebUrl as string | undefined;
 
     try {
       setIsSharingGuestInvite(true);
@@ -611,7 +604,8 @@ export default function InterventionDetailScreen() {
         description: intervention.description || "",
         date: formatDateFull(intervention.date),
         categoryLabel: getCategoryLabel(intervention.category),
-        categoryInviteCode,
+        categoryInviteCode: categoryInviteCode || undefined,
+        guestWebUrl: guestWebUrl || undefined,
         appLink: getAppDownloadUrl(),
       });
 
@@ -622,7 +616,7 @@ export default function InterventionDetailScreen() {
 
       await updateIntervention(intervention.id, {
         guestInviteLastSharedAt: new Date().toISOString(),
-        sharedCategoryInviteCode: categoryInviteCode,
+        ...(categoryInviteCode ? { sharedCategoryInviteCode: categoryInviteCode } : {}),
       } as any);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
