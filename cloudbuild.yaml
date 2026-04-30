@@ -21,7 +21,7 @@ steps:
       - '--image=europe-west1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/maintena-app:$COMMIT_SHA'
       - '--region=europe-west1'
       - '--platform=managed'
-      - '--set-secrets=FIREBASE_SERVICE_ACCOUNT=firebase-service-account:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest'
+      - '--set-secrets=FIREBASE_SERVICE_ACCOUNT=firebase-service-account:latest,STRIPE_SECRET_KEY=stripe-secret-key:latest,STRIPE_WEBHOOK_SECRET=stripe-webhook-secret:latest,RESEND_API_KEY=resend-api-key:latest'
       - '--update-env-vars=STRIPE_PRICE_ID=price_1TRiH6Rtzr6Km0bbNr06Qk3G'
       - '--quiet'
 
