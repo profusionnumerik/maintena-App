@@ -20,8 +20,9 @@ import { useAuth } from "@/context/AuthContext";
 
 type Mode = "login" | "register" | "forgot";
 
-function normalizePhone(phone: string): string {
-  return phone.replace(/[^0-9+\s().-]/g, "");
+function formatPhone(text: string): string {
+  const digits = text.replace(/\D/g, "").slice(0, 10);
+  return digits.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
 }
 
 function isValidPhone(phone: string): boolean {
@@ -56,7 +57,6 @@ export default function AuthScreen() {
   const lastNameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
-  const inviteCodeRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
 
@@ -341,35 +341,13 @@ export default function AuthScreen() {
                     <TextInput
                       ref={phoneRef}
                       style={styles.input}
-                      placeholder="Numéro de téléphone *"
+                      placeholder="06 12 34 56 78"
                       placeholderTextColor={COLORS.textMuted}
                       value={phone}
-                      onChangeText={(text) => setPhone(normalizePhone(text))}
+                      onChangeText={(text) => setPhone(formatPhone(text))}
                       keyboardType="phone-pad"
                       returnKeyType="next"
                       maxLength={14}
-                      onSubmitEditing={() => inviteCodeRef.current?.focus()}
-                    />
-                  </View>
-
-                  <View style={styles.inputWrap}>
-                    <View style={styles.inputIcon}>
-                      <Ionicons
-                        name="key-outline"
-                        size={18}
-                        color={COLORS.textMuted}
-                      />
-                    </View>
-                    <TextInput
-                      ref={inviteCodeRef}
-                      style={styles.input}
-                      placeholder="Code d'invitation (optionnel)"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={inviteCode}
-                      onChangeText={(text) => setInviteCode(text.toUpperCase())}
-                      autoCapitalize="characters"
-                      autoCorrect={false}
-                      returnKeyType="next"
                       onSubmitEditing={() => passwordRef.current?.focus()}
                     />
                   </View>
