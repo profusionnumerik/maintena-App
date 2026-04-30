@@ -3079,7 +3079,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SPA fallback — serve Expo web app index.html for unknown GET routes
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
   if (fs.existsSync(staticBuildIndex)) {
-    app.get("*", (req: Request, res: Response) => {
+    app.get("/*path", (req: Request, res: Response) => {
       if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
       res.sendFile(staticBuildIndex);
     });
