@@ -1732,6 +1732,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return res.sendFile("privacy-policy.html", { root: "public" });
   });
 
+  app.get("/cgu", (_req: Request, res: Response) => {
+    res.send(pageShell("Conditions d'utilisation — Maintena", `
+  <div class="m-container" style="max-width:720px;">
+    <div class="m-card">
+      <h1 style="font-size:26px;font-weight:800;margin-bottom:4px;">Conditions Générales d'Utilisation</h1>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:32px;">Dernière mise à jour : mai 2026</p>
+
+      <h2>1. Objet</h2>
+      <p>Maintena est une application destinée à la gestion et au suivi des interventions en copropriété, éditée par ProFusion Numérik (SIREN 932 117 500).</p>
+
+      <h2>2. Utilisateurs</h2>
+      <p>L'application est accessible aux syndics, prestataires et copropriétaires ou occupants autorisés. Chaque profil dispose de droits d'accès adaptés à sa fonction.</p>
+
+      <h2>3. Compte utilisateur</h2>
+      <p>L'utilisateur est responsable des informations fournies et de la confidentialité de ses identifiants. Toute utilisation frauduleuse du compte devra être signalée immédiatement.</p>
+
+      <h2>4. Utilisation du service</h2>
+      <p>L'application doit être utilisée de manière loyale et conforme à sa finalité : gestion réelle d'interventions et d'informations liées à une copropriété. Tout usage abusif, frauduleux ou contraire à l'ordre public est interdit.</p>
+
+      <h2>5. Données personnelles</h2>
+      <p>Les données collectées (nom, email, téléphone, photos) sont utilisées exclusivement dans le cadre du service. Consultez notre <a href="/privacy-policy" style="color:var(--blue);">Politique de confidentialité</a> pour plus d'informations.</p>
+
+      <h2>6. Abonnement</h2>
+      <p>L'accès complet au service nécessite un abonnement payant. Les tarifs et conditions sont affichés lors de l'inscription. L'abonnement est sans engagement et résiliable à tout moment.</p>
+
+      <h2>7. Responsabilité</h2>
+      <p>ProFusion Numérik s'engage à maintenir le service disponible et sécurisé, sans garantir une disponibilité ininterrompue. La société ne peut être tenue responsable des dommages indirects liés à l'utilisation du service.</p>
+
+      <h2>8. Modification des CGU</h2>
+      <p>Ces conditions peuvent être modifiées à tout moment. Les utilisateurs seront informés de tout changement significatif. La poursuite de l'utilisation du service vaut acceptation des nouvelles conditions.</p>
+
+      <h2>9. Droit applicable</h2>
+      <p>Les présentes CGU sont soumises au droit français. Tout litige sera soumis à la compétence des tribunaux de Toulouse.</p>
+
+      <h2>10. Contact</h2>
+      <p>Pour toute question : <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a> · 06 68 18 30 92</p>
+    </div>
+  </div>
+  <style>
+    h2 { font-size: 16px; font-weight: 700; margin: 24px 0 8px; color: var(--text); }
+    p { font-size: 14px; color: #334155; line-height: 1.7; margin-bottom: 4px; }
+    .m-card { padding: 40px; }
+  </style>`));
+  });
+
   app.get("/account-deletion", (_req: Request, res: Response) => {
     return res.sendFile("account-deletion.html", { root: "public" });
   });

@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -445,6 +445,28 @@ export default function AuthScreen() {
             </View>
           </View>
 
+          {mode === "register" && (
+            <View style={styles.legalBox}>
+              <Text style={styles.legalText}>
+                En créant votre compte, vous acceptez nos{" "}
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => router.push("/(legal)/cgu")}
+                >
+                  Conditions d'utilisation
+                </Text>
+                {" "}et notre{" "}
+                <Text
+                  style={styles.legalLink}
+                  onPress={() => router.push("/(legal)/confidentialite")}
+                >
+                  Politique de confidentialité
+                </Text>
+                .
+              </Text>
+            </View>
+          )}
+
           <View style={styles.footer}>
             <Text style={styles.footerText}>
               {mode === "login" ? "Pas encore de compte ?" : "Déjà un compte ?"}
@@ -645,5 +667,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
     color: COLORS.tealLight,
+  },
+  legalBox: {
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  legalText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.4)",
+    textAlign: "center",
+    lineHeight: 17,
+  },
+  legalLink: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.7)",
+    textDecorationLine: "underline",
   },
 });

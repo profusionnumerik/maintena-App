@@ -36,7 +36,7 @@ function RootLayoutNav() {
     const inCreateCopro = inOnboarding && secondSegment === "create";
 
     if (!user) {
-      if (!inAuth) router.replace("/(auth)");
+      if (!inAuth && !inLegal) router.replace("/(auth)");
       return;
     }
 
