@@ -37,13 +37,8 @@ service cloud.firestore {
 
     match /inviteCodes/{code} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (
-        isSuperAdmin() ||
-        (
-          request.resource.data.coProId is string &&
-          isCoProAdmin(request.resource.data.coProId)
-        )
-      );
+      allow create: if isSignedIn() && request.resource.data.coProId is string;
+      allow update, delete: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(resource.data.coProId));
     }
 
     match /guestInterventionInvites/{inviteId} {
