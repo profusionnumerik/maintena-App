@@ -18,7 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 
-type Mode = "login" | "register";
+type Mode = "login" | "register" | "forgot";
 
 function normalizePhone(phone: string): string {
   return phone.replace(/[^0-9+\s().-]/g, "");
@@ -36,7 +36,7 @@ function isValidEmail(email: string): boolean {
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ inviteCode?: string; mode?: string }>();
-  const { login, register, error, clearError } = useAuth();
+  const { login, register, resetPassword, error, clearError } = useAuth();
 
   const [mode, setMode] = useState<Mode>("login");
 
@@ -51,6 +51,7 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
 
   const lastNameRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
@@ -77,6 +78,7 @@ export default function AuthScreen() {
     Haptics.selectionAsync();
     clearError();
     setLocalError(null);
+    setResetSent(false);
     setMode(next);
 
     setFirstName("");
@@ -91,6 +93,23 @@ export default function AuthScreen() {
 
     setPassword("");
     setConfirmPassword("");
+  };
+
+  const handleReset = async () => {
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email.trim())) {
+      setLocalError("Veuillez saisir une adresse email valide.");
+      return;
+    }
+    setIsLoading(true);
+    setLocalError(null);
+    try {
+      await resetPassword(email);
+      setResetSent(true);
+    } catch {
+      setLocalError("Impossible d'envoyer l'email. Vérifiez l'adresse saisie.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -228,13 +247,15 @@ export default function AuthScreen() {
 
             <View style={styles.form}>
               <Text style={styles.formTitle}>
-                {mode === "login" ? "Bon retour" : "Créer votre compte"}
+                {mode === "login" ? "Bon retour" : mode === "register" ? "Créer votre compte" : "Mot de passe oublié"}
               </Text>
 
               <Text style={styles.formSubtitle}>
                 {mode === "login"
                   ? "Connectez-vous à votre espace"
-                  : "Renseignez vos informations personnelles"}
+                  : mode === "register"
+                  ? "Renseignez vos informations personnelles"
+                  : "Saisissez votre email pour recevoir un lien de réinitialisation"}
               </Text>
 
               {mode === "register" && (
@@ -355,7 +376,7 @@ export default function AuthScreen() {
                 </>
               )}
 
-              <View style={styles.inputWrap}>
+              {mode !== "forgot" && <View style={styles.inputWrap}>
                 <View style={styles.inputIcon}>
                   <Ionicons
                     name="lock-closed-outline"
@@ -388,7 +409,7 @@ export default function AuthScreen() {
                     color={COLORS.textMuted}
                   />
                 </Pressable>
-              </View>
+              </View>}
 
               {mode === "register" && (
                 <View style={styles.inputWrap}>
@@ -426,8 +447,8 @@ export default function AuthScreen() {
               ) : null}
 
               <Pressable
-                onPress={handleSubmit}
-                disabled={isLoading}
+                onPress={mode === "forgot" ? handleReset : handleSubmit}
+                disabled={isLoading || (mode === "forgot" && resetSent)}
                 style={({ pressed }) => [
                   styles.submitBtn,
                   pressed && styles.submitBtnPressed,
@@ -438,10 +459,25 @@ export default function AuthScreen() {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <Text style={styles.submitBtnText}>
-                    {mode === "login" ? "Se connecter" : "Créer mon compte"}
+                    {mode === "login" ? "Se connecter" : mode === "register" ? "Créer mon compte" : "Envoyer le lien"}
                   </Text>
                 )}
               </Pressable>
+
+              {mode === "login" && (
+                <Pressable onPress={() => switchMode("forgot")} style={styles.forgotBtn}>
+                  <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
+                </Pressable>
+              )}
+
+              {mode === "forgot" && resetSent && (
+                <View style={styles.resetSuccessBox}>
+                  <Ionicons name="checkmark-circle" size={18} color="#059669" />
+                  <Text style={styles.resetSuccessText}>
+                    Email envoyé ! Vérifiez votre boîte mail et suivez le lien pour réinitialiser votre mot de passe.
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -469,13 +505,13 @@ export default function AuthScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>
-              {mode === "login" ? "Pas encore de compte ?" : "Déjà un compte ?"}
+              {mode === "forgot" ? "Vous souvenez de votre mot de passe ?" : mode === "login" ? "Pas encore de compte ?" : "Déjà un compte ?"}
             </Text>
             <Pressable
-              onPress={() => switchMode(mode === "login" ? "register" : "login")}
+              onPress={() => switchMode(mode === "forgot" ? "login" : mode === "login" ? "register" : "login")}
             >
               <Text style={styles.footerLink}>
-                {mode === "login" ? "S'inscrire" : "Se connecter"}
+                {mode === "forgot" ? "Se connecter" : mode === "login" ? "S'inscrire" : "Se connecter"}
               </Text>
             </Pressable>
           </View>
@@ -667,6 +703,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
     color: COLORS.tealLight,
+  },
+  forgotBtn: {
+    alignSelf: "flex-end",
+    paddingVertical: 2,
+  },
+  forgotText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: COLORS.primary,
+  },
+  resetSuccessBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#ECFDF5",
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  resetSuccessText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "#065F46",
+    lineHeight: 18,
   },
   legalBox: {
     paddingHorizontal: 4,

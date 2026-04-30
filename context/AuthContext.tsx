@@ -2,6 +2,7 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile
@@ -40,6 +41,7 @@ interface RegisterPayload {
 }
 
 interface AuthContextValue {
+  resetPassword: (email: string) => Promise<void>;
   user: any | null;
   isLoading: boolean;
   isSuperAdmin: boolean;
@@ -183,6 +185,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signOut(auth);
   }, []);
 
+  const resetPassword = useCallback(async (email: string) => {
+    await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+  }, []);
+
   const deleteAccount = useCallback(async () => {
     if (!auth.currentUser) throw new Error("Non connecté.");
 
@@ -218,8 +224,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout,
       deleteAccount,
+      resetPassword,
     }),
-    [user, isLoading, isSuperAdmin, error, clearError, login, register, logout, deleteAccount]
+    [user, isLoading, isSuperAdmin, error, clearError, login, register, logout, deleteAccount, resetPassword]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
