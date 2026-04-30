@@ -14,7 +14,6 @@ COPY assets/ ./assets/
 COPY components/ ./components/
 COPY constants/ ./constants/
 COPY context/ ./context/
-COPY hooks/ ./hooks/
 COPY lib/ ./lib/
 COPY app.config.ts ./
 COPY tsconfig.json ./
