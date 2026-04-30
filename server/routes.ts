@@ -1904,11 +1904,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <div class="m-card" style="text-align:center;">
       <div style="font-size:56px;margin-bottom:16px;">✅</div>
       <h1>Paiement confirmé !</h1>
-      <p class="subtitle">Votre abonnement Maintena a bien été pris en compte. Votre espace est en cours d’activation — vous recevrez un email de confirmation dans quelques minutes.</p>
-      <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l’accueil</a>
-      <p style="margin-top:20px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
+      <p class="subtitle">Votre abonnement Maintena est activé. Fermez cette fenêtre et retournez dans l’application.</p>
+      <a href="maintena://" style="display:inline-block;margin-top:16px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Ouvrir l’application Maintena</a>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Si l’application ne s’ouvre pas automatiquement, fermez cette fenêtre et retournez dans Maintena.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
     </div>
-  </div>`));
+  </div>
+  <script>
+    setTimeout(function() { window.location.href = "maintena://"; }, 1500);
+  </script>`));
   });
 
   app.get("/payment-cancel", (_req: Request, res: Response) => {
