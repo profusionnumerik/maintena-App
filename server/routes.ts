@@ -1810,7 +1810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
 
         <label class="m-label" for="phone">Téléphone</label>
-        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" />
+        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" pattern="[0-9 ]{10,14}" />
 
         <label class="m-label" for="password">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 caractères)</span></label>
         <input class="m-input" id="password" type="password" minlength="6" required />

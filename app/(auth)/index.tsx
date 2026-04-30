@@ -326,6 +326,7 @@ export default function AuthScreen() {
                       onChangeText={(text) => setPhone(normalizePhone(text))}
                       keyboardType="phone-pad"
                       returnKeyType="next"
+                      maxLength={14}
                       onSubmitEditing={() => inviteCodeRef.current?.focus()}
                     />
                   </View>

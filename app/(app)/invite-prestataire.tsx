@@ -214,6 +214,7 @@ export default function InvitePrestataireScreen() {
               placeholder="Ex: 06 12 34 56 78"
               placeholderTextColor={COLORS.textMuted}
               keyboardType="phone-pad"
+              maxLength={14}
             />
           </View>
 
