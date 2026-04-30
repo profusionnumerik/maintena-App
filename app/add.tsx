@@ -271,12 +271,9 @@ function buildGuestShareMessage(params: {
     `Une intervention vous a été attribuée pour ${params.coproName}.\n\n` +
     `Intervention : ${params.title}\n` +
     `Catégorie : ${params.categoryLabel}\n` +
-    `Date : ${params.dateLabel}\n` +
-    `Description : ${params.description}\n\n` +
-    `Code prestation : ${params.categoryInviteCode}\n\n` +
-    `Accès direct web : ${params.guestWebUrl}\n\n` +
-    `Finaliser votre compte Maintena : ${params.completeAccountUrl}\n` +
-    (params.appLink ? `Application : ${params.appLink}\n` : "")
+    `Date : ${params.dateLabel}\n\n` +
+    `Accédez à votre fiche ici :\n${params.guestWebUrl}\n\n` +
+    `Un email avec vos identifiants de connexion vous a également été envoyé.`
   );
 }
 

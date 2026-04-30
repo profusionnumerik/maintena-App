@@ -561,6 +561,7 @@ async function sendGuestInviteEmail(params: {
   webLink: string;
   completeAccountLink: string;
   categoryInviteCode?: string;
+  tempPassword?: string;
 }): Promise<void> {
   let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
   try {
@@ -615,19 +616,25 @@ async function sendGuestInviteEmail(params: {
       </p>
 
       <p style="font-size:14px;color:#64748B;line-height:1.6;">
-        Vous pouvez remplir la fiche directement sur le web, sans créer de compte.
+        Cliquez sur le bouton ci-dessus pour accéder à votre fiche directement, <strong>sans créer de compte</strong>.
       </p>
 
-      ${params.categoryInviteCode ? `
-      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:16px;margin:18px 0;">
-        <div style="font-size:12px;color:#166534;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Code d'accès prestataire</div>
-        <div style="font-size:28px;font-weight:800;color:#15803D;letter-spacing:4px;font-family:monospace;">${escapeHtml(params.categoryInviteCode)}</div>
-        <div style="font-size:12px;color:#166534;margin-top:6px;">Utilisez ce code pour rejoindre la copropriété depuis l'application Maintena.</div>
+      ${params.tempPassword ? `
+      <div style="background:#0B1628;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Connexion à l'application Maintena</div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:2px;">Email</div>
+          <div style="font-size:15px;color:#fff;font-weight:600;">${escapeHtml(params.to)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:2px;">Mot de passe provisoire</div>
+          <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:4px;font-family:monospace;">${escapeHtml(params.tempPassword)}</div>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:10px;">Modifiez votre mot de passe après votre première connexion</div>
       </div>` : ""}
 
-      <p style="font-size:14px;color:#64748B;line-height:1.6;margin-top:16px;">
-        Pour finaliser votre compte Maintena et accéder à toutes vos interventions :
-        <a href="${params.completeAccountLink}" style="color:#2563EB;display:block;margin-top:6px;word-break:break-all;">${params.completeAccountLink}</a>
+      <p style="font-size:13px;color:#94A3B8;line-height:1.6;margin-top:12px;">
+        Besoin d'aide ? Contactez votre syndic.
       </p>
     </div>
   </div>
@@ -2250,15 +2257,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const interventionSnap = await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).get();
       const coproSnap = await db.collection("copros").doc(coProId).get();
       const providerName = [invitedProvider.firstName, invitedProvider.lastName].filter(Boolean).join(" ").trim() || invitedProvider.email;
+      const coproName = (coproSnap.data() as any)?.name ?? "Copropriété";
+
+      // Créer un compte provisoire Firebase pour le prestataire
+      let tempPassword: string | undefined;
+      try {
+        const adminAuth = getAuth();
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+
+        let uid: string;
+        try {
+          const existing = await adminAuth.getUserByEmail(invitedProvider.email);
+          uid = existing.uid;
+          await adminAuth.updateUser(uid, { password: tempPassword });
+        } catch {
+          const newUser = await adminAuth.createUser({
+            email: invitedProvider.email,
+            password: tempPassword,
+            displayName: providerName,
+          });
+          uid = newUser.uid;
+        }
+
+        await db.collection("users").doc(uid).set({
+          uid,
+          email: invitedProvider.email,
+          displayName: providerName,
+          firstName: invitedProvider.firstName ?? "",
+          lastName: invitedProvider.lastName ?? "",
+          phone: invitedProvider.phone ?? "",
+          company: invitedProvider.company ?? "",
+        }, { merge: true });
+
+        await db.collection("copros").doc(coProId).collection("members").doc(uid).set({
+          uid,
+          email: invitedProvider.email,
+          displayName: providerName,
+          role: "prestataire",
+          categoryFilter: category ?? null,
+          joinedAt: new Date().toISOString(),
+          invitedByGuest: true,
+        }, { merge: true });
+      } catch (authErr) {
+        console.warn("Création compte provisoire échouée:", authErr);
+        tempPassword = undefined;
+      }
 
       await sendGuestInviteEmail({
         to: invitedProvider.email,
         providerName,
-        coproName: (coproSnap.data() as any)?.name ?? "Copropriété",
+        coproName,
         interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
         webLink: payload.webLink,
         completeAccountLink: payload.completeAccountLink,
-        categoryInviteCode: categoryInviteCode || undefined,
+        tempPassword,
       });
 
       return res.json({
