@@ -560,6 +560,7 @@ async function sendGuestInviteEmail(params: {
   interventionTitle: string;
   webLink: string;
   completeAccountLink: string;
+  categoryInviteCode?: string;
 }): Promise<void> {
   let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
   try {
@@ -617,14 +618,16 @@ async function sendGuestInviteEmail(params: {
         Vous pouvez remplir la fiche directement sur le web, sans créer de compte.
       </p>
 
-      <p style="font-size:14px;color:#64748B;line-height:1.6;margin-top:16px;">
-        Si vous souhaitez créer votre compte Maintena plus tard :
-      </p>
+      ${params.categoryInviteCode ? `
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:16px;margin:18px 0;">
+        <div style="font-size:12px;color:#166534;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Code d'accès prestataire</div>
+        <div style="font-size:28px;font-weight:800;color:#15803D;letter-spacing:4px;font-family:monospace;">${escapeHtml(params.categoryInviteCode)}</div>
+        <div style="font-size:12px;color:#166534;margin-top:6px;">Utilisez ce code pour rejoindre la copropriété depuis l'application Maintena.</div>
+      </div>` : ""}
 
-      <p style="word-break:break-all;">
-        <a href="${params.completeAccountLink}" style="color:#2563EB;">
-          ${params.completeAccountLink}
-        </a>
+      <p style="font-size:14px;color:#64748B;line-height:1.6;margin-top:16px;">
+        Pour finaliser votre compte Maintena et accéder à toutes vos interventions :
+        <a href="${params.completeAccountLink}" style="color:#2563EB;display:block;margin-top:6px;word-break:break-all;">${params.completeAccountLink}</a>
       </p>
     </div>
   </div>
@@ -2209,10 +2212,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/guest-access/create", async (req: Request, res: Response) => {
-    const { coProId, interventionId, invitedProvider, category } = req.body as {
+    const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body as {
       coProId?: string;
       interventionId?: string;
       category?: string;
+      categoryInviteCode?: string;
       invitedProvider?: {
         firstName?: string;
         lastName?: string;
@@ -2254,6 +2258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
         webLink: payload.webLink,
         completeAccountLink: payload.completeAccountLink,
+        categoryInviteCode: categoryInviteCode || undefined,
       });
 
       return res.json({

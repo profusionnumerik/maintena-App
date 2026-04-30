@@ -217,6 +217,7 @@ async function createGuestAccess(params: {
     company?: string;
   };
   category: string;
+  categoryInviteCode?: string;
 }) {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -931,18 +932,7 @@ export default function AddInterventionScreen() {
           invitedProviderPayload &&
           firstCreatedInterventionId
         ) {
-          if (!categoryInviteCode) {
-            Alert.alert(
-              "Planification créée",
-              `${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${
-                dates.length > 1 ? "s" : ""
-              } avec succès.\n\nAucun code prestation n'est défini pour la catégorie ${
-                category ? CATEGORY_LABELS[category] : ""
-              }.`
-            );
-            router.replace(`/intervention/${firstCreatedInterventionId}` as any);
-          } else {
-            try {
+          try {
               const access = await createGuestAccess({
                 coProId: currentCopro.id,
                 interventionId: firstCreatedInterventionId,
@@ -954,6 +944,7 @@ export default function AddInterventionScreen() {
                   company: newProvider.company?.trim() || "",
                 },
                 category: category || "",
+                categoryInviteCode: categoryInviteCode || undefined,
               });
 
               const message = buildGuestShareMessage({
@@ -978,7 +969,6 @@ export default function AddInterventionScreen() {
             }
 
             router.replace(`/intervention/${firstCreatedInterventionId}` as any);
-          }
         } else {
           Alert.alert(
             "Planification créée",
@@ -1038,22 +1028,7 @@ export default function AddInterventionScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
         if (isAdmin && providerMode === "new" && invitedProviderPayload) {
-          if (!categoryInviteCode) {
-            Alert.alert(
-              "Intervention créée",
-              `L’intervention a bien été créée.\n\nAucun code prestation n'est défini pour la catégorie ${
-                category ? CATEGORY_LABELS[category] : ""
-              }.`,
-              [
-                {
-                  text: "Ouvrir la fiche",
-                  onPress: () =>
-                    router.replace(`/intervention/${createdInterventionId}` as any),
-                },
-              ]
-            );
-          } else {
-            try {
+          try {
               const access = await createGuestAccess({
                 coProId: currentCopro.id,
                 interventionId: createdInterventionId,
@@ -1065,6 +1040,7 @@ export default function AddInterventionScreen() {
                   company: newProvider.company?.trim() || "",
                 },
                 category: category || "",
+                categoryInviteCode: categoryInviteCode || undefined,
               });
 
               await updateIntervention(
@@ -1089,9 +1065,9 @@ export default function AddInterventionScreen() {
                 appLink: access.appLink || getAppDownloadUrl(),
               });
 
-              Alert.alert("Intervention créée", "L’intervention a bien été créée.", [
+              Alert.alert("Intervention créée", `Un email a été envoyé à ${newProvider.email}.`, [
                 {
-                  text: "Partager maintenant",
+                  text: "Partager aussi par SMS",
                   onPress: async () => {
                     try {
                       await Share.share({
@@ -1112,7 +1088,6 @@ export default function AddInterventionScreen() {
               console.error("Guest access create/share failed:", e);
               router.replace(`/intervention/${createdInterventionId}` as any);
             }
-          }
         } else {
           router.back();
         }
@@ -1827,6 +1802,7 @@ export default function AddInterventionScreen() {
           </View>
         )}
 
+        {(!isAdmin || providerMode !== "new") && (
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>
             Téléphone intervenant
@@ -1865,6 +1841,7 @@ export default function AddInterventionScreen() {
             </Text>
           )}
         </View>
+        )}
 
         {!recurrenceEnabled && (
           <View style={styles.field}>
@@ -1877,7 +1854,7 @@ export default function AddInterventionScreen() {
 
             <Text style={styles.fieldLabel}>
               Photos ({(isEditMode ? existingPhotos.length : 0) + localPhotos.length}
-              /5)
+              /3)
             </Text>
 
             {(existingPhotos.length > 0 || localPhotos.length > 0) && (
