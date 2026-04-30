@@ -2,6 +2,8 @@ import { getAuth } from "firebase-admin/auth";
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import Stripe from "stripe";
 import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
@@ -1905,14 +1907,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:56px;margin-bottom:16px;">✅</div>
       <h1>Paiement confirmé !</h1>
       <p class="subtitle">Votre abonnement Maintena est activé. Fermez cette fenêtre et retournez dans l’application.</p>
-      <a href="maintena://" style="display:inline-block;margin-top:16px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Ouvrir l’application Maintena</a>
-      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Si l’application ne s’ouvre pas automatiquement, fermez cette fenêtre et retournez dans Maintena.</p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:16px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Accéder à l’application</a>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Ou ouvrez l’application mobile Maintena sur votre téléphone.</p>
       <p style="margin-top:12px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
     </div>
-  </div>
-  <script>
-    setTimeout(function() { window.location.href = "maintena://"; }, 1500);
-  </script>`));
+  </div>`));
   });
 
   app.get("/payment-cancel", (_req: Request, res: Response) => {
@@ -2961,6 +2960,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.warn(
       "[Firebase Admin] NOT initialized — photo uploads will fail. Check FIREBASE_SERVICE_ACCOUNT secret."
     );
+  }
+
+  // SPA fallback — serve Expo web app index.html for unknown GET routes
+  const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
+  if (fs.existsSync(staticBuildIndex)) {
+    app.get("*", (req: Request, res: Response) => {
+      if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+      res.sendFile(staticBuildIndex);
+    });
   }
 
   const httpServer = createServer(app);
