@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { getApiUrl } from "@/lib/query-client";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -37,7 +38,7 @@ function isValidEmail(email: string): boolean {
 export default function AuthScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ inviteCode?: string; mode?: string }>();
-  const { login, register, resetPassword, error, clearError } = useAuth();
+  const { login, register, error, clearError } = useAuth();
 
   const [mode, setMode] = useState<Mode>("login");
 
@@ -103,10 +104,20 @@ export default function AuthScreen() {
     setIsLoading(true);
     setLocalError(null);
     try {
-      await resetPassword(email);
-      setResetSent(true);
+      const apiBase = getApiUrl();
+      const res = await fetch(new URL("/api/auth/reset-password", apiBase).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const data = await res.json();
+      if (data.sent) {
+        setResetSent(true);
+      } else {
+        setLocalError(data.error ?? "Impossible d'envoyer l'email.");
+      }
     } catch {
-      setLocalError("Impossible d'envoyer l'email. Vérifiez l'adresse saisie.");
+      setLocalError("Impossible d'envoyer l'email. Vérifiez votre connexion.");
     } finally {
       setIsLoading(false);
     }

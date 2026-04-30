@@ -1626,6 +1626,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    const adminAuth = getAdminAuth();
+    if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
+      return res.status(400).json({ error: "Email invalide." });
+    }
+
+    try {
+      const resetLink = await adminAuth.generatePasswordResetLink(email);
+
+      let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+        return res.status(200).json({ sent: true });
+      }
+
+      const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+      await resendClient.client.emails.send({
+        from,
+        to: email,
+        subject: "Réinitialisation de votre mot de passe Maintena",
+        html: `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#FEF3C7;color:#92400E;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;display:inline-block;margin-bottom:20px;">
+        Réinitialisation du mot de passe
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">
+        Vous avez oublié votre mot de passe ?
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Pas de panique. Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe. Ce lien est valable <strong>1 heure</strong>.
+      </p>
+      <a href="${resetLink}" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 32px;border-radius:12px;text-decoration:none;margin-bottom:24px;">
+        Réinitialiser mon mot de passe
+      </a>
+      <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin:0;">
+        Si vous n'êtes pas à l'origine de cette demande, ignorez cet email — votre mot de passe ne sera pas modifié.
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:20px 32px;border-top:1px solid #E2E8F0;">
+      <p style="margin:0;color:#94A3B8;font-size:12px;">© 2026 ProFusion Numérik · <a href="https://maintena-pro.fr" style="color:#2563EB;">maintena-pro.fr</a></p>
+    </div>
+  </div>
+</body>
+</html>`,
+      });
+
+      return res.json({ sent: true });
+    } catch (e: any) {
+      if (e?.code === "auth/user-not-found") {
+        return res.json({ sent: true });
+      }
+      console.error("reset-password error:", e);
+      return res.status(500).json({ error: "Erreur lors de l'envoi." });
+    }
+  });
+
   app.post("/api/resend-invite-code", async (req: Request, res: Response) => {
     const { adminEmail, coProName, inviteCode } = req.body;
     if (!adminEmail || !coProName || !inviteCode) {
