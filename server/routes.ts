@@ -793,6 +793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         display: flex;
         gap: 14px;
         flex-wrap: wrap;
+        align-items: center;
       }
 
       .btn {
@@ -803,6 +804,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         font-weight: 700;
         cursor: pointer;
         transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-decoration: none;
       }
 
       .btn:hover {
@@ -823,6 +828,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         color: var(--white);
         border: 1px solid rgba(255, 255, 255, 0.14);
       }
+
+      .btn-store {
+        background: #000;
+        color: var(--white);
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 14px;
+        padding: 12px 20px;
+        font-size: 0.82rem;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1px;
+        line-height: 1.2;
+        text-decoration: none;
+        transition: transform 0.18s ease, opacity 0.18s ease;
+      }
+
+      .btn-store:hover { transform: translateY(-1px); opacity: 0.88; }
+      .btn-store-label { font-size: 0.72rem; opacity: 0.7; font-weight: 400; }
+      .btn-store-name { font-size: 1rem; font-weight: 700; }
 
       .hero-card {
         background: rgba(255, 255, 255, 0.08);
@@ -999,7 +1024,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </p>
 
             <div class="hero-actions">
-              <a class="btn btn-primary" href="/web">Accéder à l'application</a>
+              <a class="btn btn-primary" href="/web">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
+                Version web
+              </a>
+              <a class="btn-store" href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" rel="noopener">
+                <span class="btn-store-label">Disponible sur</span>
+                <span class="btn-store-name">▶ Google Play</span>
+              </a>
               <a class="btn btn-secondary" href="#offre">Voir les offres</a>
             </div>
           </div>
