@@ -384,6 +384,10 @@ export default function AdminScreen() {
   };
 
   const handleLogout = () => {
+    if (Platform.OS === "web") {
+      if (window.confirm("Souhaitez-vous vous déconnecter ?")) logout();
+      return;
+    }
     Alert.alert(
       "Déconnexion",
       "Souhaitez-vous vous déconnecter ?",

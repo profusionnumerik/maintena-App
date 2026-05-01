@@ -25,7 +25,14 @@ export default function ProfileScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (Platform.OS === "web") {
+      if (window.confirm("Voulez-vous vous déconnecter ?")) {
+        setIsLoggingOut(true);
+        await logout();
+      }
+      return;
+    }
     Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
       { text: "Annuler", style: "cancel" },
       {

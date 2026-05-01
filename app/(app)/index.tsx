@@ -200,11 +200,16 @@ export default function HomeScreen() {
     router.navigate("/(app)/interventions");
   };
 
-  const handleLogout = () =>
+  const handleLogout = () => {
+    if (Platform.OS === "web") {
+      if (window.confirm("Voulez-vous vous déconnecter ?")) logout();
+      return;
+    }
     Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
       { text: "Annuler", style: "cancel" },
       { text: "Déconnecter", style: "destructive", onPress: () => logout() },
     ]);
+  };
 
   if (isAdmin) {
     const subExpires = userSubscription?.expiresAt
