@@ -594,7 +594,7 @@ export default function AdminScreen() {
               {savingBuildingConfig && <ActivityIndicator size="small" color={COLORS.teal} />}
             </View>
             <Text style={styles.sectionDesc}>
-              Définissez la structure du bâtiment pour générer automatiquement la liste de zones à nettoyer.
+              Définissez la structure du bâtiment pour générer automatiquement la liste des parties à nettoyer (hall, escaliers, paliers, cabine ascenseur, portes palières…). Chaque zone peut être cochée lors d'une intervention de nettoyage.
             </Text>
 
             <Text style={styles.buildingSubtitle}>Bâtiments</Text>
@@ -647,7 +647,7 @@ export default function AdminScreen() {
             </Pressable>
 
             {([
-              { key: "hasElevator", label: "Ascenseur" },
+              { key: "hasElevator", label: "Ascenseur (ajouter au nettoyage)" },
               { key: "hasCellar", label: "Cave / Sous-sol" },
               { key: "hasParking", label: "Parking voitures" },
               { key: "hasBikeParking", label: "Parking vélos" },

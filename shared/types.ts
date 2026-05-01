@@ -125,7 +125,8 @@ export function generateCleaningAreas(config: BuildingConfig): CleaningArea[] {
     const batSuffix = multi ? ` (${building.name})` : "";
 
     if (config.hasElevator) {
-      areas.push({ id: `ascenseur${batId}`, label: `Ascenseur${batSuffix}`, group });
+      areas.push({ id: `ascenseur_cabine${batId}`, label: `Cabine ascenseur${batSuffix}`, group });
+      areas.push({ id: `ascenseur_portes${batId}`, label: `Portes palières ascenseur${batSuffix}`, group });
     }
     areas.push({ id: `escalier${batId}`, label: `Cage d'escalier${batSuffix}`, group });
 
@@ -251,7 +252,7 @@ export interface Intervention {
 
 export const CATEGORY_LABELS: Record<Category, string> = {
   nettoyage: "Nettoyage",
-  ascenseur: "Ascenseur",
+  ascenseur: "Ascenseur (maintenance)",
   portail: "Portail",
   parking: "Parking",
   vmc: "VMC",
