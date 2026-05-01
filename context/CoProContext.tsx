@@ -52,6 +52,15 @@ interface InvitePrestatairePayload {
   categoryFilter: Category;
 }
 
+interface PreRegisterProviderPayload {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  coProId: string;
+  category: Category;
+}
+
 interface CoProContextValue {
   copros: CoPro[];
   currentCopro: CoPro | null;
@@ -82,6 +91,9 @@ interface CoProContextValue {
   invitePrestataire: (
     payload: InvitePrestatairePayload
   ) => Promise<{ inviteCode: string; memberId: string }>;
+  preRegisterProvider: (
+    payload: PreRegisterProviderPayload
+  ) => Promise<{ status: "new" | "updated" | "already_registered" }>;
   removeMember: (uid: string) => Promise<void>;
   addSignalement: (
     message: string,
@@ -833,6 +845,75 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     [user, currentCopro, currentRole]
   );
 
+  const preRegisterProvider = useCallback(
+    async (payload: PreRegisterProviderPayload): Promise<{ status: "new" | "updated" | "already_registered" }> => {
+      const phone = normalizePhone(payload.phone);
+      if (!phone) throw new Error("Numéro de téléphone requis");
+
+      const name = `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim();
+      const email = payload.email.trim().toLowerCase();
+
+      // Utilisateur déjà inscrit → on l'ajoute directement comme membre
+      const phoneIndexSnap = await getDoc(doc(db, "phoneIndex", phone));
+      if (phoneIndexSnap.exists()) {
+        const existingUid = phoneIndexSnap.data().uid;
+        const memberRef = doc(db, "copros", payload.coProId, "members", existingUid);
+        const existingMember = await getDoc(memberRef);
+        if (!existingMember.exists()) {
+          await setDoc(memberRef, {
+            uid: existingUid,
+            email,
+            displayName: name,
+            role: "prestataire",
+            categoryFilter: payload.category,
+            joinedAt: new Date().toISOString(),
+            accountStatus: "active",
+            invitedBy: user?.uid ?? "",
+          });
+          try {
+            await updateDoc(doc(db, "users", existingUid), {
+              managedCoproIds: arrayUnion(payload.coProId),
+            });
+          } catch {
+            await setDoc(doc(db, "users", existingUid), { managedCoproIds: [payload.coProId] }, { merge: true });
+          }
+        }
+        return { status: "already_registered" };
+      }
+
+      // Préinscription déjà existante → on ajoute la copro
+      const pendingRef = doc(db, "pendingProviders", phone);
+      const pendingSnap = await getDoc(pendingRef);
+      if (pendingSnap.exists()) {
+        const existingIds: string[] = pendingSnap.data().coProIds ?? [];
+        if (!existingIds.includes(payload.coProId)) {
+          await updateDoc(pendingRef, {
+            coProIds: arrayUnion(payload.coProId),
+            [`categoryFilters.${payload.coProId}`]: payload.category,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        return { status: "updated" };
+      }
+
+      // Nouvelle préinscription
+      await setDoc(pendingRef, {
+        name,
+        firstName: payload.firstName.trim(),
+        lastName: payload.lastName.trim(),
+        email,
+        phone,
+        coProIds: [payload.coProId],
+        categoryFilters: { [payload.coProId]: payload.category },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      return { status: "new" };
+    },
+    [user]
+  );
+
   const categoryFilter: Category | null = useMemo(() => {
     if (!user) return null;
     const me = members.find((m) => m.uid === user.uid);
@@ -994,6 +1075,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       generateInviteLink,
       generateCategoryCode,
       invitePrestataire,
+      preRegisterProvider,
       removeMember,
       addSignalement,
       markSignalementRead,
@@ -1024,6 +1106,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       generateInviteLink,
       generateCategoryCode,
       invitePrestataire,
+      preRegisterProvider,
       removeMember,
       addSignalement,
       markSignalementRead,

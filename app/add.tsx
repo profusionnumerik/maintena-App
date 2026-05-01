@@ -176,6 +176,26 @@ function fullProviderName(data: NewProviderForm): string {
   return [data.firstName, data.lastName].filter(Boolean).join(" ").trim();
 }
 
+function wa(title: string, message?: string) {
+  if (Platform.OS === "web") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
+function safeHapticSelection() {
+  if (Platform.OS !== "web") Haptics.selectionAsync();
+}
+
+function safeHapticImpact() {
+  if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+}
+
+function safeHapticSuccess() {
+  if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+}
+
 function getMemberLabel(member: any): string {
   const fullName = [member?.firstName, member?.lastName]
     .filter(Boolean)
@@ -251,6 +271,7 @@ async function createGuestAccess(params: {
     guestWebUrl: string;
     completeAccountUrl: string;
     appLink: string;
+    emailSent?: boolean;
   };
 }
 
@@ -282,7 +303,7 @@ export default function AddInterventionScreen() {
   const { user } = useAuth();
   const { addIntervention, updateIntervention, getIntervention } =
     useInterventions();
-  const { currentCopro, currentRole, categoryFilter, members } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, members, preRegisterProvider } = useCoPro();
   const { editId } = useLocalSearchParams<{ editId?: string }>();
   const isEditMode = !!editId;
 
@@ -576,7 +597,7 @@ export default function AddInterventionScreen() {
 
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Permission refusée", "L'accès aux photos est nécessaire.");
+      wa("Permission refusée", "L'accès aux photos est nécessaire.");
       return;
     }
 
@@ -674,7 +695,7 @@ export default function AddInterventionScreen() {
   };
 
   const toggleDay = (day: number) => {
-    Haptics.selectionAsync();
+    safeHapticSelection();
     setRecurrenceDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
@@ -682,39 +703,36 @@ export default function AddInterventionScreen() {
 
   const handleSubmit = async () => {
     if (!currentCopro?.id) {
-      Alert.alert(
-        "Copropriété manquante",
-        "Aucune copropriété active n'est sélectionnée."
-      );
+      wa("Copropriété manquante", "Aucune copropriété active n'est sélectionnée.");
       return;
     }
 
     if (!title.trim()) {
-      Alert.alert("Champ requis", "Veuillez saisir un titre.");
+      wa("Champ requis", "Veuillez saisir un titre.");
       return;
     }
 
     if (!category) {
-      Alert.alert("Catégorie requise", "Veuillez sélectionner une catégorie.");
+      wa("Catégorie requise", "Veuillez sélectionner une catégorie.");
       return;
     }
 
     if (!description.trim()) {
-      Alert.alert("Champ requis", "Veuillez saisir une description.");
+      wa("Champ requis", "Veuillez saisir une description.");
       return;
     }
 
     if (isAdmin) {
       if (providerMode === "existing" && !assignedToUid) {
-        Alert.alert(
+        wa(
           "Prestataire requis",
-          "Veuillez sélectionner un prestataire existant ou choisir “Nouveau prestataire urgent”."
+          "Veuillez sélectionner un prestataire existant ou choisir \"Nouveau prestataire urgent\"."
         );
         return;
       }
 
       if (providerMode === "new" && !validateNewProvider()) {
-        Alert.alert(
+        wa(
           "Prestataire incomplet",
           "Veuillez remplir correctement les informations du nouveau prestataire."
         );
@@ -724,16 +742,13 @@ export default function AddInterventionScreen() {
 
     const parsedDate = validateDate(dateStr, isEditMode);
     if (!parsedDate) {
-      Alert.alert("Date invalide", dateError || "Vérifiez la date saisie.");
+      wa("Date invalide", dateError || "Vérifiez la date saisie.");
       return;
     }
 
     if (providerMode === "existing") {
       if (technicianPhone.trim() && !isValidFrenchPhone(technicianPhone)) {
-        Alert.alert(
-          "Numéro invalide",
-          "Le numéro doit contenir exactement 10 chiffres."
-        );
+        wa("Numéro invalide", "Le numéro doit contenir exactement 10 chiffres.");
         return;
       }
     }
@@ -743,37 +758,37 @@ export default function AddInterventionScreen() {
       recurrenceType === "weekly" &&
       recurrenceDays.length === 0
     ) {
-      Alert.alert(
-        "Jours requis",
-        "Sélectionnez au moins un jour de la semaine pour la récurrence."
-      );
+      wa("Jours requis", "Sélectionnez au moins un jour de la semaine pour la récurrence.");
       return;
     }
 
     if (!isAdmin && locationStatus === "far") {
       const radius = currentCopro.locationRadius ?? RADIUS_DEFAULT;
-      Alert.alert(
-        "Trop loin du bâtiment",
-        `Vous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m pour déclarer une intervention.\n\nApprochez-vous du bâtiment et réessayez.`,
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Revérifier ma position", onPress: checkLocation },
-        ]
-      );
+      if (Platform.OS === "web") {
+        const retry = window.confirm(
+          `Trop loin du bâtiment\n\nVous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m.\n\nCliquez OK pour revérifier votre position.`
+        );
+        if (retry) checkLocation();
+      } else {
+        Alert.alert(
+          "Trop loin du bâtiment",
+          `Vous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m pour déclarer une intervention.\n\nApprochez-vous du bâtiment et réessayez.`,
+          [
+            { text: "Annuler", style: "cancel" },
+            { text: "Revérifier ma position", onPress: checkLocation },
+          ]
+        );
+      }
       return;
     }
 
     if (!isAdmin && locationStatus === "denied") {
-      Alert.alert(
-        "Localisation requise",
-        "Activez la localisation dans les réglages.",
-        [{ text: "OK" }]
-      );
+      wa("Localisation requise", "Activez la localisation dans les réglages.");
       return;
     }
 
     setIsSubmitting(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    safeHapticImpact();
 
     const invitedProviderName =
       providerMode === "new" ? fullProviderName(newProvider) : "";
@@ -828,10 +843,7 @@ export default function AddInterventionScreen() {
             }
           } catch (e) {
             console.warn("Photo upload failed:", e);
-            Alert.alert(
-              "Photos non envoyées",
-              "Les nouvelles photos n'ont pas pu être ajoutées."
-            );
+            wa("Photos non envoyées", "Les nouvelles photos n'ont pas pu être ajoutées.");
           }
         }
 
@@ -857,10 +869,10 @@ export default function AddInterventionScreen() {
           } as any
         );
 
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        safeHapticSuccess();
         router.back();
       } catch {
-        Alert.alert("Erreur", "Impossible de modifier l'intervention.");
+        wa("Erreur", "Impossible de modifier l'intervention.");
       } finally {
         setIsSubmitting(false);
       }
@@ -921,7 +933,7 @@ export default function AddInterventionScreen() {
           }
         }
 
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        safeHapticSuccess();
 
         if (
           isAdmin &&
@@ -929,6 +941,21 @@ export default function AddInterventionScreen() {
           invitedProviderPayload &&
           firstCreatedInterventionId
         ) {
+          if (newProvider.phone.trim() && category) {
+            try {
+              await preRegisterProvider({
+                firstName: newProvider.firstName.trim(),
+                lastName: newProvider.lastName.trim(),
+                email: newProvider.email.trim().toLowerCase(),
+                phone: onlyPhoneDigits(newProvider.phone),
+                coProId: currentCopro.id,
+                category,
+              });
+            } catch (e) {
+              console.warn("[MAINTENA] preRegisterProvider failed:", e);
+            }
+          }
+
           try {
               const access = await createGuestAccess({
                 coProId: currentCopro.id,
@@ -964,13 +991,20 @@ export default function AddInterventionScreen() {
 
             router.replace(`/intervention/${firstCreatedInterventionId}` as any);
         } else {
-          Alert.alert(
-            "Planification créée",
-            `${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${
-              dates.length > 1 ? "s" : ""
-            } avec succès.`,
-            [{ text: "OK", onPress: () => router.back() }]
-          );
+          if (Platform.OS === "web") {
+            window.alert(
+              `Planification créée\n\n${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${dates.length > 1 ? "s" : ""} avec succès.`
+            );
+            router.back();
+          } else {
+            Alert.alert(
+              "Planification créée",
+              `${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${
+                dates.length > 1 ? "s" : ""
+              } avec succès.`,
+              [{ text: "OK", onPress: () => router.back() }]
+            );
+          }
         }
       } else {
         let photoUrls: string[] = [];
@@ -984,10 +1018,7 @@ export default function AddInterventionScreen() {
             }
           } catch (uploadErr) {
             console.warn("Photo upload failed:", uploadErr);
-            Alert.alert(
-              "Photos non envoyées",
-              "L'intervention sera enregistrée sans les photos. Vous pourrez les ajouter depuis le détail."
-            );
+            wa("Photos non envoyées", "L'intervention sera enregistrée sans les photos. Vous pourrez les ajouter depuis le détail.");
             photoUrls = [];
           }
         }
@@ -1019,9 +1050,25 @@ export default function AddInterventionScreen() {
               : undefined,
         } as any);
 
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        safeHapticSuccess();
 
         if (isAdmin && providerMode === "new" && invitedProviderPayload) {
+          // Préinscrire le prestataire pour qu’il puisse finaliser son compte
+          if (newProvider.phone.trim() && category) {
+            try {
+              await preRegisterProvider({
+                firstName: newProvider.firstName.trim(),
+                lastName: newProvider.lastName.trim(),
+                email: newProvider.email.trim().toLowerCase(),
+                phone: onlyPhoneDigits(newProvider.phone),
+                coProId: currentCopro.id,
+                category,
+              });
+            } catch (e) {
+              console.warn("[MAINTENA] preRegisterProvider failed:", e);
+            }
+          }
+
           try {
               const access = await createGuestAccess({
                 coProId: currentCopro.id,
@@ -1059,22 +1106,34 @@ export default function AddInterventionScreen() {
                 appLink: access.appLink || getAppDownloadUrl(),
               });
 
-              Alert.alert("Intervention créée", `Un email a été envoyé à ${newProvider.email}.`, [
-                {
-                  text: "Partager aussi par SMS",
-                  onPress: async () => {
-                    try {
-                      await crossShare(message, "Partager l’intervention");
-                    } catch {}
-                    router.replace(`/intervention/${createdInterventionId}` as any);
+              const emailMsg = access.emailSent === false
+                ? `L’intervention a été créée mais l’email n’a pas pu être envoyé à ${newProvider.email}. Partagez le lien manuellement.`
+                : `Un email de confirmation a été envoyé à ${newProvider.email}.`;
+
+              if (Platform.OS === "web") {
+                window.alert(`Intervention créée. ${emailMsg}`);
+                router.replace(`/intervention/${createdInterventionId}` as any);
+              } else {
+                Alert.alert("Intervention créée", emailMsg, [
+                  ...(access.emailSent === false ? [{
+                    text: "Partager le lien",
+                    onPress: async () => {
+                      try { await crossShare(message, "Partager l’intervention"); } catch {}
+                      router.replace(`/intervention/${createdInterventionId}` as any);
+                    },
+                  }] : [{
+                    text: "Partager aussi par SMS",
+                    onPress: async () => {
+                      try { await crossShare(message, "Partager l’intervention"); } catch {}
+                      router.replace(`/intervention/${createdInterventionId}` as any);
+                    },
+                  }]),
+                  {
+                    text: "Ouvrir la fiche",
+                    onPress: () => router.replace(`/intervention/${createdInterventionId}` as any),
                   },
-                },
-                {
-                  text: "Ouvrir la fiche",
-                  onPress: () =>
-                    router.replace(`/intervention/${createdInterventionId}` as any),
-                },
-              ]);
+                ]);
+              }
             } catch (e) {
               console.error("Guest access create/share failed:", e);
               router.replace(`/intervention/${createdInterventionId}` as any);
@@ -1085,7 +1144,7 @@ export default function AddInterventionScreen() {
       }
     } catch (e) {
       console.error(e);
-      Alert.alert("Erreur", "Impossible d'enregistrer.");
+      wa("Erreur", "Impossible d'enregistrer.");
     } finally {
       setIsSubmitting(false);
     }
@@ -1290,7 +1349,7 @@ export default function AddInterventionScreen() {
                   key={cat}
                   onPress={() => {
                     if (!isCategoryLocked) {
-                      Haptics.selectionAsync();
+                      safeHapticSelection();
                       setCategory(cat);
                     }
                   }}
@@ -1325,7 +1384,7 @@ export default function AddInterventionScreen() {
                   <Pressable
                     key={s}
                     onPress={() => {
-                      Haptics.selectionAsync();
+                      safeHapticSelection();
                       setStatus(s);
                     }}
                     style={[
@@ -1375,6 +1434,8 @@ export default function AddInterventionScreen() {
                     : "rgba(16,185,129,0.12)",
                   borderColor: isAdmin ? COLORS.primary : COLORS.success,
                   flex: 0,
+                  flexShrink: 0,
+                  alignSelf: "center",
                 },
               ]}
             >
@@ -1452,7 +1513,7 @@ export default function AddInterventionScreen() {
 
               <Pressable
                 onPress={() => {
-                  Haptics.selectionAsync();
+                  safeHapticSelection();
                   setRecurrenceEnabled((v) => !v);
                 }}
                 style={[styles.toggle, recurrenceEnabled && styles.toggleActive]}
@@ -1473,7 +1534,7 @@ export default function AddInterventionScreen() {
                     <Pressable
                       key={t}
                       onPress={() => {
-                        Haptics.selectionAsync();
+                        safeHapticSelection();
                         setRecurrenceType(t);
                         setRecurrenceDays([]);
                       }}
@@ -1538,7 +1599,7 @@ export default function AddInterventionScreen() {
                   <View style={styles.occurrenceCounter}>
                     <Pressable
                       onPress={() => {
-                        Haptics.selectionAsync();
+                        safeHapticSelection();
                         setRecurrenceOccurrences((n) => Math.max(1, n - 1));
                       }}
                       style={styles.occurrenceBtn}
@@ -1552,7 +1613,7 @@ export default function AddInterventionScreen() {
 
                     <Pressable
                       onPress={() => {
-                        Haptics.selectionAsync();
+                        safeHapticSelection();
                         setRecurrenceOccurrences((n) => Math.min(52, n + 1));
                       }}
                       style={styles.occurrenceBtn}
@@ -1601,7 +1662,7 @@ export default function AddInterventionScreen() {
             <View style={styles.modeSwitchRow}>
               <Pressable
                 onPress={() => {
-                  Haptics.selectionAsync();
+                  safeHapticSelection();
                   setProviderMode("existing");
                   resetNewProviderErrors();
                 }}
@@ -1627,7 +1688,7 @@ export default function AddInterventionScreen() {
 
               <Pressable
                 onPress={() => {
-                  Haptics.selectionAsync();
+                  safeHapticSelection();
                   setProviderMode("new");
                   setAssignedToUid("");
                   setAssignedToName("");
@@ -1663,7 +1724,7 @@ export default function AddInterventionScreen() {
                   />
                   <Text style={styles.blockText}>
                     Aucun prestataire n'est rattaché à la catégorie{" "}
-                    {CATEGORY_LABELS[category]}. Passez en mode “Nouveau prestataire urgent”.
+                    {CATEGORY_LABELS[category]}. Passez en mode "Nouveau prestataire urgent".
                   </Text>
                 </View>
               ) : (
@@ -1677,7 +1738,7 @@ export default function AddInterventionScreen() {
                         <Pressable
                           key={p.uid}
                           onPress={() => {
-                            Haptics.selectionAsync();
+                            safeHapticSelection();
                             setAssignedToUid(p.uid);
                             setAssignedToName(label);
                           }}
@@ -1987,7 +2048,7 @@ export default function AddInterventionScreen() {
                           !checked && styles.checklistRowUnchecked,
                         ]}
                         onPress={() => {
-                          Haptics.selectionAsync();
+                          safeHapticSelection();
                           setCleaningChecklist((prev) => ({
                             ...prev,
                             [area.id]: !checked,

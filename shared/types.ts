@@ -240,6 +240,10 @@ export interface Intervention {
   interventionReport?: string;
   interventionRemaining?: string;
 
+  // Statut de confirmation du prestataire
+  providerStatus?: "pending" | "accepted" | "refused";
+  providerStatusAt?: string;
+
   // 🔥 MODE INVITATION RAPIDE
   interventionAccessCode?: string;
   providerMode?: "registered" | "external";
@@ -302,6 +306,18 @@ export const COPRO_STATUS_LABELS: Record<CoProStatus, string> = {
   active: "Active",
   suspended: "Suspendue",
 };
+
+export interface PendingProvider {
+  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  coProIds: string[];
+  categoryFilters: Partial<Record<string, string>>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface Signalement {
   id: string;

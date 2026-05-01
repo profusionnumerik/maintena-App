@@ -564,22 +564,19 @@ async function sendGuestInviteEmail(params: {
   completeAccountLink: string;
   categoryInviteCode?: string;
   tempPassword?: string;
-}): Promise<void> {
+}): Promise<boolean> {
   let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
   try {
     resendClient = await getUncachableResendClient();
   } catch (e) {
     console.warn("Resend non disponible — email prestataire non envoyé:", e);
-    return;
+    return false;
   }
 
-  const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const primaryFrom = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const fallbackFrom = "Maintena <onboarding@resend.dev>";
 
-  await resendClient.client.emails.send({
-    from: fromAddress,
-    to: params.to,
-    subject: `Intervention Maintena - ${params.coproName}`,
-    html: `
+  const htmlBody = `
 <!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="UTF-8"/></head>
@@ -600,7 +597,7 @@ async function sendGuestInviteEmail(params: {
       </h1>
 
       <p style="font-size:15px;color:#475569;line-height:1.6;margin:0 0 18px;">
-        Vous avez été invité à compléter une fiche d’intervention pour la copropriété
+        Vous avez été invité à compléter une fiche d'intervention pour la copropriété
         <strong>${escapeHtml(params.coproName)}</strong>.
       </p>
 
@@ -613,7 +610,7 @@ async function sendGuestInviteEmail(params: {
 
       <p style="margin:0 0 20px;">
         <a href="${params.webLink}" style="display:inline-block;background:#2563EB;color:#fff;text-decoration:none;padding:14px 18px;border-radius:12px;font-weight:700;">
-          Ouvrir la fiche d’intervention
+          Ouvrir la fiche d'intervention
         </a>
       </p>
 
@@ -641,14 +638,70 @@ async function sendGuestInviteEmail(params: {
     </div>
   </div>
 </body>
-</html>
-    `,
-  });
+</html>`;
+
+  // Tentative avec l'adresse principale, fallback sur onboarding@resend.dev
+  console.log(`[Maintena] Tentative envoi email à ${params.to} depuis ${primaryFrom}`);
+  try {
+    const result = await resendClient.client.emails.send({
+      from: primaryFrom,
+      to: params.to,
+      subject: `Intervention Maintena - ${params.coproName}`,
+      html: htmlBody,
+    });
+    console.log(`[Maintena] Email envoyé à ${params.to} — Resend response: ${JSON.stringify(result)}`);
+    return true;
+  } catch (primaryErr: any) {
+    console.error(`[Maintena] Échec depuis ${primaryFrom}: ${primaryErr?.message ?? JSON.stringify(primaryErr)}`);
+    if (primaryFrom === fallbackFrom) return false;
+    console.log(`[Maintena] Tentative fallback depuis ${fallbackFrom}`);
+    try {
+      const result2 = await resendClient.client.emails.send({
+        from: fallbackFrom,
+        to: params.to,
+        subject: `Intervention Maintena - ${params.coproName}`,
+        html: htmlBody,
+      });
+      console.log(`[Maintena] Email envoyé via fallback — Resend response: ${JSON.stringify(result2)}`);
+      return true;
+    } catch (fallbackErr: any) {
+      console.error(`[Maintena] Échec total envoi à ${params.to}: ${fallbackErr?.message ?? JSON.stringify(fallbackErr)}`);
+      return false;
+    }
+  }
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Endpoint de diagnostic Resend — accessible uniquement depuis le back-office
+  app.post("/api/test-email", async (req: Request, res: Response) => {
+    const { to } = req.body as { to?: string };
+    if (!to) return res.status(400).json({ error: "Champ 'to' requis." });
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try {
+      resendClient = await getUncachableResendClient();
+    } catch (e: any) {
+      return res.status(503).json({ error: "Resend non initialisé", detail: e?.message });
+    }
+
+    const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    try {
+      const result = await resendClient.client.emails.send({
+        from,
+        to,
+        subject: "[Maintena] Test envoi email",
+        html: "<p>Test email Maintena. Si vous recevez ceci, Resend fonctionne correctement.</p>",
+      });
+      console.log("[Maintena] test-email success:", JSON.stringify(result));
+      return res.json({ ok: true, from, to, result });
+    } catch (err: any) {
+      console.error("[Maintena] test-email error:", JSON.stringify(err));
+      return res.status(500).json({ ok: false, from, to, error: err?.message, detail: err });
+    }
   });
 
 
@@ -1930,21 +1983,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tempPassword = undefined;
       }
 
-      await sendGuestInviteEmail({
-        to: invitedProvider.email,
-        providerName,
-        coproName,
-        interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
-        webLink: payload.webLink,
-        completeAccountLink: payload.completeAccountLink,
-        tempPassword,
-      });
+      let emailSent = false;
+      try {
+        emailSent = await sendGuestInviteEmail({
+          to: invitedProvider.email,
+          providerName,
+          coproName,
+          interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
+          webLink: payload.webLink,
+          completeAccountLink: payload.completeAccountLink,
+          tempPassword,
+        });
+      } catch (emailErr: any) {
+        console.error("[Maintena] sendGuestInviteEmail threw:", emailErr?.message ?? emailErr);
+      }
 
       return res.json({
         token: payload.token,
         guestWebUrl: payload.webLink,
         completeAccountUrl: payload.completeAccountLink,
         appLink: payload.appLink,
+        emailSent,
       });
     } catch (e: any) {
       console.error("guest-access/create error:", e);

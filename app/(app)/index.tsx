@@ -1,7 +1,7 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  Alert, FlatList, Platform, Pressable, RefreshControl,
+  Alert, FlatList, Platform, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -165,7 +165,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { currentCopro, copros, switchCoPro, currentRole, refreshCoPros, userSubscription } = useCoPro();
+  const { currentCopro, copros, switchCoPro, currentRole, refreshCoPros, userSubscription, joinCoPro } = useCoPro();
   const { interventions, stats, isLoading } = useInterventions();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -316,7 +316,7 @@ export default function HomeScreen() {
 
   const dashHeader = (
     <View>
-      <View style={[styles.header, { paddingTop: top + 16, paddingBottom: 20 }]}>
+      <View style={[styles.header, { paddingTop: top + 16, paddingBottom: copros.length > 1 ? 12 : 20 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.coProName}>{currentCopro?.name ?? "—"}</Text>
           {currentCopro?.address ? (
@@ -336,6 +336,49 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {/* Sélecteur de résidence si le prestataire est dans plusieurs copros */}
+      {copros.length > 1 && (
+        <View style={styles.coproSelectorWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.coproSelectorScroll}
+          >
+            {copros.map((c) => {
+              const active = c.id === currentCopro?.id;
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() => switchCoPro(c.id)}
+                  style={[styles.coproPill, active && styles.coproPillActive]}
+                >
+                  <Text style={[styles.coproPillText, active && styles.coproPillTextActive]} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              style={styles.joinPill}
+              onPress={() => router.push("/(onboarding)/join")}
+            >
+              <Ionicons name="add-circle-outline" size={14} color={COLORS.primary} />
+              <Text style={styles.joinPillText}>Rejoindre</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      )}
+
+      {copros.length <= 1 && (
+        <Pressable
+          style={styles.joinBannerBtn}
+          onPress={() => router.push("/(onboarding)/join")}
+        >
+          <Ionicons name="enter-outline" size={15} color={COLORS.primary} />
+          <Text style={styles.joinBannerText}>Rejoindre une autre résidence</Text>
+        </Pressable>
+      )}
 
       <View style={styles.statsGrid}>
         <StatCard label="Total" value={stats.total} icon="construct" color={COLORS.primary} />
@@ -472,6 +515,35 @@ const styles = StyleSheet.create({
 
   coProName: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", letterSpacing: -0.5 },
   coProAddress: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)", marginTop: 2 },
+
+  coproSelectorWrap: { backgroundColor: COLORS.dark, paddingBottom: 14 },
+  coproSelectorScroll: { paddingHorizontal: 16, gap: 8 },
+  coproPill: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 20,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  },
+  coproPillActive: {
+    backgroundColor: COLORS.primary, borderColor: COLORS.primary,
+  },
+  coproPillText: {
+    fontSize: 13, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.7)", maxWidth: 140,
+  },
+  coproPillTextActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
+  joinPill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: "rgba(37,99,235,0.12)", borderRadius: 20,
+    borderWidth: 1, borderColor: "rgba(37,99,235,0.25)",
+  },
+  joinPillText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.primary },
+
+  joinBannerBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 20, paddingVertical: 10,
+    backgroundColor: COLORS.dark,
+  },
+  joinBannerText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.primary },
 
   statsGrid: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 16, gap: 10 },
   statCard: {

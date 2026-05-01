@@ -218,6 +218,14 @@ function formatDateFull(dateStr: string): string {
   });
 }
 
+function wa(title: string, message?: string) {
+  if (Platform.OS === "web") {
+    window.alert(message ? `${title}\n\n${message}` : title);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
 export default function InterventionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -252,6 +260,7 @@ export default function InterventionDetailScreen() {
   );
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [isSharingGuestInvite, setIsSharingGuestInvite] = useState(false);
+  const [isRespondingProvider, setIsRespondingProvider] = useState(false);
 
   const [report, setReport] = useState(intervention?.interventionReport ?? "");
   const [remaining, setRemaining] = useState(
@@ -297,7 +306,7 @@ export default function InterventionDetailScreen() {
       } as any);
     } catch {
       setLocalChecklist(previous);
-      Alert.alert("Erreur", "Impossible de mettre à jour la checklist.");
+      wa("Erreur", "Impossible de mettre à jour la checklist.");
     } finally {
       setSavingChecklist(false);
     }
@@ -325,10 +334,20 @@ export default function InterventionDetailScreen() {
   const remainingSlots = Math.max(0, maxCompletionPhotos - allCompletionPhotos.length);
 
   const invitedProvider = (intervention as any).invitedProvider;
+  const currentProviderMode = (intervention as any).providerMode;
+  const providerStatus: "pending" | "accepted" | "refused" | undefined =
+    (intervention as any).providerStatus;
+  const isExternalProvider = currentProviderMode === "new";
+
   const isGuestUrgentIntervention =
-    isAdmin &&
-    (intervention as any).providerMode === "new" &&
-    !!invitedProvider?.email;
+    isAdmin && isExternalProvider && !!invitedProvider?.email;
+
+  const canRespondAsProvider =
+    isPrestataire &&
+    isExternalProvider &&
+    intervention.status === "planifie" &&
+    providerStatus !== "accepted" &&
+    providerStatus !== "refused";
 
   const handleRate = async (newRating: number) => {
     setRating(newRating);
@@ -369,10 +388,7 @@ export default function InterventionDetailScreen() {
     if (localCompletionPhotos.length === 0) return;
 
     if (!currentCopro?.id) {
-      Alert.alert(
-        "Copropriété manquante",
-        "Impossible d'envoyer les photos sans copropriété active."
-      );
+      wa("Copropriété manquante", "Impossible d'envoyer les photos sans copropriété active.");
       return;
     }
 
@@ -396,11 +412,7 @@ export default function InterventionDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       console.error("SAVE COMPLETION PHOTOS ERROR:", e);
-      Alert.alert(
-        "Erreur",
-        e?.message ||
-          "Impossible d'enregistrer les photos. Vérifiez votre connexion."
-      );
+      wa("Erreur", e?.message || "Impossible d'enregistrer les photos. Vérifiez votre connexion.");
     } finally {
       setIsUploadingCompletion(false);
     }
@@ -463,10 +475,7 @@ export default function InterventionDetailScreen() {
 
   const handleMarkRealise = async () => {
     if (!report.trim()) {
-      Alert.alert(
-        "Rapport requis",
-        "Veuillez remplir le rapport d’intervention avant de valider."
-      );
+      wa("Rapport requis", "Veuillez remplir le rapport d’intervention avant de valider.");
       return;
     }
 
@@ -489,19 +498,13 @@ export default function InterventionDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch {
-      Alert.alert(
-        "Erreur",
-        "Impossible de mettre à jour l'intervention. Vérifiez votre connexion."
-      );
+      wa("Erreur", "Impossible de mettre à jour l’intervention. Vérifiez votre connexion.");
     }
   };
 
   const handleValidate = async () => {
     if (!intervention.interventionReport && !report.trim()) {
-      Alert.alert(
-        "Rapport manquant",
-        "Le prestataire doit remplir le rapport d’intervention avant validation."
-      );
+      wa("Rapport manquant", "Le prestataire doit remplir le rapport d’intervention avant validation.");
       return;
     }
 
@@ -522,10 +525,29 @@ export default function InterventionDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch {
-      Alert.alert(
-        "Erreur",
-        "Impossible de valider l'intervention. Vérifiez votre connexion."
-      );
+      wa("Erreur", "Impossible de valider l’intervention. Vérifiez votre connexion.");
+    }
+  };
+
+  const handleProviderRespond = async (status: "accepted" | "refused") => {
+    setIsRespondingProvider(true);
+    try {
+      await updateIntervention(intervention.id, {
+        providerStatus: status,
+        providerStatusAt: new Date().toISOString(),
+      } as any);
+      const msg =
+        status === "accepted"
+          ? "Vous avez accepté cette intervention. Le syndic en est informé."
+          : "Vous avez refusé cette intervention. Le syndic pourra la réattribuer.";
+      if (Platform.OS === "web") { window.alert(msg); } else {
+        Alert.alert(status === "accepted" ? "Intervention acceptée" : "Intervention refusée", msg);
+      }
+    } catch {
+      const errMsg = "Impossible d'enregistrer votre réponse.";
+      if (Platform.OS === "web") { window.alert(errMsg); } else { Alert.alert("Erreur", errMsg); }
+    } finally {
+      setIsRespondingProvider(false);
     }
   };
 
@@ -546,9 +568,22 @@ export default function InterventionDetailScreen() {
         const msg = code.includes("permission-denied")
           ? "Vous n'avez pas les droits pour supprimer cette intervention."
           : e?.message ?? "Une erreur est survenue lors de la suppression.";
-        Alert.alert("Erreur", msg);
+        if (Platform.OS === "web") { window.alert(msg); } else { Alert.alert("Erreur", msg); }
       }
     };
+
+    if (Platform.OS === "web") {
+      if (hasGroup) {
+        if (!window.confirm("Supprimer cette intervention ?")) return;
+        const deleteAll = window.confirm(
+          "Supprimer toute la série récurrente ?\n\nOK → toute la série\nAnnuler → uniquement celle-ci"
+        );
+        doDelete(deleteAll);
+      } else {
+        if (window.confirm("Supprimer cette intervention définitivement ?")) doDelete(false);
+      }
+      return;
+    }
 
     if (hasGroup) {
       Alert.alert(
@@ -557,11 +592,7 @@ export default function InterventionDetailScreen() {
         [
           { text: "Annuler", style: "cancel" },
           { text: "Celle-ci uniquement", onPress: () => doDelete(false) },
-          {
-            text: "Toute la série",
-            style: "destructive",
-            onPress: () => doDelete(true),
-          },
+          { text: "Toute la série", style: "destructive", onPress: () => doDelete(true) },
         ]
       );
     } else {
@@ -574,12 +605,12 @@ export default function InterventionDetailScreen() {
 
   const handleShareGuestInvite = async () => {
     if (!currentCopro?.id) {
-      Alert.alert("Erreur", "Aucune copropriété active.");
+      wa("Erreur", "Aucune copropriété active.");
       return;
     }
 
     if (!invitedProvider?.email) {
-      Alert.alert("Erreur", "Aucun prestataire invité associé à cette intervention.");
+      wa("Erreur", "Aucun prestataire invité associé à cette intervention.");
       return;
     }
 
@@ -620,7 +651,7 @@ export default function InterventionDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
       console.error("Guest invite share failed:", e);
-      Alert.alert("Partage impossible", "Le message n’a pas pu être partagé.");
+      wa("Partage impossible", "Le message n’a pas pu être partagé.");
     } finally {
       setIsSharingGuestInvite(false);
     }
@@ -923,37 +954,115 @@ export default function InterventionDetailScreen() {
           <View style={styles.shareCard}>
             <View style={styles.shareCardHeader}>
               <View style={styles.shareCardIcon}>
-                <Ionicons name="share-social-outline" size={18} color={COLORS.primary} />
+                <Ionicons name="person-outline" size={18} color={COLORS.primary} />
               </View>
-
               <View style={{ flex: 1 }}>
-                <Text style={styles.shareCardTitle}>Prestataire invité</Text>
+                <Text style={styles.shareCardTitle}>Prestataire externe</Text>
                 <Text style={styles.shareCardText}>
-                  Cette intervention a été créée pour un prestataire non inscrit.
-                  Vous pouvez partager le code prestation à tout moment par SMS,
-                  mail ou WhatsApp.
+                  {invitedProvider?.firstName} {invitedProvider?.lastName}
+                  {invitedProvider?.email ? ` · ${invitedProvider.email}` : ""}
                 </Text>
               </View>
             </View>
 
+            {/* Statut de confirmation du prestataire */}
+            <View style={[
+              styles.providerStatusBadge,
+              providerStatus === "accepted" && styles.providerStatusAccepted,
+              providerStatus === "refused" && styles.providerStatusRefused,
+              (!providerStatus || providerStatus === "pending") && styles.providerStatusPending,
+            ]}>
+              <Ionicons
+                name={
+                  providerStatus === "accepted" ? "checkmark-circle" :
+                  providerStatus === "refused" ? "close-circle" : "time-outline"
+                }
+                size={16}
+                color={
+                  providerStatus === "accepted" ? COLORS.success :
+                  providerStatus === "refused" ? COLORS.danger : COLORS.warning
+                }
+              />
+              <Text style={[
+                styles.providerStatusText,
+                providerStatus === "accepted" && { color: COLORS.success },
+                providerStatus === "refused" && { color: COLORS.danger },
+                (!providerStatus || providerStatus === "pending") && { color: COLORS.warning },
+              ]}>
+                {providerStatus === "accepted"
+                  ? "Prestataire a accepté"
+                  : providerStatus === "refused"
+                  ? "Prestataire a refusé"
+                  : "En attente de confirmation"}
+              </Text>
+            </View>
+
+            {/* Réattribuer si refusé */}
+            {providerStatus === "refused" && (
+              <Pressable
+                onPress={() => router.push(`/add?editId=${intervention.id}` as any)}
+                style={({ pressed }) => [styles.reassignBtn, pressed && { opacity: 0.85 }]}
+              >
+                <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
+                <Text style={styles.reassignBtnText}>Réattribuer à un autre prestataire</Text>
+              </Pressable>
+            )}
+
+            {/* Email déjà envoyé automatiquement — partager à nouveau si besoin */}
             <Pressable
               onPress={handleShareGuestInvite}
               disabled={isSharingGuestInvite}
               style={({ pressed }) => [
-                styles.shareBtn,
+                styles.shareBtnSecondary,
                 pressed && { opacity: 0.85 },
                 isSharingGuestInvite && { opacity: 0.65 },
               ]}
             >
               {isSharingGuestInvite ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={COLORS.primary} size="small" />
               ) : (
                 <>
-                  <Ionicons name="paper-plane-outline" size={18} color="#fff" />
-                  <Text style={styles.shareBtnText}>Partager l’intervention</Text>
+                  <Ionicons name="paper-plane-outline" size={16} color={COLORS.primary} />
+                  <Text style={styles.shareBtnSecondaryText}>Renvoyer le lien d’accès</Text>
                 </>
               )}
             </Pressable>
+          </View>
+        )}
+
+        {/* Boutons accepter / refuser pour le prestataire */}
+        {canRespondAsProvider && (
+          <View style={styles.respondCard}>
+            <View style={styles.respondCardHeader}>
+              <Ionicons name="help-circle-outline" size={20} color={COLORS.primary} />
+              <Text style={styles.respondCardTitle}>Confirmer votre intervention</Text>
+            </View>
+            <Text style={styles.respondCardText}>
+              Pouvez-vous intervenir pour cette mission ? Votre réponse sera transmise au syndic.
+            </Text>
+            <View style={styles.respondBtns}>
+              <Pressable
+                onPress={() => handleProviderRespond("refused")}
+                disabled={isRespondingProvider}
+                style={({ pressed }) => [styles.refuseBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }]}
+              >
+                <Ionicons name="close-outline" size={18} color={COLORS.danger} />
+                <Text style={styles.refuseBtnText}>Refuser</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleProviderRespond("accepted")}
+                disabled={isRespondingProvider}
+                style={({ pressed }) => [styles.acceptBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }]}
+              >
+                {isRespondingProvider
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <>
+                      <Ionicons name="checkmark-outline" size={18} color="#fff" />
+                      <Text style={styles.acceptBtnText}>Accepter</Text>
+                    </>
+                }
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -1578,6 +1687,120 @@ const styles = StyleSheet.create({
   },
 
   shareBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
+  },
+
+  shareBtnSecondary: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  shareBtnSecondaryText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.primary,
+  },
+
+  providerStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  providerStatusPending: { backgroundColor: "rgba(245,158,11,0.1)" },
+  providerStatusAccepted: { backgroundColor: "rgba(16,185,129,0.1)" },
+  providerStatusRefused: { backgroundColor: "rgba(239,68,68,0.1)" },
+  providerStatusText: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+
+  reassignBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: COLORS.danger,
+    borderRadius: 12,
+    paddingVertical: 11,
+    marginBottom: 4,
+  },
+  reassignBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
+  },
+
+  respondCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  respondCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  respondCardTitle: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: COLORS.text,
+  },
+  respondCardText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  respondBtns: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  refuseBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: COLORS.danger,
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  refuseBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.danger,
+  },
+  acceptBtn: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: COLORS.success,
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  acceptBtnText: {
     fontSize: 14,
     fontFamily: "Inter_600SemiBold",
     color: "#fff",

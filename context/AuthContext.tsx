@@ -8,8 +8,11 @@ import {
   updateProfile
 } from "firebase/auth";
 import {
+  arrayUnion,
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -144,6 +147,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const inviteCode = payload.inviteCode?.trim();
 
     try {
+      // Unicité du numéro de téléphone
+      if (phone) {
+        const phoneIndexSnap = await getDoc(doc(db, "phoneIndex", phone));
+        if (phoneIndexSnap.exists()) {
+          const msg = "Ce numéro de téléphone est déjà associé à un compte.";
+          setError(msg);
+          throw new Error(msg);
+        }
+      }
+
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       const displayName = `${firstName} ${lastName}`.trim();
 
@@ -166,6 +179,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         { merge: true }
       );
 
+      // Enregistrer l'index téléphone pour garantir l'unicité
+      if (phone) {
+        await setDoc(doc(db, "phoneIndex", phone), {
+          uid: cred.user.uid,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      // Rejoindre automatiquement les copros en attente liées à ce numéro
+      if (phone) {
+        try {
+          const pendingSnap = await getDoc(doc(db, "pendingProviders", phone));
+          if (pendingSnap.exists()) {
+            const pending = pendingSnap.data();
+            const coProIds: string[] = pending.coProIds ?? [];
+
+            for (const coProId of coProIds) {
+              const categoryFilter = pending.categoryFilters?.[coProId];
+              const memberRef = doc(db, "copros", coProId, "members", cred.user.uid);
+              await setDoc(memberRef, {
+                uid: cred.user.uid,
+                email,
+                displayName,
+                firstName,
+                lastName,
+                phone,
+                role: "prestataire",
+                ...(categoryFilter ? { categoryFilter } : {}),
+                joinedAt: new Date().toISOString(),
+                accountStatus: "active",
+              }, { merge: true });
+
+              try {
+                await updateDoc(doc(db, "users", cred.user.uid), {
+                  managedCoproIds: arrayUnion(coProId),
+                });
+              } catch {
+                await setDoc(
+                  doc(db, "users", cred.user.uid),
+                  { managedCoproIds: [coProId] },
+                  { merge: true }
+                );
+              }
+            }
+
+            await deleteDoc(doc(db, "pendingProviders", phone));
+          }
+        } catch (pendingErr) {
+          console.warn("[MAINTENA] pendingProviders auto-join failed:", pendingErr);
+        }
+      }
+
       await activateInvitedMember(
         cred.user.uid,
         email,
@@ -175,6 +240,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         inviteCode
       );
     } catch (e: any) {
+      if (e?.message?.includes("numéro de téléphone")) {
+        throw e;
+      }
       const msg = firebaseErrorMessage(e?.code);
       setError(msg);
       throw new Error(msg);
