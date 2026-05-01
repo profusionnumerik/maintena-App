@@ -651,583 +651,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
-  app.get("/", (_req: Request, res: Response) => {
-    const html = `<!DOCTYPE html>
-<html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Maintena — éditée par Profusion Numérik</title>
-    <meta
-      name="description"
-      content="Maintena est une application de gestion de copropriétés destinée aux syndics, éditée par Profusion Numérik."
-    />
-    <style>
-      :root {
-        --bg: #081225;
-        --bg-soft: #0f1c36;
-        --card: #ffffff;
-        --text: #0f172a;
-        --muted: #475569;
-        --line: #dbe3ee;
-        --primary: #1d4ed8;
-        --primary-dark: #153ea8;
-        --accent: #0ea5a4;
-        --white: #ffffff;
-        --shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
-        --radius: 20px;
-      }
 
-      * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
-
-      body {
-        margin: 0;
-        font-family: Arial, Helvetica, sans-serif;
-        background:
-          radial-gradient(circle at top left, rgba(29, 78, 216, 0.22), transparent 35%),
-          linear-gradient(135deg, var(--bg), var(--bg-soft));
-        color: var(--white);
-      }
-
-      a {
-        color: inherit;
-        text-decoration: none;
-      }
-
-      .container {
-        width: min(1100px, calc(100% - 32px));
-        margin: 0 auto;
-      }
-
-      .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 50;
-        backdrop-filter: blur(10px);
-        background: rgba(8, 18, 37, 0.72);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      .topbar-inner {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 72px;
-        gap: 16px;
-      }
-
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        font-weight: 700;
-        font-size: 1.05rem;
-      }
-
-      .brand-badge {
-        width: 42px;
-        height: 42px;
-        border-radius: 14px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: linear-gradient(135deg, var(--primary), var(--accent));
-        color: var(--white);
-        font-weight: 700;
-        box-shadow: var(--shadow);
-      }
-
-      .nav {
-        display: flex;
-        gap: 18px;
-        flex-wrap: wrap;
-      }
-
-      .nav a {
-        font-size: 0.96rem;
-        color: rgba(255, 255, 255, 0.88);
-      }
-
-      .nav a:hover {
-        color: var(--white);
-      }
-
-      .hero {
-        padding: 84px 0 48px;
-      }
-
-      .hero-grid {
-        display: grid;
-        grid-template-columns: 1.2fr 0.9fr;
-        gap: 28px;
-        align-items: center;
-      }
-
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        font-size: 0.92rem;
-        color: rgba(255, 255, 255, 0.9);
-      }
-
-      h1 {
-        margin: 18px 0 16px;
-        font-size: clamp(2.2rem, 5vw, 4rem);
-        line-height: 1.05;
-      }
-
-      .hero p {
-        margin: 0 0 24px;
-        font-size: 1.08rem;
-        line-height: 1.7;
-        color: rgba(255, 255, 255, 0.86);
-        max-width: 720px;
-      }
-
-      .hero-actions {
-        display: flex;
-        gap: 14px;
-        flex-wrap: wrap;
-        align-items: center;
-      }
-
-      .btn {
-        border: 0;
-        border-radius: 14px;
-        padding: 14px 20px;
-        font-size: 1rem;
-        font-weight: 700;
-        cursor: pointer;
-        transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        text-decoration: none;
-      }
-
-      .btn:hover {
-        transform: translateY(-1px);
-      }
-
-      .btn-primary {
-        background: var(--primary);
-        color: var(--white);
-      }
-
-      .btn-primary:hover {
-        background: var(--primary-dark);
-      }
-
-      .btn-secondary {
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--white);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-      }
-
-      .btn-store {
-        background: #000;
-        color: var(--white);
-        border: 1px solid rgba(255,255,255,0.18);
-        border-radius: 14px;
-        padding: 12px 20px;
-        font-size: 0.82rem;
-        display: inline-flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 1px;
-        line-height: 1.2;
-        text-decoration: none;
-        transition: transform 0.18s ease, opacity 0.18s ease;
-      }
-
-      .btn-store:hover { transform: translateY(-1px); opacity: 0.88; }
-      .btn-store-label { font-size: 0.72rem; opacity: 0.7; font-weight: 400; }
-      .btn-store-name { font-size: 1rem; font-weight: 700; }
-
-      .hero-card {
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 24px;
-        padding: 22px;
-        box-shadow: var(--shadow);
-      }
-
-      .hero-card-title {
-        font-size: 1.1rem;
-        font-weight: 700;
-        margin: 0 0 14px;
-      }
-
-      .hero-list {
-        display: grid;
-        gap: 10px;
-        margin: 0;
-        padding: 0;
-        list-style: none;
-      }
-
-      .hero-list li {
-        background: rgba(255, 255, 255, 0.06);
-        border-radius: 14px;
-        padding: 12px 14px;
-        color: rgba(255, 255, 255, 0.92);
-      }
-
-      .section {
-        padding: 34px 0;
-      }
-
-      .grid-2 {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 24px;
-      }
-
-      .card {
-        background: var(--card);
-        color: var(--text);
-        border-radius: var(--radius);
-        padding: 24px;
-        box-shadow: var(--shadow);
-      }
-
-      .card h2,
-      .card h3 {
-        margin-top: 0;
-        color: var(--text);
-      }
-
-      .card p,
-      .card li {
-        color: var(--muted);
-        line-height: 1.7;
-      }
-
-      .features {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        margin-top: 18px;
-      }
-
-      .feature {
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 16px;
-      }
-
-      .price-box {
-        border: 1px solid #cfe0ff;
-        background: #f7faff;
-        border-radius: 18px;
-        padding: 18px;
-        margin-top: 16px;
-      }
-
-      .price {
-        font-size: 2rem;
-        font-weight: 800;
-        color: var(--text);
-        margin: 8px 0;
-      }
-
-      .small {
-        font-size: 0.95rem;
-        color: var(--muted);
-      }
-
-      .legal-list,
-      .contact-list {
-        margin: 14px 0 0;
-        padding-left: 18px;
-      }
-
-      .footer {
-        padding: 28px 0 46px;
-        color: rgba(255, 255, 255, 0.74);
-      }
-
-      .footer-box {
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-        padding-top: 20px;
-        font-size: 0.95rem;
-        line-height: 1.7;
-      }
-
-      .pill {
-        display: inline-block;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: #eff6ff;
-        color: var(--primary);
-        font-size: 0.86rem;
-        font-weight: 700;
-      }
-
-      @media (max-width: 860px) {
-        .hero-grid,
-        .grid-2,
-        .features {
-          grid-template-columns: 1fr;
-        }
-
-        .topbar-inner {
-          flex-direction: column;
-          align-items: flex-start;
-          padding: 10px 0;
-        }
-
-        .nav {
-          gap: 12px;
-        }
-
-        .hero {
-          padding-top: 48px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="container topbar-inner">
-        <a href="#top" class="brand">
-          <img src="/icon.png" alt="Maintena" width="42" height="42" style="border-radius:14px;flex-shrink:0;" />
-          <span>Maintena</span>
-        </a>
-
-        <nav class="nav">
-          <a href="#presentation">Présentation</a>
-          <a href="#fonctionnalites">Fonctionnalités</a>
-          <a href="#offre">Offre</a>
-          <a href="#contact">Contact</a>
-          <a href="#legal">Informations légales</a>
-        </nav>
-      </div>
-    </header>
-
-    <main id="top">
-      <section class="hero">
-        <div class="container hero-grid">
-          <div>
-            <span class="eyebrow">Application éditée par Profusion Numérik</span>
-            <h1>Maintena</h1>
-            <p>
-              Maintena est une application professionnelle de gestion de copropriétés,
-              destinée aux syndics. Elle permet de centraliser les informations,
-              suivre les interventions, gérer les prestataires et améliorer
-              l’organisation au quotidien.
-            </p>
-
-            <div class="hero-actions">
-              <a class="btn btn-primary" href="/web">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><circle cx="17.5" cy="17.5" r="3.5"/></svg>
-                Version web
-              </a>
-              <a class="btn-store" href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" rel="noopener">
-                <span class="btn-store-label">Disponible sur</span>
-                <span class="btn-store-name">▶ Google Play</span>
-              </a>
-              <a class="btn btn-secondary" href="#offre">Voir les offres</a>
-            </div>
-          </div>
-
-          <aside class="hero-card">
-            <h2 class="hero-card-title">Informations clés</h2>
-            <ul class="hero-list">
-              <li><strong>Éditeur :</strong> Profusion Numérik</li>
-              <li><strong>Produit :</strong> Maintena</li>
-              <li><strong>Type d’offre :</strong> abonnement mensuel ou annuel</li>
-              <li><strong>Public visé :</strong> syndics et gestionnaires de copropriétés</li>
-              <li><strong>À partir de :</strong> 19,99 € / mois</li>
-              <li><strong>Paiement :</strong> sécurisé via Stripe</li>
-            </ul>
-          </aside>
-        </div>
-      </section>
-
-      <section class="section" id="presentation">
-        <div class="container grid-2">
-          <article class="card">
-            <span class="pill">Présentation</span>
-            <h2>Qui exploite Maintena ?</h2>
-            <p>
-              <strong>Profusion Numérik</strong> est une entreprise spécialisée dans
-              la création de contenus digitaux et de solutions numériques.
-            </p>
-            <p>
-              <strong>Maintena</strong> est une application éditée et exploitée par
-              Profusion Numérik. Maintena n’est pas une société distincte, mais un
-              produit numérique commercialisé par Profusion Numérik.
-            </p>
-          </article>
-
-          <article class="card">
-            <span class="pill">Objectif</span>
-            <h2>À quoi sert Maintena ?</h2>
-            <p>
-              Maintena aide les syndics à structurer le suivi de leurs copropriétés,
-              à centraliser les demandes et à mieux coordonner les prestataires
-              intervenant sur site.
-            </p>
-            <p>
-              L’application a pour objectif de simplifier la gestion quotidienne,
-              réduire les échanges dispersés et améliorer la traçabilité.
-            </p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="fonctionnalites">
-        <div class="container">
-          <article class="card">
-            <span class="pill">Fonctionnalités</span>
-            <h2>Ce que permet l’application</h2>
-            <div class="features">
-              <div class="feature">
-                <h3>Gestion des copropriétés</h3>
-                <p>Centralisation des informations liées aux immeubles et aux accès.</p>
-              </div>
-              <div class="feature">
-                <h3>Suivi des interventions</h3>
-                <p>Création, suivi et historique des interventions techniques.</p>
-              </div>
-              <div class="feature">
-                <h3>Gestion des prestataires</h3>
-                <p>Organisation des intervenants et meilleure coordination opérationnelle.</p>
-              </div>
-              <div class="feature">
-                <h3>Accès sécurisé</h3>
-                <p>Accès réservé aux utilisateurs autorisés selon leur rôle.</p>
-              </div>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="offre">
-        <div class="container">
-          <div style="text-align:center;margin-bottom:40px;">
-            <span class="pill">Offre de lancement</span>
-            <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Un seul abonnement, tout inclus</h2>
-            <p style="color:rgba(255,255,255,0.7);max-width:520px;margin:10px auto 0;">
-              Jusqu’à 30 copropriétés, 300 utilisateurs et plus. Toutes les fonctionnalités incluses dès le premier jour.
-            </p>
-          </div>
-
-          <div style="max-width:680px;margin:0 auto;display:grid;gap:20px;">
-
-            <!-- PACK TABLETTE -->
-            <article style="background:linear-gradient(135deg,#1e3a8a,#1d4ed8);border-radius:20px;padding:32px;color:white;position:relative;overflow:hidden;">
-              <div style="position:absolute;top:0;right:0;background:#f59e0b;color:#000;font-size:0.75rem;font-weight:800;padding:8px 20px;border-radius:0 20px 0 16px;letter-spacing:0.05em;">⚡ 25 PACKS RESTANTS</div>
-              <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-                <div style="font-size:42px;">📱</div>
-                <div>
-                  <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#93c5fd;margin-bottom:4px;">Pack exclusif — 25 disponibles</div>
-                  <div style="font-size:1.4rem;font-weight:800;">Abonnement annuel + Tablette Android offerte</div>
-                </div>
-              </div>
-              <div style="background:rgba(255,255,255,0.1);border-radius:14px;padding:20px;margin-bottom:24px;">
-                <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
-                  <div style="font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;">179 €</div>
-                  <div style="font-size:1rem;color:rgba(255,255,255,0.7);">/ an tout compris</div>
-                </div>
-                <div style="color:#86efac;font-weight:700;margin-top:6px;">+ Tablette Android livrée avec Maintena pré-installé</div>
-                <div style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-top:4px;text-decoration:line-through;">Valeur totale : 350 € +</div>
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px;">
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Tablette Android prête à l’emploi</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Maintena pré-installé</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Jusqu’à 30 copropriétés</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> 300 utilisateurs ou plus</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Toutes les fonctionnalités</div>
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">✓</span> Livraison incluse</div>
-              </div>
-              <a href="mailto:contact@profusionnumerik.com?subject=Pack tablette Maintena" style="display:block;text-align:center;background:white;color:#1d4ed8;font-weight:800;font-size:1rem;padding:16px;border-radius:12px;text-decoration:none;">Réserver mon pack tablette →</a>
-              <p style="text-align:center;margin-top:10px;font-size:0.8rem;color:rgba(255,255,255,0.5);">Paiement sécurisé · Livraison sous 5 jours ouvrés</p>
-            </article>
-
-            <!-- ABONNEMENT SEUL -->
-            <article class="card" style="border:1px solid var(--line);position:relative;">
-              <div style="position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:0.75rem;font-weight:700;padding:4px 16px;border-radius:999px;white-space:nowrap;">🚀 Prix de lancement</div>
-              <span class="pill" style="margin-top:8px;display:inline-block;">Maintena Pro — Mensuel</span>
-              <div class="price-box" style="margin:16px 0;">
-                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 € / mois</div>
-                <div class="price">19,99 € <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
-                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limitée aux 50 premiers syndics</div>
-              </div>
-              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.9rem;">
-                <li>✅ Jusqu’à <strong>30 copropriétés</strong></li>
-                <li>✅ Prestataires &amp; propriétaires illimités</li>
-                <li>✅ Suivi interventions + photos</li>
-                <li>✅ Alertes résidents, annonces, rapports PDF</li>
-                <li>✅ Accès invité prestataires (sans app)</li>
-                <li>✅ iOS &amp; Android</li>
-              </ul>
-              <a class="btn btn-primary" href="/inscription" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Commencer maintenant →</a>
-            </article>
-
-          </div>
-
-          <p style="text-align:center;margin-top:20px;font-size:0.85rem;color:rgba(255,255,255,0.4);">
-            Paiement sécurisé via Stripe · Sans engagement · Résiliation à tout moment
-          </p>
-        </div>
-      </section>
-
-      <section class="section" id="contact">
-        <div class="container grid-2">
-          <article class="card">
-            <span class="pill">Contact</span>
-            <h2>Coordonnées</h2>
-            <ul class="contact-list">
-              <li><strong>Entreprise :</strong> Profusion Numérik</li>
-              <li><strong>Email :</strong> <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a></li>
-            </ul>
-            <p>
-              Pour toute question sur l’abonnement, un accompagnement à la prise en main
-              ou une démonstration, contactez-nous par email.
-            </p>
-          </article>
-
-          <article class="card" id="legal">
-            <span class="pill">Informations légales</span>
-            <h2>Conditions générales d’information</h2>
-            <ul class="legal-list">
-              <li>Maintena est une application éditée et exploitée par Profusion Numérik.</li>
-              <li>L’abonnement est disponible en formule mensuelle ou annuelle.</li>
-              <li>La résiliation prend effet à la fin de la période en cours.</li>
-              <li>Les demandes de remboursement et les réclamations sont étudiées au cas par cas.</li>
-              <li>Les paiements sont traités de façon sécurisée via Stripe.</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="container footer-box">
-        <div>
-          <strong>Profusion Numérik</strong> — Maintena est une application éditée
-          et exploitée par Profusion Numérik.
-        </div>
-        <div>
-          Contact : <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a>
-        </div>
-      </div>
-    </footer>
-  </body>
-</html>`;
-
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(html);
-  });
-
-  app.post("/api/create-checkout-session", async (req: Request, res: Response) => {
+    app.post("/api/create-checkout-session", async (req: Request, res: Response) => {
     const stripe = getStripe();
     if (!stripe) {
       return res.status(503).json({
@@ -1303,6 +728,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       address,
       postalCode,
       city,
+      plan,
     } = req.body ?? {};
 
     if (
@@ -1324,7 +750,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    const priceId = process.env.STRIPE_PRICE_ID;
+    const selectedPlan = String(plan ?? "mensuel").trim().toLowerCase();
+    const priceId = selectedPlan === "annuel"
+      ? (process.env.STRIPE_PRICE_ID_ANNUAL || process.env.STRIPE_PRICE_ID)
+      : process.env.STRIPE_PRICE_ID;
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -1935,12 +1364,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/inscription", (_req: Request, res: Response) => {
+  app.get("/inscription", (req: Request, res: Response) => {
+    const queryPlan = String(req.query?.plan ?? "mensuel").trim().toLowerCase();
+    const initialPlan = queryPlan === "annuel" ? "annuel" : "mensuel";
     const html = pageShell("Créer mon espace syndic", `
+  <style>
+    .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
+    .plan-btn {
+      flex:1; padding:14px 12px; background:transparent; color:var(--muted);
+      border:none; cursor:pointer; font-size:14px; font-weight:600; font-family:inherit;
+      transition:background 0.15s, color 0.15s; text-align:center; line-height:1.3;
+    }
+    .plan-btn.active { background:var(--blue); color:#fff; }
+    .plan-btn:not(.active):hover { background:rgba(255,255,255,0.06); color:var(--text); }
+    .plan-btn small { display:block; font-size:11px; font-weight:400; opacity:0.8; margin-top:2px; }
+    .plan-btn.active small { opacity:0.85; }
+  </style>
+
   <div class="m-container">
     <div class="m-card">
       <h1>Créer mon espace syndic</h1>
       <p class="subtitle">Créez votre compte Maintena puis finalisez l’activation avec votre abonnement.</p>
+
+      <!-- Sélecteur de plan -->
+      <div class="plan-toggle" id="plan-toggle" role="group" aria-label="Choisir un plan">
+        <button type="button" class="plan-btn${initialPlan === "mensuel" ? " active" : ""}" data-plan="mensuel">
+          Mensuel
+          <small>19,99 € / mois</small>
+        </button>
+        <button type="button" class="plan-btn${initialPlan === "annuel" ? " active" : ""}" data-plan="annuel">
+          Annuel ⭐
+          <small>169 € / an — économie 70 €</small>
+        </button>
+      </div>
 
       <form id="signup-form">
         <div class="m-row">
@@ -1983,7 +1439,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           </div>
         </div>
 
-        <button class="m-btn" type="submit" id="submit-btn">Continuer vers le paiement →</button>
+        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "annuel" ? "169 €/an" : "19,99 €/mois"}</button>
         <div class="m-error" id="error"></div>
       </form>
 
@@ -1994,49 +1450,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   </div>
 
   <script>
-    const form = document.getElementById("signup-form");
-    const errorBox = document.getElementById("error");
-    const btn = document.getElementById("submit-btn");
+    var currentPlan = "${initialPlan}";
+    var planLabels = { mensuel: "Continuer → 19,99 €/mois", annuel: "Continuer → 169 €/an" };
 
-    // Format automatique téléphone : 06 12 34 56 78
-    const phoneInput = document.getElementById("phone");
-    phoneInput.addEventListener("input", () => {
-      const digits = phoneInput.value.replace(/\D/g, "").slice(0, 10);
-      phoneInput.value = digits.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+    var form = document.getElementById("signup-form");
+    var errorBox = document.getElementById("error");
+    var btn = document.getElementById("submit-btn");
+    var toggleBtns = document.querySelectorAll("#plan-toggle .plan-btn");
+
+    // Plan toggle
+    toggleBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        currentPlan = b.dataset.plan;
+        toggleBtns.forEach(function (x) { x.classList.toggle("active", x === b); });
+        btn.textContent = planLabels[currentPlan] || planLabels.mensuel;
+      });
     });
 
-    form.addEventListener("submit", async (e) => {
+    // Format automatique téléphone : 06 12 34 56 78
+    var phoneInput = document.getElementById("phone");
+    phoneInput.addEventListener("input", function () {
+      var digits = phoneInput.value.replace(/\\D/g, "").slice(0, 10);
+      phoneInput.value = digits.replace(/(\\d{2})(?=\\d)/g, "$1 ").trim();
+    });
+
+    form.addEventListener("submit", async function (e) {
       e.preventDefault();
       errorBox.style.display = "none";
       btn.textContent = "Chargement…";
       btn.disabled = true;
 
-      const body = {
+      var body = {
         firstName: document.getElementById("firstName").value.trim(),
         lastName: document.getElementById("lastName").value.trim(),
         email: document.getElementById("email").value.trim().toLowerCase(),
-        phone: document.getElementById("phone").value.replace(/\s/g, "").trim(),
+        phone: document.getElementById("phone").value.replace(/\\s/g, "").trim(),
         password: document.getElementById("password").value,
         coProName: document.getElementById("coProName").value.trim(),
         address: document.getElementById("address").value.trim(),
         postalCode: document.getElementById("postalCode").value.trim(),
-        city: document.getElementById("city").value.trim()
+        city: document.getElementById("city").value.trim(),
+        plan: currentPlan
       };
 
       try {
-        const res = await fetch("/api/web-signup-checkout", {
+        var response = await fetch("/api/web-signup-checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Erreur lors de l’inscription");
+        var data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Erreur lors de l’inscription");
         if (data.url) { window.location.href = data.url; return; }
         throw new Error("Session Stripe introuvable");
       } catch (err) {
         errorBox.textContent = err.message || "Erreur inconnue";
         errorBox.style.display = "block";
-        btn.textContent = "Continuer vers le paiement →";
+        btn.textContent = planLabels[currentPlan] || planLabels.mensuel;
         btn.disabled = false;
       }
     });
