@@ -999,8 +999,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             </p>
 
             <div class="hero-actions">
-              <a class="btn btn-primary" href="#offre">Voir les offres</a>
-              <a class="btn btn-secondary" href="#contact">Nous contacter</a>
+              <a class="btn btn-primary" href="/web">Accéder à l'application</a>
+              <a class="btn btn-secondary" href="#offre">Voir les offres</a>
             </div>
           </div>
 
@@ -3079,6 +3079,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SPA fallback — serve Expo web app index.html for unknown GET routes
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
   if (fs.existsSync(staticBuildIndex)) {
+    // Route explicite /web → point d'entrée principal de l'app web
+    app.get("/web", (_req: Request, res: Response) => res.sendFile(staticBuildIndex));
+
     app.get("/*path", (req: Request, res: Response) => {
       if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
       res.sendFile(staticBuildIndex);
