@@ -46,9 +46,9 @@
     }
 
     .navbar-inner {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 40px;
       height: 64px;
       display: flex;
       align-items: center;
@@ -141,9 +141,9 @@
 
     /* ── CONTAINER ── */
     .container {
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 40px;
     }
 
     /* ── SECTION ── */
@@ -181,13 +181,18 @@
 
     /* ── HERO ── */
     .hero {
-      padding: 112px 0 80px;
+      min-height: calc(100vh - 64px);
+      display: flex;
+      align-items: center;
+      padding: 80px 0;
       background: radial-gradient(ellipse 80% 60% at 60% -10%, rgba(29,78,216,0.22) 0%, transparent 70%);
     }
 
+    .hero > .container { width: 100%; }
+
     .hero-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.1fr 0.9fr;
       gap: 64px;
       align-items: center;
     }
@@ -911,15 +916,15 @@
 
         <!-- PACK TABLETTE -->
         <div class="offre-card">
-          <div class="offre-badge amber">&#9889; 25 restants</div>
-          <div class="offre-name">Pack Tablette</div>
-          <div class="offre-price">179 € <span>/ an</span></div>
-          <div class="offre-price-sub">+ tablette Android offerte</div>
-          <div class="offre-economy">Valeur totale 350 € +</div>
+          <div class="offre-badge amber">&#9889; 25 packs — Offre limitée</div>
+          <div class="offre-name">Pack Tablette Annuel</div>
+          <div class="offre-price">199,99 € <span>/ an</span></div>
+          <div class="offre-price-sub">+ tablette Android offerte · livraison incluse</div>
+          <div class="offre-economy" style="color:#f59e0b;">Valeur totale estimée : 370 € +</div>
           <hr class="offre-divider" />
           <ul class="offre-list">
             <li>Tablette Android prête à l'emploi</li>
-            <li>Maintena pré-installé</li>
+            <li>Maintena pré-installé &amp; configuré</li>
             <li>Jusqu'à 30 copropriétés</li>
             <li>Toutes les fonctionnalités incluses</li>
             <li>Livraison sous 5 jours ouvrés</li>
@@ -929,13 +934,13 @@
             href="mailto:contact@profusionnumerik.com?subject=Pack%20tablette%20Maintena"
             class="btn-offre outline-dark"
           >Réserver par email →</a>
-          <p class="offre-note">Livraison incluse · Stock limité</p>
+          <p class="offre-note" style="color:#f59e0b;font-weight:600;">⚠ Engagement 1 an · Sans remboursement</p>
         </div>
 
       </div>
 
       <p class="payment-note">
-        Paiement sécurisé via Stripe &nbsp;·&nbsp; Sans engagement sur le mensuel &nbsp;·&nbsp; Résiliation à tout moment
+        Paiement sécurisé via Stripe &nbsp;·&nbsp; Mensuel : sans engagement, résiliable à tout moment &nbsp;·&nbsp; Pack Tablette : engagement 1 an, sans remboursement (matériel inclus)
       </p>
     </div>
   </section>
