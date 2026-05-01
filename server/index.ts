@@ -127,7 +127,8 @@ function configureStatic(app: express.Application) {
   }
 
   if (fs.existsSync(staticBuildPath)) {
-    app.use(express.static(staticBuildPath));
+    // index: false — ne pas servir index.html pour "/", c'est géré par la route /*path dans routes.ts
+    app.use(express.static(staticBuildPath, { index: false }));
   }
 }
 
