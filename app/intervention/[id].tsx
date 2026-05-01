@@ -280,7 +280,8 @@ export default function InterventionDetailScreen() {
   }, [cleaningAreas]);
 
   const handleToggleChecklistItem = async (areaId: string) => {
-    if (!intervention || (!isAdmin && !isPrestataire)) return;
+    // Seul le prestataire peut cocher/décocher (attestation de travail), et uniquement avant validation
+    if (!intervention || !isPrestataire || intervention.status !== "planifie") return;
 
     const previous = localChecklist;
     const newValue = !localChecklist[areaId];
@@ -1026,8 +1027,8 @@ export default function InterventionDetailScreen() {
                   <Text style={styles.checklistCardTitle}>Zones de nettoyage</Text>
                   {groupedCleaningAreas.length > 0 && (
                     <Text style={styles.checklistCardSub}>
-                      {Object.values(localChecklist).filter(Boolean).length}/
-                      {cleaningAreas.length} zones effectuées
+                      {Object.values(localChecklist).filter(Boolean).length} / {cleaningAreas.length} zones effectuées
+                      {isPrestataire && intervention.status === "planifie" ? " · Cochez ce que vous avez fait" : ""}
                     </Text>
                   )}
                 </View>
@@ -1037,18 +1038,24 @@ export default function InterventionDetailScreen() {
                 )}
               </View>
 
+              {isPrestataire && intervention.status === "planifie" && groupedCleaningAreas.length > 0 && (
+                <Text style={[styles.checklistCardHint, { marginBottom: 12, color: COLORS.teal }]}>
+                  Cochez chaque zone que vous avez nettoyée — enregistrement automatique
+                </Text>
+              )}
+
               {groupedCleaningAreas.length > 0 ? (
                 groupedCleaningAreas.map(([group, areas]) => (
                   <View key={group} style={styles.checklistCardGroup}>
                     <Text style={styles.checklistCardGroupLabel}>{group}</Text>
                     {areas.map((area) => {
-                      const checked = localChecklist[area.id] !== false;
-                      const canEdit = isAdmin || isPrestataire;
+                      const checked = localChecklist[area.id] === true;
+                      const canEdit = isPrestataire && intervention.status === "planifie";
 
                       return (
                         <Pressable
                           key={area.id}
-                          style={[styles.checklistCardRow, !checked && { opacity: 0.55 }]}
+                          style={[styles.checklistCardRow, !checked && { opacity: 0.6 }]}
                           onPress={canEdit ? () => handleToggleChecklistItem(area.id) : undefined}
                           disabled={!canEdit || savingChecklist}
                         >
@@ -1066,7 +1073,7 @@ export default function InterventionDetailScreen() {
                             {area.label}
                           </Text>
                           {checked && (
-                            <Ionicons name="checkmark" size={14} color={COLORS.teal} />
+                            <Ionicons name="checkmark" size={14} color={COLORS.teal} style={{ marginLeft: "auto" }} />
                           )}
                         </Pressable>
                       );
@@ -1076,21 +1083,13 @@ export default function InterventionDetailScreen() {
               ) : (
                 <View style={styles.checklistLegacyWrap}>
                   {Object.entries(localChecklist).map(([key, done]) => (
-                    <View
-                      key={key}
-                      style={[styles.checklistCardRow, !done && { opacity: 0.55 }]}
-                    >
+                    <View key={key} style={[styles.checklistCardRow, !done && { opacity: 0.55 }]}>
                       <Ionicons
                         name={done ? "checkbox" : "square-outline"}
                         size={18}
                         color={done ? COLORS.teal : COLORS.textMuted}
                       />
-                      <Text
-                        style={[
-                          styles.checklistCardAreaLabel,
-                          !done && styles.checklistCardAreaDone,
-                        ]}
-                      >
+                      <Text style={[styles.checklistCardAreaLabel, !done && styles.checklistCardAreaDone]}>
                         {key}
                       </Text>
                     </View>
@@ -1098,9 +1097,11 @@ export default function InterventionDetailScreen() {
                 </View>
               )}
 
-              {(isAdmin || isPrestataire) && groupedCleaningAreas.length > 0 && (
+              {!isPrestataire && groupedCleaningAreas.length > 0 && (
                 <Text style={styles.checklistCardHint}>
-                  Appuyez sur une zone pour la cocher / décocher
+                  {intervention.status === "planifie"
+                    ? "En attente du prestataire"
+                    : "Zones cochées par le prestataire"}
                 </Text>
               )}
             </View>

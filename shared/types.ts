@@ -160,7 +160,8 @@ export function generateCleaningAreas(config: BuildingConfig): CleaningArea[] {
 export function buildDefaultChecklist(config: BuildingConfig): Record<string, boolean> {
   const areas = generateCleaningAreas(config);
   const checklist: Record<string, boolean> = {};
-  areas.forEach((a) => { checklist[a.id] = true; });
+  // Démarrer tout à false : le prestataire coche ce qu'il a effectivement nettoyé
+  areas.forEach((a) => { checklist[a.id] = false; });
   return checklist;
 }
 
