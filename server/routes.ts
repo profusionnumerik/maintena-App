@@ -7,7 +7,7 @@ import path from "node:path";
 import Stripe from "stripe";
 import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
 
 // Inline depuis shared/types pour éviter les problèmes d'import dans le bundle esbuild
@@ -2075,6 +2075,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           invitedByGuest: true,
         }, { merge: true });
 
+        // Ajouter la copro dans managedCoproIds pour qu'elle apparaisse dans le switcher de l'app
+        try {
+          await db.collection("users").doc(uid).update({
+            managedCoproIds: FieldValue.arrayUnion(coProId),
+          });
+        } catch {
+          await db.collection("users").doc(uid).set(
+            { managedCoproIds: [coProId] },
+            { merge: true }
+          );
+        }
+
         // Mettre à jour assignedToUid sur l'intervention pour que le filtre côté app fonctionne
         await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
           assignedToUid: uid,
@@ -2411,10 +2423,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedPhotos = [...payload.intervention.completionPhotos, url];
 
       await payload.interventionRef.set(
-        {
-          completionPhotos: updatedPhotos,
-          guestUpdatedAt: new Date().toISOString(),
-        },
+        { completionPhotos: updatedPhotos },
         { merge: true }
       );
 

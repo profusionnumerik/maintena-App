@@ -138,15 +138,13 @@ export function InterventionsProvider({
 
   const interventions = useMemo(() => {
     if (currentRole === "prestataire" && user) {
-      return allInterventions.filter((i) => {
-        const matchesCategory = categoryFilter ? i.category === categoryFilter : true;
-        const matchesAssignee = i.assignedToUid === user.uid;
-        return matchesCategory && matchesAssignee;
-      });
+      // Un prestataire voit uniquement ses propres interventions (assignedToUid),
+      // quelle que soit la catégorie — un plombier peut intervenir sur l'interphone.
+      return allInterventions.filter((i) => i.assignedToUid === user.uid);
     }
 
     return allInterventions;
-  }, [allInterventions, currentRole, categoryFilter, user]);
+  }, [allInterventions, currentRole, user]);
 
   const addIntervention = useCallback(
     async (
