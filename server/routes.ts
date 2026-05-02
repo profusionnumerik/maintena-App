@@ -638,6 +638,7 @@ async function sendGuestInviteEmail(params: {
   completeAccountLink: string;
   categoryInviteCode?: string;
   tempPassword?: string;
+  existingAccount?: boolean;
 }): Promise<boolean> {
   let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
   try {
@@ -692,7 +693,15 @@ async function sendGuestInviteEmail(params: {
         Cliquez sur le bouton ci-dessus pour accéder à votre fiche directement, <strong>sans créer de compte</strong>.
       </p>
 
-      ${params.tempPassword ? `
+      ${params.existingAccount ? `
+      <div style="background:#0B1628;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Vous avez déjà un compte Maintena</div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:2px;">Votre identifiant</div>
+          <div style="font-size:15px;color:#fff;font-weight:600;">${escapeHtml(params.to)}</div>
+        </div>
+        <div style="font-size:13px;color:rgba(255,255,255,0.55);margin-top:8px;line-height:1.5;">Connectez-vous avec votre mot de passe habituel.<br/>Si vous l'avez oublié, utilisez "Mot de passe oublié" dans l'application.</div>
+      </div>` : params.tempPassword ? `
       <div style="background:#0B1628;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;">
         <div style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Connexion à l'application Maintena</div>
         <div style="margin-bottom:10px;">
@@ -2022,19 +2031,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const providerName = [invitedProvider.firstName, invitedProvider.lastName].filter(Boolean).join(" ").trim() || invitedProvider.email;
       const coproName = (coproSnap.data() as any)?.name ?? "Copropriété";
 
-      // Créer un compte provisoire Firebase pour le prestataire
+      // Créer ou retrouver le compte Firebase du prestataire
       let tempPassword: string | undefined;
+      let existingAccount = false;
       try {
         const adminAuth = getAuth();
-        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-
         let uid: string;
+
         try {
+          // Compte déjà existant → ne pas toucher au mot de passe
           const existing = await adminAuth.getUserByEmail(invitedProvider.email);
           uid = existing.uid;
-          await adminAuth.updateUser(uid, { password: tempPassword });
+          existingAccount = true;
         } catch {
+          // Nouveau compte → créer avec mot de passe provisoire
+          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+          tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
           const newUser = await adminAuth.createUser({
             email: invitedProvider.email,
             password: tempPassword,
@@ -2083,6 +2095,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           completeAccountLink: payload.completeAccountLink,
           categoryInviteCode: categoryInviteCode ?? undefined,
           tempPassword,
+          existingAccount,
         });
       } catch (emailErr: any) {
         console.error("[Maintena] sendGuestInviteEmail threw:", emailErr?.message ?? emailErr);
@@ -2136,16 +2149,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coproName = (coproSnap.data() as any)?.name ?? "Copropriété";
       const interventionTitle = (interventionSnap.data() as any)?.title ?? "Intervention";
 
-      // Regénérer un mot de passe temporaire et le mettre à jour
+      // Vérifier si le compte existe déjà ou en créer un nouveau
       let tempPassword: string | undefined;
+      let existingAccount = false;
       try {
         const adminAuth = getAuth();
-        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
         try {
-          const existing = await adminAuth.getUserByEmail(providerEmail);
-          await adminAuth.updateUser(existing.uid, { password: tempPassword });
+          await adminAuth.getUserByEmail(providerEmail);
+          existingAccount = true;
+          // Compte existant → ne pas toucher au mot de passe
         } catch {
+          // Compte inexistant → créer avec mot de passe provisoire
+          const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+          tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
           await adminAuth.createUser({ email: providerEmail, password: tempPassword, displayName: providerName });
         }
       } catch { tempPassword = undefined; }
@@ -2159,6 +2175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completeAccountLink: invite.completeAccountLink ?? "",
         categoryInviteCode: invite.categoryInviteCode ?? undefined,
         tempPassword,
+        existingAccount,
       });
 
       return res.json({ success: true, emailSent });
@@ -2302,6 +2319,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let userRecord;
       try {
         userRecord = await adminAuth.getUserByEmail(payload.provider.email);
+        // Compte existant → mettre à jour le mot de passe avec celui choisi par l'utilisateur
+        await adminAuth.updateUser(userRecord.uid, { password: password.trim() });
       } catch {
         userRecord = await adminAuth.createUser({
           email: payload.provider.email,
