@@ -391,6 +391,7 @@ async function createGuestInviteRecord(params: {
   providerEmail: string;
   providerPhone?: string;
   providerCompany?: string;
+  categoryInviteCode?: string;
   req: Request;
 }) {
   const db = getAdminDb();
@@ -423,6 +424,7 @@ async function createGuestInviteRecord(params: {
     providerEmail: params.providerEmail.toLowerCase(),
     providerPhone: params.providerPhone ?? "",
     providerCompany: params.providerCompany ?? "",
+    categoryInviteCode: params.categoryInviteCode ?? null,
     status: "sent",
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -702,6 +704,15 @@ async function sendGuestInviteEmail(params: {
           <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:4px;font-family:monospace;">${escapeHtml(params.tempPassword)}</div>
         </div>
         <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:10px;">Modifiez votre mot de passe après votre première connexion</div>
+      </div>` : ""}
+
+      ${params.categoryInviteCode ? `
+      <div style="border:2px dashed #2563EB;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;background:#EFF6FF;">
+        <div style="font-size:12px;color:#1D4ED8;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">Code d'accès à l'application</div>
+        <div style="font-size:32px;font-weight:800;color:#1D4ED8;letter-spacing:6px;font-family:monospace;">${escapeHtml(params.categoryInviteCode)}</div>
+        <div style="font-size:13px;color:#3B82F6;margin-top:10px;line-height:1.5;">
+          Utilisez ce code dans l'application Maintena pour rejoindre votre espace prestataire <strong>sans frais</strong>.
+        </div>
       </div>` : ""}
 
       <p style="font-size:13px;color:#94A3B8;line-height:1.6;margin-top:12px;">
@@ -2002,6 +2013,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providerEmail: invitedProvider.email,
         providerPhone: invitedProvider.phone,
         providerCompany: invitedProvider.company,
+        categoryInviteCode: categoryInviteCode ?? undefined,
         req,
       });
 
@@ -2050,6 +2062,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           joinedAt: new Date().toISOString(),
           invitedByGuest: true,
         }, { merge: true });
+
+        // Mettre à jour assignedToUid sur l'intervention pour que le filtre côté app fonctionne
+        await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
+          assignedToUid: uid,
+        });
       } catch (authErr) {
         console.warn("Création compte provisoire échouée:", authErr);
         tempPassword = undefined;
@@ -2064,6 +2081,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
           webLink: payload.webLink,
           completeAccountLink: payload.completeAccountLink,
+          categoryInviteCode: categoryInviteCode ?? undefined,
           tempPassword,
         });
       } catch (emailErr: any) {
@@ -2139,6 +2157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         interventionTitle,
         webLink: invite.webLink ?? "",
         completeAccountLink: invite.completeAccountLink ?? "",
+        categoryInviteCode: invite.categoryInviteCode ?? undefined,
         tempPassword,
       });
 
