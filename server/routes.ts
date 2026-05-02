@@ -9,7 +9,72 @@ import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
-import { generateCleaningAreas } from "../shared/types";
+
+// Inline depuis shared/types pour éviter les problèmes d'import dans le bundle esbuild
+interface BuildingDef { name: string; floors: number; }
+interface BuildingConfigServer {
+  buildings?: BuildingDef[];
+  buildingCount?: number;
+  floorsPerBuilding?: number;
+  hasElevator?: boolean;
+  hasCellar?: boolean;
+  hasParking?: boolean;
+  hasBikeParking?: boolean;
+  hasTrashRoom?: boolean;
+  hasExteriorAccess?: boolean;
+  customAreas?: string[];
+}
+interface CleaningAreaServer { id: string; label: string; group: string; }
+
+const DEFAULT_BUILDING_CONFIG_SERVER: BuildingConfigServer = {
+  buildings: [{ name: "Bâtiment", floors: 3 }],
+  hasElevator: false, hasCellar: false, hasParking: false,
+  hasBikeParking: false, hasTrashRoom: true, hasExteriorAccess: false,
+  customAreas: [],
+};
+
+function generateCleaningAreasServer(config: BuildingConfigServer): CleaningAreaServer[] {
+  const areas: CleaningAreaServer[] = [];
+  let buildings: BuildingDef[];
+  if (config.buildings && config.buildings.length > 0) {
+    buildings = config.buildings;
+  } else {
+    const count = config.buildingCount ?? 1;
+    const floors = config.floorsPerBuilding ?? 3;
+    buildings = Array.from({ length: count }, (_, i) => ({
+      name: count > 1 ? `Bâtiment ${String.fromCharCode(65 + i)}` : "Bâtiment",
+      floors,
+    }));
+  }
+  const multi = buildings.length > 1;
+  areas.push({ id: "hall_principal", label: "Hall d'entrée principal", group: "Parties communes" });
+  areas.push({ id: "boites_lettres", label: "Boîtes aux lettres", group: "Parties communes" });
+  buildings.forEach((building, b) => {
+    const group = multi ? building.name : "Espaces communs";
+    const batId = multi ? `_bat${b + 1}` : "";
+    const batSuffix = multi ? ` (${building.name})` : "";
+    if (config.hasElevator) {
+      areas.push({ id: `ascenseur_cabine${batId}`, label: `Cabine ascenseur${batSuffix}`, group });
+      areas.push({ id: `ascenseur_portes${batId}`, label: `Portes palières ascenseur${batSuffix}`, group });
+    }
+    areas.push({ id: `escalier${batId}`, label: `Cage d'escalier${batSuffix}`, group });
+    for (let f = 1; f <= building.floors; f++) {
+      const ordinal = f === 1 ? "1er" : `${f}ème`;
+      areas.push({ id: `palier${batId}_etage${f}`, label: `Palier ${ordinal} étage${batSuffix}`, group });
+    }
+  });
+  const annexes = "Annexes";
+  if (config.hasCellar) areas.push({ id: "cave_soussol", label: "Cave / Sous-sol", group: annexes });
+  if (config.hasParking) areas.push({ id: "parking_voitures", label: "Parking voitures", group: annexes });
+  if (config.hasBikeParking) areas.push({ id: "parking_velos", label: "Parking vélos", group: annexes });
+  if (config.hasTrashRoom) areas.push({ id: "local_poubelles", label: "Local poubelles", group: annexes });
+  if (config.hasExteriorAccess) areas.push({ id: "acces_exterieur", label: "Accès extérieur", group: annexes });
+  (config.customAreas ?? []).forEach((area, idx) => {
+    const trimmed = area.trim();
+    if (trimmed) areas.push({ id: `custom_${idx}`, label: trimmed, group: "Personnalisé" });
+  });
+  return areas;
+}
 
 function getStripe(): Stripe | null {
   if (!process.env.STRIPE_SECRET_KEY) return null;
@@ -456,7 +521,7 @@ async function buildGuestInterventionPayload(token: string) {
         [copro?.street, copro?.postalCode, copro?.city]
           .filter(Boolean)
           .join(", "),
-      buildingConfig: copro?.buildingConfig ?? null,
+      buildingConfig: (copro?.buildingConfig ?? null) as BuildingConfigServer | null,
     },
     provider: {
       firstName: invite.data.providerFirstName ?? "",
@@ -2360,8 +2425,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Zones de nettoyage
     const isNettoyage = payload.intervention.category === "nettoyage";
-    const cleaningAreas = (isNettoyage && payload.copro.buildingConfig)
-      ? generateCleaningAreas(payload.copro.buildingConfig)
+    const effectiveBuildingConfig = payload.copro.buildingConfig ?? DEFAULT_BUILDING_CONFIG_SERVER;
+    const cleaningAreas = isNettoyage
+      ? generateCleaningAreasServer(effectiveBuildingConfig)
       : [];
     const checklist = payload.intervention.cleaningChecklist;
 
