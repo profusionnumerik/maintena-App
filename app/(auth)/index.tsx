@@ -4,6 +4,7 @@ import { useLocalSearchParams, router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -218,9 +219,11 @@ export default function AuthScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.brand}>
-            <View style={styles.logoWrap}>
-              <Ionicons name="business" size={32} color={COLORS.tealLight} />
-            </View>
+            <Image
+              source={require("../../assets/images/icon.png")}
+              style={styles.logoImg}
+              resizeMode="contain"
+            />
             <Text style={styles.appName}>Maintena</Text>
             <Text style={styles.appTagline}>Gestion de copropriété</Text>
           </View>
@@ -524,15 +527,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 8,
   },
-  logoWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+  logoImg: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
     marginBottom: 4,
   },
   appName: {

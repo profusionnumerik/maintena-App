@@ -1,6 +1,6 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { Pressable, StyleSheet, Text, View, Platform, Alert } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -35,9 +35,11 @@ export default function OnboardingIndex() {
     >
       <View style={[styles.inner, { paddingTop: top + 32, paddingBottom: bottom + 24 }]}>
         <View style={styles.brand}>
-          <View style={styles.logoWrap}>
-            <Ionicons name="business" size={36} color={COLORS.tealLight} />
-          </View>
+          <Image
+            source={require("../../assets/images/icon.png")}
+            style={styles.logoImg}
+            resizeMode="contain"
+          />
           <Text style={styles.title}>Bienvenue sur Maintena</Text>
           <Text style={styles.subtitle}>
             Gérez votre copropriété en équipe.{"\n"}Commencez par créer ou rejoindre une copropriété.
@@ -123,11 +125,8 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   inner: { flex: 1, paddingHorizontal: 20, justifyContent: "space-between" },
   brand: { alignItems: "center", gap: 12 },
-  logoWrap: {
-    width: 72, height: 72, borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  logoImg: {
+    width: 80, height: 80, borderRadius: 22,
   },
   title: {
     fontSize: 26, fontFamily: "Inter_700Bold",

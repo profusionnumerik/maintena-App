@@ -7,10 +7,54 @@ import {
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
+import { Image, Platform, StyleSheet, Text, View } from "react-native";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CoProProvider, useCoPro } from "@/context/CoProContext";
 import { InterventionsProvider } from "@/context/InterventionsContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+function WebNavbar() {
+  if (Platform.OS !== "web") return null;
+  return (
+    <View style={webNav.bar}>
+      <Image
+        source={require("../assets/images/icon.png")}
+        style={webNav.logo}
+        resizeMode="contain"
+      />
+      <Text style={webNav.brand}>Maintena</Text>
+    </View>
+  );
+}
+
+const webNav = StyleSheet.create({
+  bar: {
+    position: "fixed" as any,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    gap: 10,
+    backgroundColor: "#0B1628",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    zIndex: 1000,
+  },
+  logo: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+  },
+  brand: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#ffffff",
+    letterSpacing: -0.3,
+  },
+});
 
 SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
@@ -105,6 +149,7 @@ export default function RootLayout() {
       <AuthProvider>
         <CoProProvider>
           <InterventionsProvider>
+            <WebNavbar />
             <RootLayoutNav />
           </InterventionsProvider>
         </CoProProvider>
