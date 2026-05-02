@@ -186,7 +186,7 @@ export default function HomeScreen() {
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
-  const canAdd = currentRole === "admin" || currentRole === "prestataire";
+  const canAdd = currentRole === "admin" || currentRole === "collaborateur";
   const recent = interventions.slice(0, 8);
 
   const handleRefresh = async () => {

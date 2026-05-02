@@ -5,6 +5,8 @@ import express from "express";
 import { getAuth } from "firebase-admin/auth";
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import Stripe from "stripe";
 
 // server/resend-client.ts
@@ -13,25 +15,31 @@ var connectionSettings;
 async function getCredentials() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY ? "repl " + process.env.REPL_IDENTITY : process.env.WEB_REPL_RENEWAL ? "depl " + process.env.WEB_REPL_RENEWAL : null;
-  if (!xReplitToken) {
-    throw new Error("X-Replit-Token not found for repl/depl");
-  }
-  connectionSettings = await fetch(
-    "https://" + hostname + "/api/v2/connection?include_secrets=true&connector_names=resend",
-    {
-      headers: {
-        Accept: "application/json",
-        "X-Replit-Token": xReplitToken
+  if (xReplitToken && hostname) {
+    connectionSettings = await fetch(
+      "https://" + hostname + "/api/v2/connection?include_secrets=true&connector_names=resend",
+      {
+        headers: {
+          Accept: "application/json",
+          "X-Replit-Token": xReplitToken
+        }
       }
+    ).then((res) => res.json()).then((data) => data.items?.[0]);
+    if (connectionSettings?.settings?.api_key) {
+      return {
+        apiKey: connectionSettings.settings.api_key,
+        fromEmail: connectionSettings.settings.from_email ?? "Maintena <onboarding@resend.dev>"
+      };
     }
-  ).then((res) => res.json()).then((data) => data.items?.[0]);
-  if (!connectionSettings || !connectionSettings.settings.api_key) {
-    throw new Error("Resend not connected");
   }
-  return {
-    apiKey: connectionSettings.settings.api_key,
-    fromEmail: connectionSettings.settings.from_email ?? "Maintena <onboarding@resend.dev>"
-  };
+  const envKey = process.env.RESEND_API_KEY;
+  if (envKey) {
+    return {
+      apiKey: envKey,
+      fromEmail: "Maintena <noreply@maintena-pro.fr>"
+    };
+  }
+  throw new Error("Resend not connected");
 }
 async function getUncachableResendClient() {
   const { apiKey, fromEmail } = await getCredentials();
@@ -131,6 +139,85 @@ function getAdminAuthInstance() {
   } catch {
     return null;
   }
+}
+var SHARED_CSS = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --blue: #2563EB; --blue-dark: #1E40AF; --navy: #0B1628;
+    --text: #0f172a; --muted: #64748b; --border: #e2e8f0;
+    --bg: #f8fafc; --white: #fff;
+    --shadow: 0 8px 30px rgba(15,23,42,.08);
+    --radius: 18px;
+  }
+  html { scroll-behavior: smooth; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  a { color: inherit; text-decoration: none; }
+  .m-nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(11,22,40,0.97); backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 0 32px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .m-nav-brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .m-nav-brand img { width: 38px; height: 38px; border-radius: 10px; object-fit: contain; }
+  .m-nav-brand span { color: white; font-weight: 700; font-size: 17px; }
+  .m-nav-back { color: rgba(255,255,255,0.7); font-size: 14px; font-weight: 500; transition: color .2s; }
+  .m-nav-back:hover { color: white; }
+  .m-footer {
+    margin-top: 60px; padding: 28px 32px; text-align: center;
+    font-size: 13px; color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+  .m-footer a { color: var(--muted); }
+  .m-footer a:hover { color: var(--blue); }
+  .m-container { max-width: 680px; margin: 48px auto; padding: 0 24px; }
+  .m-card { background: var(--white); border-radius: var(--radius); padding: 36px; box-shadow: var(--shadow); }
+  .m-card h1 { font-size: clamp(1.4rem, 3vw, 1.8rem); font-weight: 800; color: var(--navy); margin-bottom: 8px; }
+  .m-card .subtitle { color: var(--muted); margin-bottom: 28px; font-size: 15px; }
+  .m-label { display: block; font-weight: 600; font-size: 14px; color: var(--text); margin: 16px 0 6px; }
+  .m-input {
+    width: 100%; padding: 12px 14px; border: 1.5px solid var(--border);
+    border-radius: 12px; font-size: 15px; font-family: inherit;
+    transition: border-color .2s; outline: none;
+  }
+  .m-input:focus { border-color: var(--blue); }
+  .m-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .m-btn {
+    display: block; width: 100%; margin-top: 24px;
+    background: var(--blue); color: white; border: none;
+    border-radius: 12px; padding: 15px; font-size: 1rem;
+    font-weight: 700; cursor: pointer; font-family: inherit;
+    transition: background .2s, transform .15s;
+  }
+  .m-btn:hover { background: var(--blue-dark); transform: translateY(-1px); }
+  .m-error { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #fee2e2; color: #991b1b; font-size: 14px; }
+  .m-success { display: none; margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #dcfce7; color: #166534; font-size: 14px; }
+  @media (max-width: 600px) { .m-row { grid-template-columns: 1fr; } .m-nav { padding: 0 16px; } .m-card { padding: 24px; } }
+`;
+function pageShell(title, body, backLabel = "\u2190 Retour \xE0 l'accueil", backHref = "/") {
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${title} \u2014 Maintena</title>
+  <style>${SHARED_CSS}</style>
+</head>
+<body>
+  <nav class="m-nav">
+    <a href="/" class="m-nav-brand">
+      <img src="/icon.png" alt="Maintena" />
+      <span>Maintena</span>
+    </a>
+    <a href="${backHref}" class="m-nav-back">${backLabel}</a>
+  </nav>
+  ${body}
+  <footer class="m-footer">
+    <p>\xA9 2026 ProFusion Num\xE9rik \xB7 SIREN 932 117 500 \xB7 <a href="tel:0668183092">06 68 18 30 92</a> \xB7 <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a> \xB7 <a href="/privacy-policy">Confidentialit\xE9</a></p>
+  </footer>
+</body>
+</html>`;
 }
 async function extractAuthenticatedUser(req) {
   const authHeader = req.header("authorization") || "";
@@ -435,17 +522,25 @@ async function sendGuestInviteEmail(params) {
       </p>
 
       <p style="font-size:14px;color:#64748B;line-height:1.6;">
-        Vous pouvez remplir la fiche directement sur le web, sans cr\xE9er de compte.
+        Cliquez sur le bouton ci-dessus pour acc\xE9der \xE0 votre fiche directement, <strong>sans cr\xE9er de compte</strong>.
       </p>
 
-      <p style="font-size:14px;color:#64748B;line-height:1.6;margin-top:16px;">
-        Si vous souhaitez cr\xE9er votre compte Maintena plus tard :
-      </p>
+      ${params.tempPassword ? `
+      <div style="background:#0B1628;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">Connexion \xE0 l'application Maintena</div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:2px;">Email</div>
+          <div style="font-size:15px;color:#fff;font-weight:600;">${escapeHtml(params.to)}</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:2px;">Mot de passe provisoire</div>
+          <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:4px;font-family:monospace;">${escapeHtml(params.tempPassword)}</div>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:10px;">Modifiez votre mot de passe apr\xE8s votre premi\xE8re connexion</div>
+      </div>` : ""}
 
-      <p style="word-break:break-all;">
-        <a href="${params.completeAccountLink}" style="color:#2563EB;">
-          ${params.completeAccountLink}
-        </a>
+      <p style="font-size:13px;color:#94A3B8;line-height:1.6;margin-top:12px;">
+        Besoin d'aide ? Contactez votre syndic.
       </p>
     </div>
   </div>
@@ -455,6 +550,9 @@ async function sendGuestInviteEmail(params) {
   });
 }
 async function registerRoutes(app2) {
+  app2.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  });
   app2.get("/", (_req, res) => {
     const html = `<!DOCTYPE html>
 <html lang="fr">
@@ -775,7 +873,7 @@ async function registerRoutes(app2) {
     <header class="topbar">
       <div class="container topbar-inner">
         <a href="#top" class="brand">
-          <span class="brand-badge">M</span>
+          <img src="/icon.png" alt="Maintena" width="42" height="42" style="border-radius:14px;flex-shrink:0;" />
           <span>Maintena</span>
         </a>
 
@@ -803,7 +901,7 @@ async function registerRoutes(app2) {
             </p>
 
             <div class="hero-actions">
-              <a class="btn btn-primary" href="/inscription">S\u2019inscrire et activer Maintena</a>
+              <a class="btn btn-primary" href="#offre">Voir les offres</a>
               <a class="btn btn-secondary" href="#contact">Nous contacter</a>
             </div>
           </div>
@@ -813,8 +911,9 @@ async function registerRoutes(app2) {
             <ul class="hero-list">
               <li><strong>\xC9diteur :</strong> Profusion Num\xE9rik</li>
               <li><strong>Produit :</strong> Maintena</li>
-              <li><strong>Type d\u2019offre :</strong> abonnement annuel</li>
+              <li><strong>Type d\u2019offre :</strong> abonnement mensuel ou annuel</li>
               <li><strong>Public vis\xE9 :</strong> syndics et gestionnaires de copropri\xE9t\xE9s</li>
+              <li><strong>\xC0 partir de :</strong> 19,99 \u20AC / mois</li>
               <li><strong>Paiement :</strong> s\xE9curis\xE9 via Stripe</li>
             </ul>
           </aside>
@@ -881,40 +980,72 @@ async function registerRoutes(app2) {
       </section>
 
       <section class="section" id="offre">
-        <div class="container grid-2">
-          <article class="card">
-            <span class="pill">Offre</span>
-            <h2>Abonnement Maintena</h2>
-            <div class="price-box">
-              <div class="small">Tarif</div>
-              <div class="price">169 \u20AC / an</div>
-              <div class="small">
-                Offre de lancement : une tablette peut \xEAtre offerte aux premiers
-                clients, selon disponibilit\xE9 et selon les conditions de l\u2019offre.
+        <div class="container">
+          <div style="text-align:center;margin-bottom:40px;">
+            <span class="pill">Offre de lancement</span>
+            <h2 style="margin-top:14px;font-size:clamp(1.6rem,3vw,2.4rem);">Un seul abonnement, tout inclus</h2>
+            <p style="color:rgba(255,255,255,0.7);max-width:520px;margin:10px auto 0;">
+              Jusqu\u2019\xE0 30 copropri\xE9t\xE9s, 300 utilisateurs et plus. Toutes les fonctionnalit\xE9s incluses d\xE8s le premier jour.
+            </p>
+          </div>
+
+          <div style="max-width:680px;margin:0 auto;display:grid;gap:20px;">
+
+            <!-- PACK TABLETTE -->
+            <article style="background:linear-gradient(135deg,#1e3a8a,#1d4ed8);border-radius:20px;padding:32px;color:white;position:relative;overflow:hidden;">
+              <div style="position:absolute;top:0;right:0;background:#f59e0b;color:#000;font-size:0.75rem;font-weight:800;padding:8px 20px;border-radius:0 20px 0 16px;letter-spacing:0.05em;">\u26A1 25 PACKS RESTANTS</div>
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+                <div style="font-size:42px;">\u{1F4F1}</div>
+                <div>
+                  <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#93c5fd;margin-bottom:4px;">Pack exclusif \u2014 25 disponibles</div>
+                  <div style="font-size:1.4rem;font-weight:800;">Abonnement annuel + Tablette Android offerte</div>
+                </div>
               </div>
-            </div>
+              <div style="background:rgba(255,255,255,0.1);border-radius:14px;padding:20px;margin-bottom:24px;">
+                <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+                  <div style="font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;">179 \u20AC</div>
+                  <div style="font-size:1rem;color:rgba(255,255,255,0.7);">/ an tout compris</div>
+                </div>
+                <div style="color:#86efac;font-weight:700;margin-top:6px;">+ Tablette Android livr\xE9e avec Maintena pr\xE9-install\xE9</div>
+                <div style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-top:4px;text-decoration:line-through;">Valeur totale : 350 \u20AC +</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:28px;">
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> Tablette Android pr\xEAte \xE0 l\u2019emploi</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> Maintena pr\xE9-install\xE9</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> Jusqu\u2019\xE0 30 copropri\xE9t\xE9s</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> 300 utilisateurs ou plus</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> Toutes les fonctionnalit\xE9s</div>
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;"><span style="color:#86efac;font-weight:700;">\u2713</span> Livraison incluse</div>
+              </div>
+              <a href="mailto:contact@profusionnumerik.com?subject=Pack tablette Maintena" style="display:block;text-align:center;background:white;color:#1d4ed8;font-weight:800;font-size:1rem;padding:16px;border-radius:12px;text-decoration:none;">R\xE9server mon pack tablette \u2192</a>
+              <p style="text-align:center;margin-top:10px;font-size:0.8rem;color:rgba(255,255,255,0.5);">Paiement s\xE9curis\xE9 \xB7 Livraison sous 5 jours ouvr\xE9s</p>
+            </article>
 
-            <p>
-              L\u2019abonnement donne acc\xE8s \xE0 l\u2019utilisation de la solution Maintena
-              dans le cadre de l\u2019activit\xE9 professionnelle du client.
-            </p>
-          </article>
+            <!-- ABONNEMENT SEUL -->
+            <article class="card" style="border:1px solid var(--line);position:relative;">
+              <div style="position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:0.75rem;font-weight:700;padding:4px 16px;border-radius:999px;white-space:nowrap;">\u{1F680} Prix de lancement</div>
+              <span class="pill" style="margin-top:8px;display:inline-block;">Maintena Pro \u2014 Mensuel</span>
+              <div class="price-box" style="margin:16px 0;">
+                <div class="small" style="text-decoration:line-through;color:#94a3b8;">Prix normal : 29,99 \u20AC / mois</div>
+                <div class="price">19,99 \u20AC <span style="font-size:1rem;font-weight:400;">/ mois</span></div>
+                <div style="margin-top:8px;display:inline-block;background:#fef3c7;color:#92400e;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:999px;">Offre limit\xE9e aux 50 premiers syndics</div>
+              </div>
+              <ul style="list-style:none;padding:0;margin:0 0 24px;display:flex;flex-direction:column;gap:10px;color:var(--muted);font-size:0.9rem;">
+                <li>\u2705 Jusqu\u2019\xE0 <strong>30 copropri\xE9t\xE9s</strong></li>
+                <li>\u2705 Prestataires &amp; propri\xE9taires illimit\xE9s</li>
+                <li>\u2705 Suivi interventions + photos</li>
+                <li>\u2705 Alertes r\xE9sidents, annonces, rapports PDF</li>
+                <li>\u2705 Acc\xE8s invit\xE9 prestataires (sans app)</li>
+                <li>\u2705 iOS &amp; Android</li>
+              </ul>
+              <a class="btn btn-primary" href="/inscription" style="display:block;text-align:center;width:100%;box-sizing:border-box;">Commencer maintenant \u2192</a>
+            </article>
 
-          <article class="card">
-            <span class="pill">Paiement</span>
-            <h2>Paiement s\xE9curis\xE9</h2>
-            <p>
-              Les paiements sont trait\xE9s de mani\xE8re s\xE9curis\xE9e via Stripe.
-            </p>
-            <p>
-              L\u2019inscription se fait en ligne, puis le paiement permet d\u2019activer
-              l\u2019espace syndic et la copropri\xE9t\xE9.
-            </p>
+          </div>
 
-            <button class="btn btn-primary" type="button" onclick="window.location.href='/inscription'">
-              Acc\xE9der \xE0 l\u2019inscription
-            </button>
-          </article>
+          <p style="text-align:center;margin-top:20px;font-size:0.85rem;color:rgba(255,255,255,0.4);">
+            Paiement s\xE9curis\xE9 via Stripe \xB7 Sans engagement \xB7 R\xE9siliation \xE0 tout moment
+          </p>
         </div>
       </section>
 
@@ -926,10 +1057,10 @@ async function registerRoutes(app2) {
             <ul class="contact-list">
               <li><strong>Entreprise :</strong> Profusion Num\xE9rik</li>
               <li><strong>Email :</strong> <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a></li>
-              <li><strong>Adresse :</strong> \xC0 compl\xE9ter</li>
             </ul>
             <p>
-              Pense \xE0 remplacer l\u2019adresse et l\u2019email par tes vraies informations avant publication.
+              Pour toute question sur l\u2019abonnement, un accompagnement \xE0 la prise en main
+              ou une d\xE9monstration, contactez-nous par email.
             </p>
           </article>
 
@@ -938,8 +1069,8 @@ async function registerRoutes(app2) {
             <h2>Conditions g\xE9n\xE9rales d\u2019information</h2>
             <ul class="legal-list">
               <li>Maintena est une application \xE9dit\xE9e et exploit\xE9e par Profusion Num\xE9rik.</li>
-              <li>L\u2019abonnement est annuel.</li>
-              <li>Toute annulation emp\xEAche le renouvellement \xE0 l\u2019\xE9ch\xE9ance suivante.</li>
+              <li>L\u2019abonnement est disponible en formule mensuelle ou annuelle.</li>
+              <li>La r\xE9siliation prend effet \xE0 la fin de la p\xE9riode en cours.</li>
               <li>Les demandes de remboursement et les r\xE9clamations sont \xE9tudi\xE9es au cas par cas.</li>
               <li>Les paiements sont trait\xE9s de fa\xE7on s\xE9curis\xE9e via Stripe.</li>
             </ul>
@@ -1299,6 +1430,69 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/auth/reset-password", async (req, res) => {
+    const adminAuth = getAdminAuth();
+    if (!adminAuth) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    if (!email || !/\S+@\S+\.\S+/.test(email)) {
+      return res.status(400).json({ error: "Email invalide." });
+    }
+    try {
+      const resetLink = await adminAuth.generatePasswordResetLink(email);
+      let resendClient;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+        return res.status(200).json({ sent: true });
+      }
+      const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+      await resendClient.client.emails.send({
+        from,
+        to: email,
+        subject: "R\xE9initialisation de votre mot de passe Maintena",
+        html: `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#FEF3C7;color:#92400E;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;display:inline-block;margin-bottom:20px;">
+        R\xE9initialisation du mot de passe
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">
+        Vous avez oubli\xE9 votre mot de passe ?
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Pas de panique. Cliquez sur le bouton ci-dessous pour choisir un nouveau mot de passe. Ce lien est valable <strong>1 heure</strong>.
+      </p>
+      <a href="${resetLink}" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 32px;border-radius:12px;text-decoration:none;margin-bottom:24px;">
+        R\xE9initialiser mon mot de passe
+      </a>
+      <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin:0;">
+        Si vous n'\xEAtes pas \xE0 l'origine de cette demande, ignorez cet email \u2014 votre mot de passe ne sera pas modifi\xE9.
+      </p>
+    </div>
+    <div style="background:#F8FAFC;padding:20px 32px;border-top:1px solid #E2E8F0;">
+      <p style="margin:0;color:#94A3B8;font-size:12px;">\xA9 2026 ProFusion Num\xE9rik \xB7 <a href="https://maintena-pro.fr" style="color:#2563EB;">maintena-pro.fr</a></p>
+    </div>
+  </div>
+</body>
+</html>`
+      });
+      return res.json({ sent: true });
+    } catch (e) {
+      if (e?.code === "auth/user-not-found") {
+        return res.json({ sent: true });
+      }
+      console.error("reset-password error:", e);
+      return res.status(500).json({ error: "Erreur lors de l'envoi." });
+    }
+  });
   app2.post("/api/resend-invite-code", async (req, res) => {
     const { adminEmail, coProName, inviteCode } = req.body;
     if (!adminEmail || !coProName || !inviteCode) {
@@ -1396,6 +1590,50 @@ async function registerRoutes(app2) {
   app2.get("/privacy-policy", (_req, res) => {
     return res.sendFile("privacy-policy.html", { root: "public" });
   });
+  app2.get("/cgu", (_req, res) => {
+    res.send(pageShell("Conditions d'utilisation \u2014 Maintena", `
+  <div class="m-container" style="max-width:720px;">
+    <div class="m-card">
+      <h1 style="font-size:26px;font-weight:800;margin-bottom:4px;">Conditions G\xE9n\xE9rales d'Utilisation</h1>
+      <p style="color:var(--muted);font-size:14px;margin-bottom:32px;">Derni\xE8re mise \xE0 jour : mai 2026</p>
+
+      <h2>1. Objet</h2>
+      <p>Maintena est une application destin\xE9e \xE0 la gestion et au suivi des interventions en copropri\xE9t\xE9, \xE9dit\xE9e par ProFusion Num\xE9rik (SIREN 932 117 500).</p>
+
+      <h2>2. Utilisateurs</h2>
+      <p>L'application est accessible aux syndics, prestataires et copropri\xE9taires ou occupants autoris\xE9s. Chaque profil dispose de droits d'acc\xE8s adapt\xE9s \xE0 sa fonction.</p>
+
+      <h2>3. Compte utilisateur</h2>
+      <p>L'utilisateur est responsable des informations fournies et de la confidentialit\xE9 de ses identifiants. Toute utilisation frauduleuse du compte devra \xEAtre signal\xE9e imm\xE9diatement.</p>
+
+      <h2>4. Utilisation du service</h2>
+      <p>L'application doit \xEAtre utilis\xE9e de mani\xE8re loyale et conforme \xE0 sa finalit\xE9 : gestion r\xE9elle d'interventions et d'informations li\xE9es \xE0 une copropri\xE9t\xE9. Tout usage abusif, frauduleux ou contraire \xE0 l'ordre public est interdit.</p>
+
+      <h2>5. Donn\xE9es personnelles</h2>
+      <p>Les donn\xE9es collect\xE9es (nom, email, t\xE9l\xE9phone, photos) sont utilis\xE9es exclusivement dans le cadre du service. Consultez notre <a href="/privacy-policy" style="color:var(--blue);">Politique de confidentialit\xE9</a> pour plus d'informations.</p>
+
+      <h2>6. Abonnement</h2>
+      <p>L'acc\xE8s complet au service n\xE9cessite un abonnement payant. Les tarifs et conditions sont affich\xE9s lors de l'inscription. L'abonnement est sans engagement et r\xE9siliable \xE0 tout moment.</p>
+
+      <h2>7. Responsabilit\xE9</h2>
+      <p>ProFusion Num\xE9rik s'engage \xE0 maintenir le service disponible et s\xE9curis\xE9, sans garantir une disponibilit\xE9 ininterrompue. La soci\xE9t\xE9 ne peut \xEAtre tenue responsable des dommages indirects li\xE9s \xE0 l'utilisation du service.</p>
+
+      <h2>8. Modification des CGU</h2>
+      <p>Ces conditions peuvent \xEAtre modifi\xE9es \xE0 tout moment. Les utilisateurs seront inform\xE9s de tout changement significatif. La poursuite de l'utilisation du service vaut acceptation des nouvelles conditions.</p>
+
+      <h2>9. Droit applicable</h2>
+      <p>Les pr\xE9sentes CGU sont soumises au droit fran\xE7ais. Tout litige sera soumis \xE0 la comp\xE9tence des tribunaux de Toulouse.</p>
+
+      <h2>10. Contact</h2>
+      <p>Pour toute question : <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a> \xB7 06 68 18 30 92</p>
+    </div>
+  </div>
+  <style>
+    h2 { font-size: 16px; font-weight: 700; margin: 24px 0 8px; color: var(--text); }
+    p { font-size: 14px; color: #334155; line-height: 1.7; margin-bottom: 4px; }
+    .m-card { padding: 40px; }
+  </style>`));
+  });
   app2.get("/account-deletion", (_req, res) => {
     return res.sendFile("account-deletion.html", { root: "public" });
   });
@@ -1406,16 +1644,30 @@ async function registerRoutes(app2) {
       return res.status(400).json({ message: "Email requis." });
     }
     const db2 = getAdminDb();
-    if (!db2) {
-      return res.status(503).json({ message: "Service temporairement indisponible." });
+    const createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (db2) {
+      await db2.collection("accountDeletionRequests").add({
+        email,
+        reason: reason || null,
+        source: "public-web",
+        status: "pending",
+        createdAt
+      });
+    } else {
+      try {
+        const resendClient = await getUncachableResendClient();
+        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        await resendClient.client.emails.send({
+          from: fromAddress,
+          to: process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "bijourobert1@gmail.com",
+          subject: `[Maintena] Demande de suppression de compte \u2014 ${email}`,
+          html: `<p><strong>Email :</strong> ${email}</p><p><strong>Motif :</strong> ${reason || "Non pr\xE9cis\xE9"}</p><p><strong>Date :</strong> ${createdAt}</p>`
+        });
+      } catch (e) {
+        console.error("deletion-request fallback email failed:", e);
+        return res.status(503).json({ message: "Service temporairement indisponible." });
+      }
     }
-    await db2.collection("accountDeletionRequests").add({
-      email,
-      reason: reason || null,
-      source: "public-web",
-      status: "pending",
-      createdAt: (/* @__PURE__ */ new Date()).toISOString()
-    });
     return res.status(200).json({ ok: true });
   });
   app2.post("/api/account/delete", async (req, res) => {
@@ -1432,90 +1684,86 @@ async function registerRoutes(app2) {
     }
   });
   app2.get("/inscription", (_req, res) => {
-    const html = `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Inscription Maintena</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:24px}
-    .wrap{max-width:760px;margin:0 auto}
-    .card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
-    h1{margin-top:0}
-    label{display:block;font-weight:700;margin:14px 0 6px}
-    input{width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:12px;box-sizing:border-box}
-    button{margin-top:18px;background:#2563eb;color:#fff;border:0;border-radius:12px;padding:14px 18px;font-weight:700;cursor:pointer}
-    .muted{color:#64748b}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .error{display:none;margin-top:14px;padding:12px 14px;border-radius:12px;background:#fee2e2;color:#991b1b}
-    @media(max-width:700px){.row{grid-template-columns:1fr}}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
+    const html = pageShell("Cr\xE9er mon espace syndic", `
+  <div class="m-container">
+    <div class="m-card">
       <h1>Cr\xE9er mon espace syndic</h1>
-      <p class="muted">Cr\xE9ez votre compte Maintena puis finalisez l\u2019activation avec l\u2019abonnement annuel.</p>
+      <p class="subtitle">Cr\xE9ez votre compte Maintena puis finalisez l\u2019activation avec votre abonnement.</p>
 
       <form id="signup-form">
-        <div class="row">
+        <div class="m-row">
           <div>
-            <label for="firstName">Pr\xE9nom</label>
-            <input id="firstName" required />
+            <label class="m-label" for="firstName">Pr\xE9nom</label>
+            <input class="m-input" id="firstName" placeholder="Jean" required />
           </div>
           <div>
-            <label for="lastName">Nom</label>
-            <input id="lastName" required />
-          </div>
-        </div>
-
-        <label for="email">Email</label>
-        <input id="email" type="email" required />
-
-        <label for="phone">T\xE9l\xE9phone</label>
-        <input id="phone" />
-
-        <label for="password">Mot de passe</label>
-        <input id="password" type="password" minlength="6" required />
-
-        <label for="coProName">Nom de la copropri\xE9t\xE9</label>
-        <input id="coProName" required />
-
-        <label for="address">Adresse</label>
-        <input id="address" required />
-
-        <div class="row">
-          <div>
-            <label for="postalCode">Code postal</label>
-            <input id="postalCode" required />
-          </div>
-          <div>
-            <label for="city">Ville</label>
-            <input id="city" required />
+            <label class="m-label" for="lastName">Nom</label>
+            <input class="m-input" id="lastName" placeholder="Dupont" required />
           </div>
         </div>
 
-        <button type="submit">Continuer vers le paiement</button>
-        <div class="error" id="error"></div>
+        <label class="m-label" for="email">Email professionnel</label>
+        <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
+
+        <label class="m-label" for="phone">T\xE9l\xE9phone</label>
+        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" pattern="[0-9 ]{10,14}" />
+
+        <label class="m-label" for="password">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 caract\xE8res)</span></label>
+        <input class="m-input" id="password" type="password" minlength="6" required />
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;" />
+        <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Votre premi\xE8re copropri\xE9t\xE9</p>
+
+        <label class="m-label" for="coProName">Nom de la copropri\xE9t\xE9</label>
+        <input class="m-input" id="coProName" placeholder="R\xE9sidence Les Pins" required />
+
+        <label class="m-label" for="address">Adresse</label>
+        <input class="m-input" id="address" placeholder="12 rue de la Paix" required />
+
+        <div class="m-row">
+          <div>
+            <label class="m-label" for="postalCode">Code postal</label>
+            <input class="m-input" id="postalCode" placeholder="31000" required />
+          </div>
+          <div>
+            <label class="m-label" for="city">Ville</label>
+            <input class="m-input" id="city" placeholder="Toulouse" required />
+          </div>
+        </div>
+
+        <button class="m-btn" type="submit" id="submit-btn">Continuer vers le paiement \u2192</button>
+        <div class="m-error" id="error"></div>
       </form>
+
+      <p style="text-align:center;margin-top:18px;font-size:13px;color:var(--muted);">
+        \u{1F512} Paiement s\xE9curis\xE9 via Stripe \xB7 R\xE9siliation \xE0 tout moment
+      </p>
     </div>
   </div>
 
   <script>
     const form = document.getElementById("signup-form");
     const errorBox = document.getElementById("error");
+    const btn = document.getElementById("submit-btn");
+
+    // Format automatique t\xE9l\xE9phone : 06 12 34 56 78
+    const phoneInput = document.getElementById("phone");
+    phoneInput.addEventListener("input", () => {
+      const digits = phoneInput.value.replace(/D/g, "").slice(0, 10);
+      phoneInput.value = digits.replace(/(d{2})(?=d)/g, "$1 ").trim();
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       errorBox.style.display = "none";
-      errorBox.textContent = "";
+      btn.textContent = "Chargement\u2026";
+      btn.disabled = true;
 
       const body = {
         firstName: document.getElementById("firstName").value.trim(),
         lastName: document.getElementById("lastName").value.trim(),
         email: document.getElementById("email").value.trim().toLowerCase(),
-        phone: document.getElementById("phone").value.trim(),
+        phone: document.getElementById("phone").value.replace(/s/g, "").trim(),
         password: document.getElementById("password").value,
         coProName: document.getElementById("coProName").value.trim(),
         address: document.getElementById("address").value.trim(),
@@ -1529,89 +1777,45 @@ async function registerRoutes(app2) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
-
         const data = await res.json();
-
-        if (!res.ok) {
-          throw new Error(data.error || "Erreur lors de l\u2019inscription");
-        }
-
-        if (data.url) {
-          window.location.href = data.url;
-          return;
-        }
-
+        if (!res.ok) throw new Error(data.error || "Erreur lors de l\u2019inscription");
+        if (data.url) { window.location.href = data.url; return; }
         throw new Error("Session Stripe introuvable");
       } catch (err) {
         errorBox.textContent = err.message || "Erreur inconnue";
         errorBox.style.display = "block";
+        btn.textContent = "Continuer vers le paiement \u2192";
+        btn.disabled = false;
       }
     });
-  </script>
-</body>
-</html>`;
+  </script>`);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);
   });
   app2.get("/payment-success", (_req, res) => {
-    res.send(`<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Paiement confirm\xE9</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#f8fafc;padding:24px}
-    .box{max-width:680px;margin:60px auto;background:#fff;border-radius:18px;padding:28px;box-shadow:0 8px 30px rgba(15,23,42,.08)}
-    a{display:inline-block;margin-top:18px;padding:12px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:12px}
-    p{line-height:1.6;color:#475569}
-  </style>
-</head>
-<body>
-  <div class="box">
-    <h1>Paiement confirm\xE9</h1>
-    <p>Votre abonnement Maintena a bien \xE9t\xE9 pris en compte.</p>
-    <p>Votre espace est en cours d\u2019activation. Vous recevrez \xE9galement un email de confirmation.</p>
-    <a href="/">Retour \xE0 l\u2019accueil</a>
-  </div>
-</body>
-</html>`);
+    res.send(pageShell("Paiement confirm\xE9", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">\u2705</div>
+      <h1>Paiement confirm\xE9 !</h1>
+      <p class="subtitle">Votre abonnement Maintena est activ\xE9. Fermez cette fen\xEAtre et retournez dans l\u2019application.</p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:16px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Acc\xE9der \xE0 l\u2019application</a>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Ou ouvrez l\u2019application mobile Maintena sur votre t\xE9l\xE9phone.</p>
+      <p style="margin-top:12px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
+    </div>
+  </div>`));
   });
   app2.get("/payment-cancel", (_req, res) => {
-    res.send(`
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Paiement annul\xE9 \u2014 Maintena</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, sans-serif;
-      background: #0b1628; color: #fff;
-      min-height: 100vh;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .card {
-      background: #142240; border-radius: 24px;
-      padding: 40px 32px; max-width: 400px;
-      text-align: center; border: 1px solid rgba(255,255,255,0.08);
-    }
-    .icon { font-size: 64px; margin-bottom: 20px; }
-    h1 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
-    p { color: rgba(255,255,255,0.6); line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">\u21A9\uFE0F</div>
-    <h1>Paiement annul\xE9</h1>
-    <p>Le paiement a \xE9t\xE9 annul\xE9. Retournez sur l'application pour r\xE9essayer.</p>
-  </div>
-</body>
-</html>
-    `);
+    res.send(pageShell("Paiement annul\xE9", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">\u21A9\uFE0F</div>
+      <h1>Paiement annul\xE9</h1>
+      <p class="subtitle">Le paiement n\u2019a pas \xE9t\xE9 finalis\xE9. Vous pouvez r\xE9essayer \xE0 tout moment sans perdre vos informations.</p>
+      <a href="/inscription" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">R\xE9essayer</a>
+      <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour \xE0 l\u2019accueil</a>
+    </div>
+  </div>`));
   });
   app2.post("/api/init-user-copros", async (req, res) => {
     const db2 = getAdminDb();
@@ -1828,6 +2032,90 @@ async function registerRoutes(app2) {
       return res.json({ sent: true });
     } catch (e) {
       console.error("notify-signalement error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.post("/api/guest-access/create", async (req, res) => {
+    const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body;
+    if (!coProId || !interventionId || !invitedProvider?.email) {
+      return res.status(400).json({ error: "coProId, interventionId et invitedProvider.email sont requis." });
+    }
+    const db2 = getAdminDb();
+    if (!db2) {
+      return res.status(503).json({ error: "Firebase Admin non configur\xE9." });
+    }
+    try {
+      const payload = await createGuestInviteRecord({
+        coProId,
+        interventionId,
+        providerFirstName: invitedProvider.firstName,
+        providerLastName: invitedProvider.lastName,
+        providerEmail: invitedProvider.email,
+        providerPhone: invitedProvider.phone,
+        providerCompany: invitedProvider.company,
+        req
+      });
+      const interventionSnap = await db2.collection("copros").doc(coProId).collection("interventions").doc(interventionId).get();
+      const coproSnap = await db2.collection("copros").doc(coProId).get();
+      const providerName = [invitedProvider.firstName, invitedProvider.lastName].filter(Boolean).join(" ").trim() || invitedProvider.email;
+      const coproName = coproSnap.data()?.name ?? "Copropri\xE9t\xE9";
+      let tempPassword;
+      try {
+        const adminAuth = getAuth();
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+        let uid;
+        try {
+          const existing = await adminAuth.getUserByEmail(invitedProvider.email);
+          uid = existing.uid;
+          await adminAuth.updateUser(uid, { password: tempPassword });
+        } catch {
+          const newUser = await adminAuth.createUser({
+            email: invitedProvider.email,
+            password: tempPassword,
+            displayName: providerName
+          });
+          uid = newUser.uid;
+        }
+        await db2.collection("users").doc(uid).set({
+          uid,
+          email: invitedProvider.email,
+          displayName: providerName,
+          firstName: invitedProvider.firstName ?? "",
+          lastName: invitedProvider.lastName ?? "",
+          phone: invitedProvider.phone ?? "",
+          company: invitedProvider.company ?? ""
+        }, { merge: true });
+        await db2.collection("copros").doc(coProId).collection("members").doc(uid).set({
+          uid,
+          email: invitedProvider.email,
+          displayName: providerName,
+          role: "prestataire",
+          categoryFilter: category ?? null,
+          joinedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          invitedByGuest: true
+        }, { merge: true });
+      } catch (authErr) {
+        console.warn("Cr\xE9ation compte provisoire \xE9chou\xE9e:", authErr);
+        tempPassword = void 0;
+      }
+      await sendGuestInviteEmail({
+        to: invitedProvider.email,
+        providerName,
+        coproName,
+        interventionTitle: interventionSnap.data()?.title ?? "Intervention",
+        webLink: payload.webLink,
+        completeAccountLink: payload.completeAccountLink,
+        tempPassword
+      });
+      return res.json({
+        token: payload.token,
+        guestWebUrl: payload.webLink,
+        completeAccountUrl: payload.completeAccountLink,
+        appLink: payload.appLink
+      });
+    } catch (e) {
+      console.error("guest-access/create error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
@@ -2358,13 +2646,20 @@ async function registerRoutes(app2) {
       "[Firebase Admin] NOT initialized \u2014 photo uploads will fail. Check FIREBASE_SERVICE_ACCOUNT secret."
     );
   }
+  const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
+  if (fs.existsSync(staticBuildIndex)) {
+    app2.get("*", (req, res) => {
+      if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+      res.sendFile(staticBuildIndex);
+    });
+  }
   const httpServer = createServer(app2);
   return httpServer;
 }
 
 // server/index.ts
-import * as fs from "fs";
-import * as path from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 var app = express();
 var log = console.log;
 function setupCors(app2) {
@@ -2384,6 +2679,11 @@ function setupCors(app2) {
         origins.add(origin.replace(/\/$/, ""));
       }
     });
+    if (process.env.ALLOWED_ORIGINS) {
+      process.env.ALLOWED_ORIGINS.split(",").forEach((d) => {
+        origins.add(d.trim());
+      });
+    }
     const requestOrigin = req.header("origin");
     const normalizedOrigin = requestOrigin?.replace(/\/$/, "");
     const isLocalhost = normalizedOrigin?.startsWith("http://localhost:") || normalizedOrigin?.startsWith("http://127.0.0.1:");
@@ -2417,12 +2717,7 @@ function setupBodyParsing(app2) {
       }
     })
   );
-  app2.use(
-    express.urlencoded({
-      extended: false,
-      limit: "10mb"
-    })
-  );
+  app2.use(express.urlencoded({ extended: false, limit: "10mb" }));
 }
 function setupRequestLogging(app2) {
   app2.use((req, res, next) => {
@@ -2437,8 +2732,8 @@ function setupRequestLogging(app2) {
 }
 function getAppName() {
   try {
-    const appJsonPath = path.resolve(process.cwd(), "app.json");
-    const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
+    const appJsonPath = path2.resolve(process.cwd(), "app.json");
+    const appJsonContent = fs2.readFileSync(appJsonPath, "utf-8");
     const appJson = JSON.parse(appJsonContent);
     return appJson.expo?.name || "Maintena";
   } catch {
@@ -2447,19 +2742,19 @@ function getAppName() {
 }
 function configureStatic(app2) {
   const appName = getAppName();
-  const publicPath = path.resolve(process.cwd(), "public");
-  const assetsPath = path.resolve(process.cwd(), "assets");
-  const staticBuildPath = path.resolve(process.cwd(), "static-build");
+  const publicPath = path2.resolve(process.cwd(), "public");
+  const assetsPath = path2.resolve(process.cwd(), "assets");
+  const staticBuildPath = path2.resolve(process.cwd(), "static-build");
   app2.get("/healthz", (_req, res) => {
     return res.status(200).json({ ok: true, app: appName });
   });
-  if (fs.existsSync(publicPath)) {
+  if (fs2.existsSync(publicPath)) {
     app2.use(express.static(publicPath, { extensions: ["html"] }));
   }
-  if (fs.existsSync(assetsPath)) {
+  if (fs2.existsSync(assetsPath)) {
     app2.use("/assets", express.static(assetsPath));
   }
-  if (fs.existsSync(staticBuildPath)) {
+  if (fs2.existsSync(staticBuildPath)) {
     app2.use(express.static(staticBuildPath));
   }
 }
@@ -2485,16 +2780,9 @@ function setupErrorHandler(app2) {
     const server = await registerRoutes(app);
     setupErrorHandler(app);
     const port = parseInt(process.env.PORT || "8080", 10);
-    server.listen(
-      {
-        port,
-        host: "0.0.0.0",
-        reusePort: true
-      },
-      () => {
-        log(`express server serving on port ${port}`);
-      }
-    );
+    server.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
+      log(`express server serving on port ${port}`);
+    });
   } catch (error) {
     console.error("Server bootstrap error:", error);
     process.exit(1);

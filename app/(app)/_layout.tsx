@@ -18,6 +18,7 @@ export default function AppLayout() {
   const isAdmin = currentRole === "admin";
   const isOwner = currentRole === "propriétaire";
   const isPrestataire = currentRole === "prestataire";
+  const isConseil = currentRole === "conseil";
 
   return (
     <Tabs
@@ -84,35 +85,30 @@ export default function AppLayout() {
 
       <Tabs.Screen
         name="stats"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
       />
 
       <Tabs.Screen
         name="conseil-finances"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
       />
 
       <Tabs.Screen
         name="invite-prestataire"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
+        name="annuaire-prestataires"
+        options={{ href: null }}
       />
 
       <Tabs.Screen
         name="admin"
         options={{
-          title: isAdmin ? "Gestionnaire" : isOwner ? "Mon accès" : "Mon compte",
+          title: "Menu",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
-            <Ionicons
-              name={isAdmin ? "settings" : isOwner ? "home-outline" : "person-circle"}
-              size={size}
-              color={color}
-            />
+            <Ionicons name="menu" size={size} color={color} />
           ),
         }}
       />

@@ -66,7 +66,7 @@ export interface RecurrencePattern {
 
 export type Status = "planifie" | "en_cours" | "termine";
 export type CoProStatus = "pending" | "active" | "suspended";
-export type MemberRole = "admin" | "prestataire" | "propriétaire" | "conseil";
+export type MemberRole = "admin" | "collaborateur" | "prestataire" | "propriétaire" | "conseil";
 
 export interface BuildingDef {
   name: string;

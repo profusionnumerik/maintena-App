@@ -105,14 +105,24 @@ export default function AdminScreen() {
   
     if (inviteRole === "collaborateur") {
       return (
-        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena.\n\n` +
+        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que collaborateur.\n\n` +
         `${appLine}\n\n` +
         `Accès web : ${webAccessLink}\n\n` +
         `Rôle : Collaborateur\n` +
         `Code d'invitation : ${code}`
       );
     }
-  
+
+    if (inviteRole === "conseil") {
+      return (
+        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que membre du conseil syndical.\n\n` +
+        `${appLine}\n\n` +
+        `Accès web : ${webAccessLink}\n\n` +
+        `Rôle : Conseil syndical\n` +
+        `Code d'invitation : ${code}`
+      );
+    }
+
     return (
       `Vous êtes invité(e) à intervenir dans la copropriété "${currentCopro?.name}" sur Maintena.\n\n` +
       `${appLine}\n\n` +
@@ -127,6 +137,7 @@ export default function AdminScreen() {
     if (!currentCopro) return null;
     if (inviteRole === "propriétaire") return currentCopro.ownerInviteCode ?? null;
     if (inviteRole === "collaborateur") return currentCopro.inviteCode;
+    if (inviteRole === "conseil") return currentCopro.inviteCode; // même code que collaborateur, rôle changé manuellement par l'admin
     return currentCopro.categoryInviteCodes?.[inviteCategory] ?? null;
   };
 
@@ -448,7 +459,7 @@ export default function AdminScreen() {
       contentContainerStyle={[styles.content, { paddingTop: top + 16, paddingBottom: bottom + 24 }]}
     >
       <View style={styles.pageTitleRow}>
-        <Text style={styles.pageTitle}>{isAdmin ? "Gestion" : currentRole === "propriétaire" ? "Mon accès" : "Mon compte"}</Text>
+        <Text style={styles.pageTitle}>{isAdmin ? "Gestion" : currentRole === "propriétaire" ? "Mon accès" : currentRole === "conseil" ? "Mon espace conseil" : currentRole === "prestataire" ? "Mon espace" : "Mon compte"}</Text>
         {hasMultipleCopros && currentCopro && (
           <Pressable
             style={styles.coProSwitcherBtn}
@@ -472,7 +483,7 @@ export default function AdminScreen() {
           <Text style={styles.userEmail}>{user?.email}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {isAdmin ? "Syndic / Admin" : currentRole === "propriétaire" ? "Propriétaire" : "Collaborateur"}
+              {isAdmin ? "Syndic" : currentRole === "propriétaire" ? "Propriétaire" : currentRole === "conseil" ? "Conseil syndical" : currentRole === "prestataire" ? "Prestataire" : "Collaborateur"}
             </Text>
           </View>
         </View>
@@ -840,14 +851,16 @@ export default function AdminScreen() {
                   m.role === "admin" && styles.memberRoleAdmin,
                   m.role === "propriétaire" && styles.memberRoleOwner,
                   m.role === "conseil" && { backgroundColor: "#E0F2FE" },
+                  m.role === "prestataire" && { backgroundColor: "#F3E8FF" },
                 ]}>
                   <Text style={[
                     styles.memberRoleText,
                     m.role === "admin" && styles.memberRoleTextAdmin,
                     m.role === "propriétaire" && styles.memberRoleTextOwner,
                     m.role === "conseil" && { color: "#0891B2" },
+                    m.role === "prestataire" && { color: "#7C3AED" },
                   ]}>
-                    {m.role === "admin" ? "Admin" : m.role === "propriétaire" ? "Propriétaire" : m.role === "conseil" ? "Conseil syndical" : "Collaborateur"}
+                    {m.role === "admin" ? "Syndic" : m.role === "propriétaire" ? "Propriétaire" : m.role === "conseil" ? "Conseil syndical" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
                   </Text>
                 </View>
                 {m.role === "prestataire" && (

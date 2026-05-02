@@ -77,7 +77,7 @@ service cloud.firestore {
 
       match /interventions/{interventionId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role != 'propriétaire';
+        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role in ['admin', 'collaborateur'];
         allow update: if isSignedIn() && isMember(coProId) && (
           memberData(coProId).role != 'propriétaire' ||
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])
