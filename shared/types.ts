@@ -66,7 +66,7 @@ export interface RecurrencePattern {
 
 export type Status = "planifie" | "en_cours" | "termine";
 export type CoProStatus = "pending" | "active" | "suspended";
-export type MemberRole = "admin" | "prestataire" | "propriétaire";
+export type MemberRole = "admin" | "prestataire" | "propriétaire" | "conseil";
 
 export interface BuildingDef {
   name: string;
@@ -244,6 +244,10 @@ export interface Intervention {
   providerStatus?: "pending" | "accepted" | "refused";
   providerStatusAt?: string;
 
+  // Montant de l'intervention (saisi par le syndic après réalisation)
+  amount?: number;
+  amountSetAt?: string;
+
   // 🔥 MODE INVITATION RAPIDE
   interventionAccessCode?: string;
   providerMode?: "registered" | "external";
@@ -364,3 +368,91 @@ export const ANNOUNCEMENT_TYPE_COLORS: Record<AnnouncementType, string> = {
   travaux: "#8B5CF6",
   urgent: "#EF4444",
 };
+
+// ─── Module Conseil Syndical — Contrôle des comptes ───────────────────────
+
+export type ExpenseCategory =
+  | "eau"
+  | "electricite"
+  | "gaz"
+  | "assurance"
+  | "ascenseur"
+  | "nettoyage"
+  | "espaces_verts"
+  | "travaux"
+  | "honoraires_syndic"
+  | "divers";
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
+  eau: "Eau",
+  electricite: "Électricité",
+  gaz: "Gaz",
+  assurance: "Assurance",
+  ascenseur: "Ascenseur",
+  nettoyage: "Nettoyage",
+  espaces_verts: "Espaces verts",
+  travaux: "Travaux",
+  honoraires_syndic: "Honoraires syndic",
+  divers: "Divers",
+};
+
+export const EXPENSE_CATEGORY_ICONS: Record<ExpenseCategory, string> = {
+  eau: "water-outline",
+  electricite: "flash-outline",
+  gaz: "flame-outline",
+  assurance: "shield-checkmark-outline",
+  ascenseur: "arrow-up-circle-outline",
+  nettoyage: "sparkles-outline",
+  espaces_verts: "leaf-outline",
+  travaux: "construct-outline",
+  honoraires_syndic: "briefcase-outline",
+  divers: "ellipsis-horizontal-circle-outline",
+};
+
+export const EXPENSE_CATEGORY_COLORS: Record<ExpenseCategory, string> = {
+  eau: "#0EBAAA",
+  electricite: "#F59E0B",
+  gaz: "#F97316",
+  assurance: "#6366F1",
+  ascenseur: "#8B5CF6",
+  nettoyage: "#10B981",
+  espaces_verts: "#22C55E",
+  travaux: "#3B82F6",
+  honoraires_syndic: "#64748B",
+  divers: "#94A3B8",
+};
+
+export const ALL_EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  "eau", "electricite", "gaz", "assurance", "ascenseur",
+  "nettoyage", "espaces_verts", "travaux", "honoraires_syndic", "divers",
+];
+
+export interface Expense {
+  id: string;
+  coProId: string;
+  label: string;
+  amount: number;
+  category: ExpenseCategory;
+  date: string;
+  description?: string;
+  interventionId?: string;
+  addedBy: string;
+  addedByName: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BudgetLine {
+  category: ExpenseCategory;
+  budgeted: number;
+}
+
+export interface AnnualBudget {
+  id: string;
+  coProId: string;
+  year: number;
+  lines: Partial<Record<ExpenseCategory, number>>;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+}

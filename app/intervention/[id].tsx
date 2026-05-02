@@ -251,6 +251,9 @@ export default function InterventionDetailScreen() {
 
   const [rating, setRating] = useState(intervention?.rating);
   const [isSaving, setIsSaving] = useState(false);
+  const [amountInput, setAmountInput] = useState(intervention?.amount !== undefined ? String(intervention.amount) : "");
+  const [amountEditing, setAmountEditing] = useState(false);
+  const [amountSaving, setAmountSaving] = useState(false);
   const [isUploadingCompletion, setIsUploadingCompletion] = useState(false);
   const [localCompletionPhotos, setLocalCompletionPhotos] = useState<string[]>([]);
   const [viewerPhotos, setViewerPhotos] = useState<string[]>([]);
@@ -551,7 +554,31 @@ export default function InterventionDetailScreen() {
     }
   };
 
+  const handleSaveAmount = async () => {
+    const v = parseFloat(amountInput.replace(",", "."));
+    if (isNaN(v) || v <= 0) {
+      if (Platform.OS === "web") window.alert("Montant invalide.");
+      else Alert.alert("Montant invalide", "Entrez un nombre positif.");
+      return;
+    }
+    setAmountSaving(true);
+    try {
+      await updateIntervention(intervention.id, {
+        amount: v,
+        amountSetAt: new Date().toISOString(),
+      } as any);
+      setAmountEditing(false);
+    } catch { /* ignore */ }
+    finally { setAmountSaving(false); }
+  };
+
   const handleDelete = () => {
+    if (intervention.amount !== undefined) {
+      const msg = "Cette intervention a un montant enregistré (trace financière). La suppression est bloquée.";
+      if (Platform.OS === "web") { window.alert(msg); return; }
+      Alert.alert("Suppression impossible", msg);
+      return;
+    }
     const hasGroup = !!intervention.recurrenceGroupId;
 
     const doDelete = async (deleteAll: boolean) => {
@@ -1308,6 +1335,57 @@ export default function InterventionDetailScreen() {
             </>
           ) : null}
         </View>
+
+        {/* Montant de l'intervention — visible admin et conseil uniquement */}
+        {(isAdmin || currentRole === "conseil") && intervention.status === "termine" && (
+          <View style={styles.amountCard}>
+            <View style={styles.amountCardHeader}>
+              <Ionicons name="wallet-outline" size={18} color="#0891B2" />
+              <Text style={styles.amountCardTitle}>Montant de l'intervention</Text>
+              {isAdmin && !amountEditing && (
+                <Pressable style={styles.amountEditBtn} onPress={() => setAmountEditing(true)}>
+                  <Ionicons name="create-outline" size={16} color="#0891B2" />
+                  <Text style={styles.amountEditText}>{intervention.amount !== undefined ? "Modifier" : "Saisir"}</Text>
+                </Pressable>
+              )}
+            </View>
+
+            {amountEditing ? (
+              <View style={styles.amountInputRow}>
+                <TextInput
+                  style={styles.amountInput}
+                  value={amountInput}
+                  onChangeText={setAmountInput}
+                  placeholder="0,00"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="decimal-pad"
+                  autoFocus
+                />
+                <Text style={styles.amountEuro}>€</Text>
+                <Pressable style={styles.amountSaveBtn} onPress={handleSaveAmount} disabled={amountSaving}>
+                  {amountSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.amountSaveBtnText}>Enregistrer</Text>}
+                </Pressable>
+                <Pressable onPress={() => { setAmountEditing(false); setAmountInput(intervention.amount !== undefined ? String(intervention.amount) : ""); }}>
+                  <Text style={styles.amountCancel}>Annuler</Text>
+                </Pressable>
+              </View>
+            ) : intervention.amount !== undefined ? (
+              <Text style={styles.amountValue}>
+                {intervention.amount.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+              </Text>
+            ) : (
+              <Text style={styles.amountPlaceholder}>
+                {isAdmin ? "Aucun montant saisi — appuyez sur Saisir" : "Montant non encore renseigné par le syndic"}
+              </Text>
+            )}
+
+            {intervention.amount !== undefined && (
+              <Text style={styles.amountLockNote}>
+                🔒 Une fois le montant enregistré, l'intervention ne peut plus être supprimée.
+              </Text>
+            )}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -2020,4 +2098,25 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 10,
   },
+  amountCard: {
+    backgroundColor: "#F0F9FF", borderWidth: 1, borderColor: "#BAE6FD",
+    borderRadius: 16, padding: 16, marginHorizontal: 16, marginBottom: 16,
+  },
+  amountCardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  amountCardTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#0C4A6E" },
+  amountEditBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: "#BAE6FD", borderRadius: 8 },
+  amountEditText: { fontSize: 13, color: "#0891B2", fontFamily: "Inter_500Medium" },
+  amountValue: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#0891B2" },
+  amountPlaceholder: { fontSize: 13, color: "#7BA8BE", fontFamily: "Inter_400Regular", fontStyle: "italic" },
+  amountInputRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  amountInput: {
+    width: 120, borderWidth: 1, borderColor: "#7DD3FC", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8, fontSize: 18,
+    fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "right",
+  },
+  amountEuro: { fontSize: 18, color: "#0891B2", fontFamily: "Inter_600SemiBold" },
+  amountSaveBtn: { backgroundColor: "#0891B2", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  amountSaveBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  amountCancel: { fontSize: 13, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
+  amountLockNote: { fontSize: 11, color: "#7BA8BE", fontFamily: "Inter_400Regular", marginTop: 8 },
 });

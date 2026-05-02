@@ -22,6 +22,14 @@ service cloud.firestore {
       return isMember(coProId) && memberData(coProId).role == 'admin';
     }
 
+    function isConseilMember(coProId) {
+      return isMember(coProId) && memberData(coProId).role == 'conseil';
+    }
+
+    function canManageFinances(coProId) {
+      return isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+    }
+
     function canReadCopro(coProId) {
       return isSuperAdmin() || isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
     }
@@ -80,6 +88,17 @@ service cloud.firestore {
       match /providerContacts/{contactId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create, update, delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if canManageFinances(coProId);
+        allow create, update: if canManageFinances(coProId);
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
+      match /budgets/{budgetId} {
+        allow read: if canManageFinances(coProId);
+        allow write: if canManageFinances(coProId);
       }
 
       match /signalements/{signalementId} {

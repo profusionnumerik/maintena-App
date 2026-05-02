@@ -90,6 +90,13 @@ export default function AppLayout() {
       />
 
       <Tabs.Screen
+        name="conseil-finances"
+        options={{
+          href: null,
+        }}
+      />
+
+      <Tabs.Screen
         name="invite-prestataire"
         options={{
           href: null,

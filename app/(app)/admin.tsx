@@ -50,7 +50,7 @@ export default function AdminScreen() {
   const [generatingCatCode, setGeneratingCatCode] = useState<Category | null>(null);
   const [copiedCatCode, setCopiedCatCode] = useState<Category | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
-  const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire">("collaborateur");
+  const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire" | "conseil">("collaborateur");
   const [inviteCategory, setInviteCategory] = useState<Category>("nettoyage");
   const [inviteGenerating, setInviteGenerating] = useState(false);
 
@@ -839,13 +839,15 @@ export default function AdminScreen() {
                   styles.memberRoleBadge,
                   m.role === "admin" && styles.memberRoleAdmin,
                   m.role === "propriétaire" && styles.memberRoleOwner,
+                  m.role === "conseil" && { backgroundColor: "#E0F2FE" },
                 ]}>
                   <Text style={[
                     styles.memberRoleText,
                     m.role === "admin" && styles.memberRoleTextAdmin,
                     m.role === "propriétaire" && styles.memberRoleTextOwner,
+                    m.role === "conseil" && { color: "#0891B2" },
                   ]}>
-                    {m.role === "admin" ? "Admin" : m.role === "propriétaire" ? "Propriétaire" : "Collaborateur"}
+                    {m.role === "admin" ? "Admin" : m.role === "propriétaire" ? "Propriétaire" : m.role === "conseil" ? "Conseil syndical" : "Collaborateur"}
                   </Text>
                 </View>
                 {m.role === "prestataire" && (
@@ -875,6 +877,24 @@ export default function AdminScreen() {
               {c.id === currentCopro?.id && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
             </Pressable>
           ))}
+        </View>
+      )}
+
+      {(isAdmin || currentRole === "conseil") && (
+        <View style={styles.section}>
+          <Pressable
+            style={styles.statsNavBtn}
+            onPress={() => router.push("/(app)/conseil-finances" as any)}
+          >
+            <View style={styles.statsNavIcon}>
+              <Ionicons name="wallet-outline" size={18} color="#0891B2" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Contrôle des comptes</Text>
+              <Text style={styles.statsNavSub}>Dépenses, budget prévisionnel, synthèse</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
         </View>
       )}
 
@@ -981,11 +1001,11 @@ export default function AdminScreen() {
 
           <Text style={styles.modalSectionLabel}>Rôle</Text>
           <View style={styles.rolePickerRow}>
-            {(["propriétaire", "collaborateur", "prestataire"] as const).map((r) => {
+            {(["propriétaire", "collaborateur", "conseil", "prestataire"] as const).map((r) => {
               const active = inviteRole === r;
-              const label = r === "propriétaire" ? "Propriétaire" : r === "collaborateur" ? "Collaborateur" : "Prestataire";
-              const icon = r === "propriétaire" ? "home-outline" : r === "collaborateur" ? "people-outline" : "construct-outline";
-              const color = r === "propriétaire" ? COLORS.teal : r === "collaborateur" ? COLORS.primary : "#7C3AED";
+              const label = r === "propriétaire" ? "Propriétaire" : r === "collaborateur" ? "Collaborateur" : r === "conseil" ? "Conseil syndical" : "Prestataire";
+              const icon = r === "propriétaire" ? "home-outline" : r === "collaborateur" ? "people-outline" : r === "conseil" ? "shield-checkmark-outline" : "construct-outline";
+              const color = r === "propriétaire" ? COLORS.teal : r === "collaborateur" ? COLORS.primary : r === "conseil" ? "#0891B2" : "#7C3AED";
               return (
                 <Pressable
                   key={r}
