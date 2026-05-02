@@ -328,6 +328,7 @@ export default function AddInterventionScreen() {
   const [technicianPhone, setTechnicianPhone] = useState("");
   const [assignedToUid, setAssignedToUid] = useState<string>("");
   const [assignedToName, setAssignedToName] = useState<string>("");
+  const [assignedToEmail, setAssignedToEmail] = useState<string>("");
   const [phoneError, setPhoneError] = useState("");
 
   const [providerMode, setProviderMode] = useState<ProviderMode>("existing");
@@ -935,61 +936,54 @@ export default function AddInterventionScreen() {
 
         safeHapticSuccess();
 
-        if (
-          isAdmin &&
-          providerMode === "new" &&
-          invitedProviderPayload &&
-          firstCreatedInterventionId
-        ) {
-          if (newProvider.phone.trim() && category) {
-            try {
-              await preRegisterProvider({
+        if (isAdmin && invitedProviderPayload && newProvider.phone.trim() && category) {
+          try {
+            await preRegisterProvider({
+              firstName: newProvider.firstName.trim(),
+              lastName: newProvider.lastName.trim(),
+              email: newProvider.email.trim().toLowerCase(),
+              phone: onlyPhoneDigits(newProvider.phone),
+              coProId: currentCopro.id,
+              category,
+            });
+          } catch (e) {
+            console.warn("[MAINTENA] preRegisterProvider failed:", e);
+          }
+        }
+
+        const guestEmailMulti = providerMode === "new"
+          ? newProvider.email.trim().toLowerCase()
+          : assignedToEmail;
+
+        if (isAdmin && guestEmailMulti && firstCreatedInterventionId) {
+          try {
+            const selectedMemberMulti = providerMode === "existing"
+              ? availablePrestataires.find((p: any) => p.uid === assignedToUid)
+              : null;
+
+            await createGuestAccess({
+              coProId: currentCopro.id,
+              interventionId: firstCreatedInterventionId,
+              invitedProvider: providerMode === "new" ? {
                 firstName: newProvider.firstName.trim(),
                 lastName: newProvider.lastName.trim(),
                 email: newProvider.email.trim().toLowerCase(),
                 phone: onlyPhoneDigits(newProvider.phone),
-                coProId: currentCopro.id,
-                category,
-              });
-            } catch (e) {
-              console.warn("[MAINTENA] preRegisterProvider failed:", e);
-            }
+                company: newProvider.company?.trim() || "",
+              } : {
+                firstName: selectedMemberMulti?.firstName ?? assignedToName,
+                lastName: selectedMemberMulti?.lastName ?? "",
+                email: guestEmailMulti,
+                phone: selectedMemberMulti?.phone ?? "",
+                company: selectedMemberMulti?.company ?? "",
+              },
+              category: category || "",
+              categoryInviteCode: categoryInviteCode || undefined,
+            });
+          } catch (e) {
+            console.error("Guest access create failed:", e);
           }
-
-          try {
-              const access = await createGuestAccess({
-                coProId: currentCopro.id,
-                interventionId: firstCreatedInterventionId,
-                invitedProvider: {
-                  firstName: newProvider.firstName.trim(),
-                  lastName: newProvider.lastName.trim(),
-                  email: newProvider.email.trim().toLowerCase(),
-                  phone: onlyPhoneDigits(newProvider.phone),
-                  company: newProvider.company?.trim() || "",
-                },
-                category: category || "",
-                categoryInviteCode: categoryInviteCode || undefined,
-              });
-
-              const message = buildGuestShareMessage({
-                providerName: fullProviderName(newProvider) || "Prestataire",
-                coproName: currentCopro?.name || "Copropriété",
-                title: title.trim(),
-                description: description.trim(),
-                dateLabel: new Date(dates[0]).toLocaleDateString("fr-FR"),
-                categoryLabel: category ? CATEGORY_LABELS[category] : "Prestation",
-                categoryInviteCode,
-                guestWebUrl: access.guestWebUrl,
-                completeAccountUrl: access.completeAccountUrl,
-                appLink: access.appLink || getAppDownloadUrl(),
-              });
-
-              await crossShare(message, "Partager l’intervention");
-            } catch (e) {
-              console.error("Guest access create/share failed:", e);
-            }
-
-            router.replace(`/intervention/${firstCreatedInterventionId}` as any);
+          router.replace(`/intervention/${firstCreatedInterventionId}` as any);
         } else {
           if (Platform.OS === "web") {
             window.alert(
@@ -1052,8 +1046,8 @@ export default function AddInterventionScreen() {
 
         safeHapticSuccess();
 
-        if (isAdmin && providerMode === "new" && invitedProviderPayload) {
-          // Préinscrire le prestataire pour qu’il puisse finaliser son compte
+        if (isAdmin && invitedProviderPayload) {
+          // Nouveau prestataire : pré-inscription
           if (newProvider.phone.trim() && category) {
             try {
               await preRegisterProvider({
@@ -1068,21 +1062,37 @@ export default function AddInterventionScreen() {
               console.warn("[MAINTENA] preRegisterProvider failed:", e);
             }
           }
+        }
 
+        const guestEmail = providerMode === "new"
+          ? newProvider.email.trim().toLowerCase()
+          : assignedToEmail;
+
+        if (isAdmin && guestEmail) {
           try {
-              const access = await createGuestAccess({
-                coProId: currentCopro.id,
-                interventionId: createdInterventionId,
-                invitedProvider: {
-                  firstName: newProvider.firstName.trim(),
-                  lastName: newProvider.lastName.trim(),
-                  email: newProvider.email.trim().toLowerCase(),
-                  phone: onlyPhoneDigits(newProvider.phone),
-                  company: newProvider.company?.trim() || "",
-                },
-                category: category || "",
-                categoryInviteCode: categoryInviteCode || undefined,
-              });
+            const selectedMember = providerMode === "existing"
+              ? availablePrestataires.find((p: any) => p.uid === assignedToUid)
+              : null;
+
+            const access = await createGuestAccess({
+              coProId: currentCopro.id,
+              interventionId: createdInterventionId,
+              invitedProvider: providerMode === "new" ? {
+                firstName: newProvider.firstName.trim(),
+                lastName: newProvider.lastName.trim(),
+                email: newProvider.email.trim().toLowerCase(),
+                phone: onlyPhoneDigits(newProvider.phone),
+                company: newProvider.company?.trim() || "",
+              } : {
+                firstName: selectedMember?.firstName ?? assignedToName,
+                lastName: selectedMember?.lastName ?? "",
+                email: guestEmail,
+                phone: selectedMember?.phone ?? "",
+                company: selectedMember?.company ?? "",
+              },
+              category: category || "",
+              categoryInviteCode: categoryInviteCode || undefined,
+            });
 
               await updateIntervention(
                 createdInterventionId,
@@ -1093,49 +1103,21 @@ export default function AddInterventionScreen() {
                 } as any
               );
 
-              const message = buildGuestShareMessage({
-                providerName: fullProviderName(newProvider) || "Prestataire",
-                coproName: currentCopro?.name || "Copropriété",
-                title: title.trim(),
-                description: description.trim(),
-                dateLabel: parsedDate.toLocaleDateString("fr-FR"),
-                categoryLabel: category ? CATEGORY_LABELS[category] : "Prestation",
-                categoryInviteCode,
-                guestWebUrl: access.guestWebUrl,
-                completeAccountUrl: access.completeAccountUrl,
-                appLink: access.appLink || getAppDownloadUrl(),
-              });
-
               const emailMsg = access.emailSent === false
-                ? `L’intervention a été créée mais l’email n’a pas pu être envoyé à ${newProvider.email}. Partagez le lien manuellement.`
-                : `Un email de confirmation a été envoyé à ${newProvider.email}.`;
+                ? `L’intervention a été créée mais l’email n’a pas pu être envoyé à ${guestEmail}. Partagez le lien manuellement.`
+                : `Un email de confirmation a été envoyé à ${guestEmail}.`;
 
               if (Platform.OS === "web") {
                 window.alert(`Intervention créée. ${emailMsg}`);
-                router.replace(`/intervention/${createdInterventionId}` as any);
               } else {
-                Alert.alert("Intervention créée", emailMsg, [
-                  ...(access.emailSent === false ? [{
-                    text: "Partager le lien",
-                    onPress: async () => {
-                      try { await crossShare(message, "Partager l’intervention"); } catch {}
-                      router.replace(`/intervention/${createdInterventionId}` as any);
-                    },
-                  }] : [{
-                    text: "Partager aussi par SMS",
-                    onPress: async () => {
-                      try { await crossShare(message, "Partager l’intervention"); } catch {}
-                      router.replace(`/intervention/${createdInterventionId}` as any);
-                    },
-                  }]),
-                  {
-                    text: "Ouvrir la fiche",
-                    onPress: () => router.replace(`/intervention/${createdInterventionId}` as any),
-                  },
-                ]);
+                Alert.alert("Intervention créée", emailMsg, [{
+                  text: "Ouvrir la fiche",
+                  onPress: () => router.replace(`/intervention/${createdInterventionId}` as any),
+                }]);
               }
+              router.replace(`/intervention/${createdInterventionId}` as any);
             } catch (e) {
-              console.error("Guest access create/share failed:", e);
+              console.error("Guest access create failed:", e);
               router.replace(`/intervention/${createdInterventionId}` as any);
             }
         } else {
@@ -1741,6 +1723,7 @@ export default function AddInterventionScreen() {
                             safeHapticSelection();
                             setAssignedToUid(p.uid);
                             setAssignedToName(label);
+                            setAssignedToEmail(p.email ?? "");
                           }}
                           style={[styles.chip, active && styles.chipActive]}
                         >
