@@ -2330,6 +2330,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(payload.status).json({ error: payload.error });
     }
 
+    if (payload.intervention.guestUpdatedAt) {
+      return res.status(403).json({ error: "Ce compte-rendu a déjà été transmis. Aucune modification n'est possible." });
+    }
+
     const { base64, mimeType = "image/jpeg" } = req.body as {
       base64?: string;
       mimeType?: string;
@@ -2419,6 +2423,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(payload.status).json({ error: payload.error });
     }
 
+    if (payload.intervention.guestUpdatedAt) {
+      return res.status(403).json({ error: "Ce compte-rendu a déjà été transmis. Aucune modification n'est possible." });
+    }
+
     const {
       status,
       report,
@@ -2480,7 +2488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const pStatus = payload.intervention.providerStatus; // "pending" | "accepted" | "refused"
-    const reportLocked = !!payload.intervention.guestUpdatedAt && payload.intervention.status === "termine";
+    const reportLocked = !!payload.intervention.guestUpdatedAt;
     const dateStr = payload.intervention.date
       ? new Date(payload.intervention.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
       : "Non renseignée";
