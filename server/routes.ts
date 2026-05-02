@@ -9,6 +9,7 @@ import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getStorage, getDownloadURL } from "firebase-admin/storage";
+import { generateCleaningAreas } from "../shared/types";
 
 function getStripe(): Stripe | null {
   if (!process.env.STRIPE_SECRET_KEY) return null;
@@ -443,6 +444,9 @@ async function buildGuestInterventionPayload(token: string) {
       completionPhotos: Array.isArray(intervention.completionPhotos)
         ? intervention.completionPhotos
         : [],
+      cleaningChecklist: (intervention.cleaningChecklist && typeof intervention.cleaningChecklist === "object")
+        ? intervention.cleaningChecklist as Record<string, boolean>
+        : {} as Record<string, boolean>,
     },
     copro: {
       id: invite.data.coProId,
@@ -452,6 +456,7 @@ async function buildGuestInterventionPayload(token: string) {
         [copro?.street, copro?.postalCode, copro?.city]
           .filter(Boolean)
           .join(", "),
+      buildingConfig: copro?.buildingConfig ?? null,
     },
     provider: {
       firstName: invite.data.providerFirstName ?? "",
@@ -2288,12 +2293,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       completionComment,
       interventionRemaining,
       completionPhotos,
+      cleaningChecklist,
     } = req.body as {
       status?: "planifie" | "en_cours" | "termine";
       report?: string;
       completionComment?: string;
       interventionRemaining?: string;
       completionPhotos?: string[];
+      cleaningChecklist?: Record<string, boolean>;
     };
 
     try {
@@ -2306,12 +2313,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           completionPhotos: Array.isArray(completionPhotos)
             ? completionPhotos
             : payload.intervention.completionPhotos,
+          ...(cleaningChecklist && typeof cleaningChecklist === "object" ? { cleaningChecklist } : {}),
           guestUpdatedAt: new Date().toISOString(),
           // Soumettre un rapport implique l'acceptation
           providerStatus: "accepted",
-          providerStatusAt: payload.intervention.providerStatus === "accepted"
-            ? undefined
-            : new Date().toISOString(),
+          ...(payload.intervention.providerStatus !== "accepted" ? { providerStatusAt: new Date().toISOString() } : {}),
         },
         { merge: true }
       );
@@ -2351,6 +2357,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           `<a href="${escapeHtml(url)}" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">📷 Voir la photo</a>`
         ).join("")
       : `<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>`;
+
+    // Zones de nettoyage
+    const isNettoyage = payload.intervention.category === "nettoyage";
+    const cleaningAreas = (isNettoyage && payload.copro.buildingConfig)
+      ? generateCleaningAreas(payload.copro.buildingConfig)
+      : [];
+    const checklist = payload.intervention.cleaningChecklist;
+
+    const groupedAreas: Record<string, typeof cleaningAreas> = {};
+    cleaningAreas.forEach((area) => {
+      if (!groupedAreas[area.group]) groupedAreas[area.group] = [];
+      groupedAreas[area.group].push(area);
+    });
+
+    const cleaningZonesHtml = cleaningAreas.length > 0 ? `
+      <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
+        <div style="font-size:18px;font-weight:800;color:#0f172a;margin-bottom:6px;">Zones de nettoyage</div>
+        <div style="font-size:13px;color:#64748b;margin-bottom:18px;">Cochez les zones effectuées lors de cette intervention.</div>
+        ${Object.entries(groupedAreas).map(([group, areas]) => `
+          <div style="margin-bottom:16px;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">${escapeHtml(group)}</div>
+            ${areas.map(area => {
+              const checked = checklist[area.id] === true;
+              return `<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;cursor:pointer;transition:background 0.15s;${checked ? "background:#f0fdf4;" : "background:#f8fafc;"}margin-bottom:6px;">
+                <input type="checkbox" name="zone_${escapeHtml(area.id)}" data-zone="${escapeHtml(area.id)}" ${checked ? "checked" : ""} style="width:18px;height:18px;accent-color:#10b981;cursor:pointer;" onchange="onZoneChange(this)" />
+                <span style="font-size:14px;color:#0f172a;">${escapeHtml(area.label)}</span>
+              </label>`;
+            }).join("")}
+          </div>
+        `).join("")}
+        <div id="zone-count" style="font-size:13px;color:#64748b;margin-top:8px;"></div>
+      </div>` : "";
 
     const statusOptions = [
       ["en_cours", "En cours"],
@@ -2411,6 +2449,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:15px;color:#0f172a;line-height:1.6;">${escapeHtml(payload.intervention.description || "Aucune description fournie.")}</div>
     </div>
   </div>
+
+  ${cleaningZonesHtml}
 
   <!-- Compte-rendu -->
   <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
@@ -2489,6 +2529,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const success = document.getElementById('success');
   const error = document.getElementById('error');
 
+  // Zones de nettoyage — état local des checkboxes
+  let cleaningChecklist = ${JSON.stringify(payload.intervention.cleaningChecklist)};
+
+  function onZoneChange(checkbox) {
+    const zoneId = checkbox.dataset.zone;
+    cleaningChecklist[zoneId] = checkbox.checked;
+    const label = checkbox.closest('label');
+    if (label) label.style.background = checkbox.checked ? '#f0fdf4' : '#f8fafc';
+    updateZoneCount();
+  }
+
+  function updateZoneCount() {
+    const countEl = document.getElementById('zone-count');
+    if (!countEl) return;
+    const total = Object.keys(cleaningChecklist).length;
+    const done = Object.values(cleaningChecklist).filter(Boolean).length;
+    countEl.textContent = done + ' / ' + total + ' zones effectuées';
+  }
+
+  updateZoneCount();
+
   function renderPhotos() {
     if (!completionPhotos.length) {
       photosList.innerHTML = '<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>';
@@ -2531,6 +2592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       completionComment: '',
       interventionRemaining: document.getElementById('interventionRemaining').value,
       completionPhotos,
+      cleaningChecklist: Object.keys(cleaningChecklist).length > 0 ? cleaningChecklist : undefined,
     };
     try {
       const res = await fetch('/api/public/intervention/' + TOKEN + '/report', {
@@ -2554,95 +2616,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     if (payload.status !== 200) {
       return res.status(payload.status).send(
-        `<!doctype html><html><body style="font-family:Arial,sans-serif;padding:40px"><h1>Lien indisponible</h1><p>${escapeHtml(
-          payload.error
-        )}</p></body></html>`
+        pageShell("Lien indisponible", `<div class="m-container"><div class="m-card"><h1>Lien indisponible</h1><p>${escapeHtml(payload.error)}</p></div></div>`)
       );
     }
 
-    const html = `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Finaliser mon compte Maintena</title>
-  <style>
-    body{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:24px;}
-    .wrap{max-width:680px;margin:0 auto;}
-    .card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 8px 32px rgba(15,23,42,.08);margin-bottom:16px;}
-    h1{font-size:28px;margin:0 0 8px;}
-    label{display:block;font-size:14px;font-weight:600;margin-bottom:6px;}
-    input{width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:12px;font-size:14px;box-sizing:border-box;margin-bottom:14px;}
-    button{background:#2563eb;color:#fff;border:none;border-radius:12px;padding:14px 18px;font-weight:700;font-size:15px;cursor:pointer;}
-    .muted{color:#64748b;font-size:14px;}
-    .success,.error{display:none;padding:12px 14px;border-radius:12px;margin-top:12px;}
-    .success{background:#dcfce7;color:#166534;}
-    .error{background:#fee2e2;color:#991b1b;}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Finaliser mon compte</h1>
-      <p class="muted">Vos informations ont déjà été enregistrées par le syndic. Il ne vous reste qu’à choisir un mot de passe.</p>
-    </div>
-
-    <div class="card">
-      <label>Prénom</label>
-      <input value="${escapeHtml(payload.provider.firstName || "")}" disabled />
-
-      <label>Nom</label>
-      <input value="${escapeHtml(payload.provider.lastName || "")}" disabled />
-
-      <label>Email</label>
-      <input value="${escapeHtml(payload.provider.email || "")}" disabled />
-
-      <label>Téléphone</label>
-      <input value="${escapeHtml(payload.provider.phone || "")}" disabled />
-
-      <label for="password">Mot de passe</label>
-      <input id="password" type="password" placeholder="Au moins 6 caractères" />
-
-      <button id="submitBtn">Créer mon compte</button>
-
-      <div class="success" id="success">Compte créé avec succès.</div>
-      <div class="error" id="error"></div>
-    </div>
+    const completeAccountToken = req.params.token;
+    const body = `
+<div class="m-container">
+  <div class="m-card" style="margin-bottom:20px;">
+    <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">Finaliser mon compte</h1>
+    <p style="color:#64748b;font-size:14px;margin:0;">Vos informations ont déjà été enregistrées par le syndic. Il ne vous reste qu’à choisir un mot de passe.</p>
   </div>
 
-  <script>
-    const btn = document.getElementById('submitBtn');
-    const success = document.getElementById('success');
-    const error = document.getElementById('error');
+  <div class="m-card">
+    <label class="m-label">Prénom</label>
+    <input class="m-input" value="${escapeHtml(payload.provider.firstName || "")}" disabled />
 
-    btn.addEventListener('click', async () => {
-      success.style.display = 'none';
-      error.style.display = 'none';
+    <label class="m-label">Nom</label>
+    <input class="m-input" value="${escapeHtml(payload.provider.lastName || "")}" disabled />
 
-      const password = document.getElementById('password').value;
+    <label class="m-label">Email</label>
+    <input class="m-input" value="${escapeHtml(payload.provider.email || "")}" disabled />
 
-      try {
-        const res = await fetch('/api/public/complete-account/${req.params.token}', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }),
-        });
+    <label class="m-label">Téléphone</label>
+    <input class="m-input" value="${escapeHtml(payload.provider.phone || "")}" disabled />
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erreur');
+    <label class="m-label" for="password">Mot de passe</label>
+    <input class="m-input" id="password" type="password" placeholder="Au moins 6 caractères" />
 
-        success.style.display = 'block';
-      } catch (e) {
-        error.textContent = e.message || 'Erreur création compte';
-        error.style.display = 'block';
-      }
-    });
-  </script>
-</body>
-</html>`;
+    <button class="m-btn" id="submitBtn">Créer mon compte</button>
+
+    <div class="m-success" id="success" style="display:none;">Compte créé avec succès. Vous pouvez maintenant vous connecter à l’application.</div>
+    <div class="m-error" id="error" style="display:none;"></div>
+  </div>
+</div>
+
+<script>
+  const btn = document.getElementById(‘submitBtn’);
+  const success = document.getElementById(‘success’);
+  const error = document.getElementById(‘error’);
+
+  btn.addEventListener(‘click’, async () => {
+    success.style.display = ‘none’;
+    error.style.display = ‘none’;
+    const password = document.getElementById(‘password’).value;
+    if (!password || password.length < 6) {
+      error.textContent = ‘Le mot de passe doit contenir au moins 6 caractères.’;
+      error.style.display = ‘block’;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = ‘Création en cours...’;
+    try {
+      const res = await fetch(‘/api/public/complete-account/${completeAccountToken}’, {
+        method: ‘POST’,
+        headers: { ‘Content-Type’: ‘application/json’ },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ‘Erreur’);
+      success.style.display = ‘block’;
+      btn.style.display = ‘none’;
+    } catch (e) {
+      error.textContent = e.message || ‘Erreur création compte’;
+      error.style.display = ‘block’;
+      btn.disabled = false;
+      btn.textContent = ‘Créer mon compte’;
+    }
+  });
+</script>`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(html);
+    return res.status(200).send(pageShell("Finaliser mon compte — Maintena", body, "← Retour", "/"));
   });
 
   const db = getAdminDb();
