@@ -2619,35 +2619,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div>${existingPhotosHtml}</div>
     </div>
     ` : `
-
-    <!-- Étape 1 : Photo obligatoire -->
-    <div id="photo-section" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:20px;margin-bottom:20px;">
-      <div style="font-size:15px;font-weight:700;color:#166534;margin-bottom:4px;">📷 Étape 1 — Envoyer une photo</div>
-      <div style="font-size:13px;color:#15803d;margin-bottom:14px;">Une photo de preuve est requise avant de pouvoir enregistrer le compte-rendu.</div>
-      <input id="photoInput" type="file" accept="image/*" class="m-input" />
-      <button type="button" id="uploadPhotoBtn" class="m-btn" style="background:#0f766e;margin-top:8px;">📷 Envoyer la photo</button>
-      <div id="photosList" style="margin-top:14px;">${existingPhotosHtml}</div>
-      <div id="photo-error" style="display:none;color:#dc2626;font-size:13px;margin-top:8px;"></div>
-    </div>
-
-    <!-- Étape 2 : Formulaire (débloqué après photo) -->
     <form id="report-form">
-      <div id="form-locked-msg" style="${payload.intervention.completionPhotos.length === 0 ? "" : "display:none;"}background:#fef9c3;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#92400e;">
-        ⚠️ Envoyez d'abord une photo (étape 1) pour débloquer le formulaire.
-      </div>
+      <label class="m-label" for="status">Statut</label>
+      <select id="status" name="status" class="m-input">${statusOptions}</select>
 
-      <fieldset id="form-fields" style="border:none;padding:0;margin:0;${payload.intervention.completionPhotos.length === 0 ? "opacity:0.4;pointer-events:none;" : ""}">
-        <label class="m-label" for="status">Étape 2 — Statut de l'intervention</label>
-        <select id="status" name="status" class="m-input">${statusOptions}</select>
+      <label class="m-label" for="report">Rapport d'intervention *</label>
+      <textarea id="report" name="report" class="m-input" style="min-height:120px;resize:vertical;" placeholder="Décrivez ce que vous avez réalisé...">${escapeHtml(payload.intervention.interventionReport || "")}</textarea>
 
-        <label class="m-label" for="report">Rapport d'intervention</label>
-        <textarea id="report" name="report" class="m-input" style="min-height:120px;resize:vertical;" placeholder="Décrivez ce que vous avez réalisé...">${escapeHtml(payload.intervention.interventionReport || "")}</textarea>
+      <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
+      <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
 
-        <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
-        <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
+      <label class="m-label" for="photoInput">📷 Photo de preuve *</label>
+      <input id="photoInput" type="file" accept="image/*" class="m-input" />
 
-        <button type="submit" id="submitBtn" class="m-btn" style="margin-top:12px;">✓ Enregistrer le compte-rendu</button>
-      </fieldset>
+      <div id="photosList" style="margin-top:10px;margin-bottom:4px;">${existingPhotosHtml}</div>
+
+      <button type="submit" id="submitBtn" class="m-btn" style="margin-top:14px;">✓ Enregistrer le compte-rendu</button>
 
       <div class="m-success" id="success">Compte-rendu enregistré avec succès !</div>
       <div class="m-error" id="error"></div>
@@ -2703,16 +2690,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const success = document.getElementById('success');
   const error = document.getElementById('error');
 
-  function unlockForm() {
-    const fields = document.getElementById('form-fields');
-    const msg = document.getElementById('form-locked-msg');
-    if (fields) { fields.style.opacity = '1'; fields.style.pointerEvents = 'auto'; }
-    if (msg) msg.style.display = 'none';
-  }
-
-  // Si des photos existent déjà au chargement, le formulaire est déjà débloqué
-  if (completionPhotos.length > 0) unlockForm();
-
   // Zones de nettoyage — état local des checkboxes
   let cleaningChecklist = ${JSON.stringify(payload.intervention.cleaningChecklist)};
 
@@ -2735,82 +2712,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
   updateZoneCount();
 
   function renderPhotos() {
-    if (!photosList) return;
+    const list = document.getElementById('photosList');
+    if (!list) return;
     if (!completionPhotos.length) {
-      photosList.innerHTML = '<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>';
+      list.innerHTML = '';
       return;
     }
-    photosList.innerHTML = completionPhotos.map((url) =>
-      '<a href="' + url + '" target="_blank" style="display:flex;align-items:center;gap:6px;margin:6px 0;color:#2563eb;font-size:14px;">📷 Voir la photo</a>'
+    list.innerHTML = completionPhotos.map((url) =>
+      '<a href="' + url + '" target="_blank" style="display:flex;align-items:center;gap:6px;margin:4px 0;color:#2563eb;font-size:13px;">📷 Voir la photo</a>'
     ).join('');
   }
 
-  const uploadBtn = document.getElementById('uploadPhotoBtn');
-  if (uploadBtn) uploadBtn.addEventListener('click', async () => {
-    const photoError = document.getElementById('photo-error');
-    if (photoError) photoError.style.display = 'none';
-    const file = document.getElementById('photoInput').files[0];
-    if (!file) {
-      if (photoError) { photoError.textContent = 'Choisissez une photo.'; photoError.style.display = 'block'; }
+  async function uploadPhotoIfSelected() {
+    const input = document.getElementById('photoInput');
+    const file = input && input.files[0];
+    if (!file) return; // pas de photo sélectionnée → on passe
+    const reader = new FileReader();
+    return new Promise((resolve, reject) => {
+      reader.onload = async () => {
+        try {
+          const result = String(reader.result || '');
+          const base64 = result.includes(',') ? result.split(',')[1] : result;
+          const res = await fetch('/api/public/intervention/' + TOKEN + '/photo', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64, mimeType: file.type || 'image/jpeg' }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Erreur upload photo');
+          completionPhotos = data.completionPhotos || completionPhotos;
+          renderPhotos();
+          resolve();
+        } catch (e) { reject(e); }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const reportForm = document.getElementById('report-form');
+  if (reportForm) reportForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const success = document.getElementById('success');
+    const error = document.getElementById('error');
+    const submitBtn = document.getElementById('submitBtn');
+    success.style.display = 'none'; error.style.display = 'none';
+
+    const reportText = document.getElementById('report').value.trim();
+    if (!reportText) {
+      error.textContent = 'Veuillez remplir le rapport d\'intervention.';
+      error.style.display = 'block';
       return;
     }
-    uploadBtn.disabled = true;
-    uploadBtn.textContent = 'Envoi en cours...';
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const result = String(reader.result || '');
-        const base64 = result.includes(',') ? result.split(',')[1] : result;
-        const res = await fetch('/api/public/intervention/' + TOKEN + '/photo', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64, mimeType: file.type || 'image/jpeg' }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erreur upload');
-        completionPhotos = data.completionPhotos || completionPhotos;
-        renderPhotos();
-        unlockForm();
-        uploadBtn.textContent = '✅ Photo envoyée — en ajouter une autre';
-        uploadBtn.disabled = false;
-      } catch (e) {
-        if (photoError) { photoError.textContent = e.message || 'Erreur upload'; photoError.style.display = 'block'; }
-        uploadBtn.textContent = '📷 Envoyer la photo';
-        uploadBtn.disabled = false;
-      }
-    };
-    reader.readAsDataURL(file);
-  });
 
-  document.getElementById('report-form').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    success.style.display = 'none'; error.style.display = 'none';
-    const body = {
-      status: document.getElementById('status').value,
-      report: document.getElementById('report').value,
-      completionComment: '',
-      interventionRemaining: document.getElementById('interventionRemaining').value,
-      completionPhotos,
-      cleaningChecklist: Object.keys(cleaningChecklist).length > 0 ? cleaningChecklist : undefined,
-    };
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Envoi en cours...';
+
     try {
+      // 1. Upload la photo si une est sélectionnée
+      await uploadPhotoIfSelected();
+
+      // 2. Soumettre le rapport avec tout
+      const body = {
+        status: document.getElementById('status').value,
+        report: reportText,
+        completionComment: '',
+        interventionRemaining: document.getElementById('interventionRemaining').value,
+        completionPhotos,
+        cleaningChecklist: Object.keys(cleaningChecklist).length > 0 ? cleaningChecklist : undefined,
+      };
       const res = await fetch('/api/public/intervention/' + TOKEN + '/report', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');
-      success.textContent = 'Compte-rendu enregistré avec succès !'; success.style.display = 'block';
-      // Verrouiller le formulaire après soumission réussie
-      const form = document.getElementById('report-form');
-      if (form) {
-        form.querySelectorAll('input, textarea, select, button').forEach(el => {
-          el.disabled = true;
-          el.style.opacity = '0.6';
-          el.style.cursor = 'not-allowed';
-        });
-      }
+
+      success.textContent = 'Compte-rendu enregistré avec succès !';
+      success.style.display = 'block';
+      // Verrouiller le formulaire
+      reportForm.querySelectorAll('input, textarea, select, button').forEach(el => {
+        el.disabled = true;
+        el.style.opacity = '0.6';
+        el.style.cursor = 'not-allowed';
+      });
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (e) { error.textContent = e.message; error.style.display = 'block'; }
+    } catch (e) {
+      error.textContent = e.message || 'Erreur';
+      error.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.textContent = '✓ Enregistrer le compte-rendu';
+    }
   });
 </script>`;
 
