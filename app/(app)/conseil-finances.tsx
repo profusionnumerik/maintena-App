@@ -15,9 +15,10 @@ import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
+import { useInterventions } from "@/context/InterventionsContext";
 import {
-  ALL_EXPENSE_CATEGORIES, AnnualBudget, Expense, ExpenseCategory,
-  EXPENSE_CATEGORY_COLORS, EXPENSE_CATEGORY_ICONS, EXPENSE_CATEGORY_LABELS,
+  ALL_EXPENSE_CATEGORIES, AnnualBudget, CATEGORY_LABELS, Expense, ExpenseCategory,
+  EXPENSE_CATEGORY_COLORS, EXPENSE_CATEGORY_ICONS, EXPENSE_CATEGORY_LABELS, Intervention,
 } from "@/shared/types";
 
 const YEARS = Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i);
@@ -63,6 +64,7 @@ export default function ConseilFinancesScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { currentCopro, currentRole } = useCoPro();
+  const { interventions: allInterventions } = useInterventions();
 
   const [tab, setTab] = useState<Tab>("depenses");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -78,6 +80,10 @@ export default function ConseilFinancesScreen() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [dateDisplay, setDateDisplay] = useState(todayStr());
   const [saving, setSaving] = useState(false);
+
+  // Modal "depuis une intervention"
+  const [interventionPickerModal, setInterventionPickerModal] = useState(false);
+  const [interventionSearch, setInterventionSearch] = useState("");
 
   // Modal budget
   const [budgetModal, setBudgetModal] = useState(false);
@@ -150,6 +156,52 @@ export default function ConseilFinancesScreen() {
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [filteredExpenses]);
 
+  // Interventions éligibles : terminées, avec montant syndic, pas encore importées
+  const linkedInterventionIds = useMemo(
+    () => new Set(expenses.map((e) => e.interventionId).filter(Boolean)),
+    [expenses]
+  );
+
+  const eligibleInterventions = useMemo(() => {
+    return allInterventions.filter(
+      (i) =>
+        i.status === "termine" &&
+        (i as any).amount !== undefined &&
+        !linkedInterventionIds.has(i.id)
+    );
+  }, [allInterventions, linkedInterventionIds]);
+
+  const filteredEligible = useMemo(() => {
+    if (!interventionSearch.trim()) return eligibleInterventions;
+    const q = interventionSearch.toLowerCase();
+    return eligibleInterventions.filter(
+      (i) => i.title.toLowerCase().includes(q) || (i.assignedToName ?? "").toLowerCase().includes(q)
+    );
+  }, [eligibleInterventions, interventionSearch]);
+
+  // Sélectionner une intervention et pré-remplir le formulaire de dépense
+  const handlePickIntervention = (intervention: Intervention) => {
+    const amount = (intervention as any).amount as number;
+    const isoDate = intervention.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
+    const cat: ExpenseCategory = (intervention.category as any) in EXPENSE_CATEGORY_LABELS
+      ? (intervention.category as ExpenseCategory)
+      : "travaux";
+    setInterventionPickerModal(false);
+    setInterventionSearch("");
+    setEditingExpense(null);
+    setForm({
+      label: intervention.title,
+      amount: String(amount),
+      category: cat,
+      date: isoDate,
+      description: `Intervention du ${isoToDisplay(isoDate)}${intervention.assignedToName ? ` — ${intervention.assignedToName}` : ""}`,
+    });
+    setDateDisplay(isoToDisplay(isoDate));
+    // Stocker l'interventionId pour le lien — on le passe via un ref léger
+    setEditingExpense({ interventionId: intervention.id } as any);
+    setExpenseModal(true);
+  };
+
   const openAddExpense = () => {
     setEditingExpense(null);
     setForm({ ...EMPTY_FORM });
@@ -174,7 +226,8 @@ export default function ConseilFinancesScreen() {
 
     setSaving(true);
     try {
-      const data = {
+      const linkedInterventionId = (editingExpense as any)?.interventionId as string | undefined;
+      const data: Record<string, any> = {
         coProId: currentCopro.id,
         label: form.label.trim(),
         amount,
@@ -185,7 +238,10 @@ export default function ConseilFinancesScreen() {
         addedByName: user.displayName || user.email || "Inconnu",
         updatedAt: new Date().toISOString(),
       };
-      if (editingExpense) {
+      if (linkedInterventionId) data.interventionId = linkedInterventionId;
+
+      // editingExpense sans id = pré-remplissage depuis intervention (nouveau doc)
+      if (editingExpense?.id) {
         await setDoc(doc(db, "copros", currentCopro.id, "expenses", editingExpense.id), { ...data, createdAt: editingExpense.createdAt }, { merge: false });
       } else {
         await addDoc(collection(db, "copros", currentCopro.id, "expenses"), { ...data, createdAt: new Date().toISOString() });
@@ -259,9 +315,19 @@ export default function ConseilFinancesScreen() {
           <Text style={styles.headerSub}>{currentCopro.name}</Text>
         </View>
         {canWrite && tab === "depenses" && (
-          <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAddExpense(); }}>
-            <Ionicons name="add" size={22} color="#fff" />
-          </Pressable>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {eligibleInterventions.length > 0 && (
+              <Pressable
+                style={[styles.addBtn, { backgroundColor: "#0891B2" }]}
+                onPress={() => { safeHaptic(); setInterventionPickerModal(true); }}
+              >
+                <Ionicons name="link-outline" size={20} color="#fff" />
+              </Pressable>
+            )}
+            <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAddExpense(); }}>
+              <Ionicons name="add" size={22} color="#fff" />
+            </Pressable>
+          </View>
         )}
       </View>
 
@@ -338,9 +404,17 @@ export default function ConseilFinancesScreen() {
                           </View>
                           <View style={styles.expenseInfo}>
                             <Text style={styles.expenseLabel}>{e.label}</Text>
-                            <Text style={styles.expenseMeta}>
-                              {EXPENSE_CATEGORY_LABELS[e.category]} · {isoToDisplay(e.date)}
-                            </Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <Text style={styles.expenseMeta}>
+                                {EXPENSE_CATEGORY_LABELS[e.category]} · {isoToDisplay(e.date)}
+                              </Text>
+                              {e.interventionId && (
+                                <View style={styles.interventionBadge}>
+                                  <Ionicons name="link-outline" size={10} color="#0891B2" />
+                                  <Text style={styles.interventionBadgeText}>Intervention</Text>
+                                </View>
+                              )}
+                            </View>
                             {!!e.description && <Text style={styles.expenseDesc} numberOfLines={1}>{e.description}</Text>}
                           </View>
                           <Text style={styles.expenseAmount}>{formatAmount(e.amount)}</Text>
@@ -508,6 +582,66 @@ export default function ConseilFinancesScreen() {
         </View>
       </Modal>
 
+      {/* ── Modal sélection intervention ── */}
+      <Modal visible={interventionPickerModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={() => { setInterventionPickerModal(false); setInterventionSearch(""); }}>
+              <Text style={styles.modalCancel}>Annuler</Text>
+            </Pressable>
+            <Text style={styles.modalTitle}>Choisir une intervention</Text>
+            <View style={{ width: 60 }} />
+          </View>
+
+          <View style={styles.interventionSearchWrap}>
+            <Ionicons name="search-outline" size={16} color={COLORS.textMuted} />
+            <TextInput
+              style={styles.interventionSearchInput}
+              placeholder="Rechercher…"
+              placeholderTextColor={COLORS.textMuted}
+              value={interventionSearch}
+              onChangeText={setInterventionSearch}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <Text style={styles.interventionPickerHint}>
+            Interventions terminées avec un montant validé par le syndic, pas encore comptabilisées.
+          </Text>
+
+          <ScrollView style={{ flex: 1 }}>
+            {filteredEligible.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="checkmark-done-outline" size={36} color={COLORS.textMuted} />
+                <Text style={styles.emptyText}>Toutes les interventions sont déjà comptabilisées</Text>
+              </View>
+            ) : (
+              filteredEligible.map((i) => {
+                const amount = (i as any).amount as number;
+                const date = i.date?.slice(0, 10) ?? "";
+                return (
+                  <Pressable key={i.id} style={styles.interventionPickerRow} onPress={() => handlePickIntervention(i)}>
+                    <View style={styles.interventionPickerIcon}>
+                      <Ionicons name="construct-outline" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.interventionPickerTitle}>{i.title}</Text>
+                      <Text style={styles.interventionPickerMeta}>
+                        {CATEGORY_LABELS[i.category]} · {isoToDisplay(date)}
+                        {i.assignedToName ? ` · ${i.assignedToName}` : ""}
+                      </Text>
+                    </View>
+                    <Text style={styles.interventionPickerAmount}>{formatAmount(amount)}</Text>
+                    <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+                  </Pressable>
+                );
+              })
+            )}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* ── Modal budget prévisionnel ── */}
       <Modal visible={budgetModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
@@ -665,4 +799,31 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular", color: COLORS.text, textAlign: "right",
   },
   budgetEuro: { fontSize: 14, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
+  interventionBadge: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "#E0F2FE", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
+  },
+  interventionBadgeText: { fontSize: 10, color: "#0891B2", fontFamily: "Inter_600SemiBold" },
+  interventionSearchWrap: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 12, paddingVertical: 9,
+    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  interventionSearchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
+  interventionPickerHint: {
+    fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular",
+    marginHorizontal: 16, marginBottom: 8, lineHeight: 16,
+  },
+  interventionPickerRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  interventionPickerIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: COLORS.primary + "18", alignItems: "center", justifyContent: "center",
+  },
+  interventionPickerTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  interventionPickerMeta: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginTop: 2 },
+  interventionPickerAmount: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#0891B2", marginRight: 4 },
 });
