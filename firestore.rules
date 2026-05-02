@@ -77,6 +77,11 @@ service cloud.firestore {
         allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
       }
 
+      match /providerContacts/{contactId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create, update, delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
       match /signalements/{signalementId} {
         allow create, read: if isSignedIn() && isMember(coProId);
         allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());

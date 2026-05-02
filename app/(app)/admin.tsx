@@ -882,6 +882,19 @@ export default function AdminScreen() {
         <View style={styles.section}>
           <Pressable
             style={styles.statsNavBtn}
+            onPress={() => router.push("/(app)/annuaire-prestataires" as any)}
+          >
+            <View style={styles.statsNavIcon}>
+              <Ionicons name="people-outline" size={18} color={COLORS.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Annuaire prestataires</Text>
+              <Text style={styles.statsNavSub}>Gérer vos contacts prestataires</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
             onPress={() => router.push("/(app)/stats")}
           >
             <View style={styles.statsNavIcon}>

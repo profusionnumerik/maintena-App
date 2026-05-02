@@ -36,7 +36,8 @@ import {
   Status,
   STATUS_LABELS,
 } from "@/shared/types";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { crossShare } from "@/lib/share";
 
 const STATUS_COLORS: Record<Status, string> = {
@@ -329,6 +330,7 @@ export default function AddInterventionScreen() {
   const [assignedToUid, setAssignedToUid] = useState<string>("");
   const [assignedToName, setAssignedToName] = useState<string>("");
   const [assignedToEmail, setAssignedToEmail] = useState<string>("");
+  const [annuaireContacts, setAnnuaireContacts] = useState<any[]>([]);
   const [phoneError, setPhoneError] = useState("");
 
   const [providerMode, setProviderMode] = useState<ProviderMode>("existing");
@@ -445,6 +447,18 @@ export default function AddInterventionScreen() {
       setAssignedToName(user.displayName || user.email || "Prestataire");
     }
   }, [currentRole, user]);
+
+  useEffect(() => {
+    if (!currentCopro?.id || !isAdmin) return;
+    const q = query(
+      collection(db, "copros", currentCopro.id, "providerContacts"),
+      orderBy("lastName", "asc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setAnnuaireContacts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, [currentCopro?.id, isAdmin]);
 
   const cleaningAreas = useMemo<CleaningArea[]>(() => {
     if (category !== "nettoyage" || !currentCopro?.buildingConfig) return [];
@@ -957,7 +971,7 @@ export default function AddInterventionScreen() {
 
         if (isAdmin && guestEmailMulti && firstCreatedInterventionId) {
           try {
-            const selectedMemberMulti = providerMode === "existing"
+            const selectedMemberMulti: any = providerMode === "existing"
               ? availablePrestataires.find((p: any) => p.uid === assignedToUid)
               : null;
 
@@ -1070,7 +1084,7 @@ export default function AddInterventionScreen() {
 
         if (isAdmin && guestEmail) {
           try {
-            const selectedMember = providerMode === "existing"
+            const selectedMember: any = providerMode === "existing"
               ? availablePrestataires.find((p: any) => p.uid === assignedToUid)
               : null;
 
@@ -1697,63 +1711,104 @@ export default function AddInterventionScreen() {
             </View>
 
             {providerMode === "existing" ? (
-              availablePrestataires.length === 0 ? (
-                <View style={styles.blockBox}>
-                  <Ionicons
-                    name="alert-circle-outline"
-                    size={18}
-                    color={COLORS.danger}
-                  />
-                  <Text style={styles.blockText}>
-                    Aucun prestataire n'est rattaché à la catégorie{" "}
-                    {CATEGORY_LABELS[category]}. Passez en mode "Nouveau prestataire urgent".
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  <View style={styles.chipGrid}>
-                    {availablePrestataires.map((p: any) => {
-                      const active = assignedToUid === p.uid;
-                      const label = getMemberLabel(p);
+              (() => {
+                const memberEmails = new Set(availablePrestataires.map((p: any) => (p.email ?? "").toLowerCase()));
+                const annuaireOnly = annuaireContacts.filter(
+                  (c: any) => !memberEmails.has((c.email ?? "").toLowerCase())
+                );
+                const hasMembers = availablePrestataires.length > 0;
+                const hasAnnuaire = annuaireOnly.length > 0;
 
-                      return (
-                        <Pressable
-                          key={p.uid}
-                          onPress={() => {
-                            safeHapticSelection();
-                            setAssignedToUid(p.uid);
-                            setAssignedToName(label);
-                            setAssignedToEmail(p.email ?? "");
-                          }}
-                          style={[styles.chip, active && styles.chipActive]}
-                        >
-                          <Ionicons
-                            name={
-                              active
-                                ? "checkmark-circle"
-                                : "person-circle-outline"
-                            }
-                            size={16}
-                            color={active ? "#fff" : COLORS.primary}
-                          />
-                          <Text
-                            style={[
-                              styles.chipText,
-                              active && styles.chipTextActive,
-                            ]}
-                          >
-                            {label}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
+                if (!hasMembers && !hasAnnuaire) {
+                  return (
+                    <View style={styles.blockBox}>
+                      <Ionicons name="alert-circle-outline" size={18} color={COLORS.danger} />
+                      <Text style={styles.blockText}>
+                        Aucun prestataire disponible pour cette catégorie. Passez en mode "Nouveau prestataire urgent" ou ajoutez des contacts dans l'annuaire.
+                      </Text>
+                    </View>
+                  );
+                }
 
-                  <Text style={styles.fieldHint}>
-                    Le prestataire sélectionné verra directement cette intervention.
-                  </Text>
-                </>
-              )
+                return (
+                  <>
+                    {hasMembers && (
+                      <>
+                        <Text style={styles.annuaireGroupLabel}>Prestataires de la résidence</Text>
+                        <View style={styles.chipGrid}>
+                          {availablePrestataires.map((p: any) => {
+                            const active = assignedToUid === p.uid;
+                            const label = getMemberLabel(p);
+                            return (
+                              <Pressable
+                                key={p.uid}
+                                onPress={() => {
+                                  safeHapticSelection();
+                                  setAssignedToUid(p.uid);
+                                  setAssignedToName(label);
+                                  setAssignedToEmail(p.email ?? "");
+                                }}
+                                style={[styles.chip, active && styles.chipActive]}
+                              >
+                                <Ionicons
+                                  name={active ? "checkmark-circle" : "person-circle-outline"}
+                                  size={16}
+                                  color={active ? "#fff" : COLORS.primary}
+                                />
+                                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                                  {label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </>
+                    )}
+
+                    {hasAnnuaire && (
+                      <>
+                        <Text style={[styles.annuaireGroupLabel, hasMembers && { marginTop: 14 }]}>
+                          Annuaire — sélectionner pour pré-remplir
+                        </Text>
+                        <View style={styles.chipGrid}>
+                          {annuaireOnly.map((c: any) => {
+                            const label = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email;
+                            return (
+                              <Pressable
+                                key={c.id}
+                                onPress={() => {
+                                  safeHapticSelection();
+                                  setProviderMode("new");
+                                  setAssignedToUid("");
+                                  setAssignedToName("");
+                                  setAssignedToEmail(c.email ?? "");
+                                  setNewProvider({
+                                    firstName: c.firstName ?? "",
+                                    lastName: c.lastName ?? "",
+                                    email: c.email ?? "",
+                                    phone: c.phone ?? "",
+                                    company: c.company ?? "",
+                                  });
+                                }}
+                                style={[styles.chip, styles.chipAnnuaire]}
+                              >
+                                <Ionicons name="person-add-outline" size={16} color="#7C3AED" />
+                                <Text style={[styles.chipText, { color: "#7C3AED" }]}>{label}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </>
+                    )}
+
+                    {hasMembers && (
+                      <Text style={styles.fieldHint}>
+                        Le prestataire sélectionné verra directement cette intervention.
+                      </Text>
+                    )}
+                  </>
+                );
+              })()
             ) : (
               <View style={styles.inlineFormCard}>
                 <Text style={styles.fieldHint}>
@@ -2393,6 +2448,21 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: "#fff",
     fontFamily: "Inter_600SemiBold",
+  },
+
+  chipAnnuaire: {
+    borderColor: "#7C3AED",
+    borderStyle: "dashed",
+    backgroundColor: "#F5F3FF",
+  },
+
+  annuaireGroupLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
 
   statusRow: {
