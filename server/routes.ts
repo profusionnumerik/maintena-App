@@ -2603,7 +2603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <span style="font-size:20px;">✅</span>
       <div>
         <div style="font-weight:700;color:#166534;">Compte-rendu déjà soumis</div>
-        <div style="font-size:13px;color:#15803d;">L'intervention a été marquée comme terminée. Aucune modification n'est possible.</div>
+        <div style="font-size:13px;color:#15803d;">Ce rapport a déjà été transmis. Aucune modification n'est possible.</div>
       </div>
     </div>
     <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:10px;">
@@ -2614,32 +2614,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:6px;">Travaux restants</div>
       <div style="font-size:14px;color:#0f172a;">${escapeHtml(payload.intervention.interventionRemaining)}</div>
     </div>` : ""}
+    <div style="margin-top:16px;">
+      <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:10px;">Photos envoyées</div>
+      <div>${existingPhotosHtml}</div>
+    </div>
     ` : `
-    <form id="report-form">
-      <label class="m-label" for="status">Statut</label>
-      <select id="status" name="status" class="m-input">${statusOptions}</select>
 
-      <label class="m-label" for="report">Rapport d'intervention</label>
-      <textarea id="report" name="report" class="m-input" style="min-height:120px;resize:vertical;" placeholder="Décrivez ce que vous avez réalisé...">${escapeHtml(payload.intervention.interventionReport || "")}</textarea>
-
-      <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
-      <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
-
-      <label class="m-label" for="photoInput">Ajouter une photo</label>
+    <!-- Étape 1 : Photo obligatoire -->
+    <div id="photo-section" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:14px;padding:20px;margin-bottom:20px;">
+      <div style="font-size:15px;font-weight:700;color:#166534;margin-bottom:4px;">📷 Étape 1 — Envoyer une photo</div>
+      <div style="font-size:13px;color:#15803d;margin-bottom:14px;">Une photo de preuve est requise avant de pouvoir enregistrer le compte-rendu.</div>
       <input id="photoInput" type="file" accept="image/*" class="m-input" />
-      <button type="button" id="uploadPhotoBtn" class="m-btn" style="background:#0f766e;margin-top:0;">📷 Envoyer la photo</button>
+      <button type="button" id="uploadPhotoBtn" class="m-btn" style="background:#0f766e;margin-top:8px;">📷 Envoyer la photo</button>
+      <div id="photosList" style="margin-top:14px;">${existingPhotosHtml}</div>
+      <div id="photo-error" style="display:none;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    </div>
 
-      <button type="submit" class="m-btn" style="margin-top:12px;">✓ Enregistrer le compte-rendu</button>
+    <!-- Étape 2 : Formulaire (débloqué après photo) -->
+    <form id="report-form">
+      <div id="form-locked-msg" style="${payload.intervention.completionPhotos.length === 0 ? "" : "display:none;"}background:#fef9c3;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:#92400e;">
+        ⚠️ Envoyez d'abord une photo (étape 1) pour débloquer le formulaire.
+      </div>
+
+      <fieldset id="form-fields" style="border:none;padding:0;margin:0;${payload.intervention.completionPhotos.length === 0 ? "opacity:0.4;pointer-events:none;" : ""}">
+        <label class="m-label" for="status">Étape 2 — Statut de l'intervention</label>
+        <select id="status" name="status" class="m-input">${statusOptions}</select>
+
+        <label class="m-label" for="report">Rapport d'intervention</label>
+        <textarea id="report" name="report" class="m-input" style="min-height:120px;resize:vertical;" placeholder="Décrivez ce que vous avez réalisé...">${escapeHtml(payload.intervention.interventionReport || "")}</textarea>
+
+        <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
+        <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
+
+        <button type="submit" id="submitBtn" class="m-btn" style="margin-top:12px;">✓ Enregistrer le compte-rendu</button>
+      </fieldset>
 
       <div class="m-success" id="success">Compte-rendu enregistré avec succès !</div>
       <div class="m-error" id="error"></div>
     </form>
     `}
-
-    <div style="margin-top:20px;">
-      <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:10px;">Photos envoyées</div>
-      <div id="photosList">${existingPhotosHtml}</div>
-    </div>
   </div>
 
   <!-- Créer son compte -->
@@ -2690,6 +2703,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const success = document.getElementById('success');
   const error = document.getElementById('error');
 
+  function unlockForm() {
+    const fields = document.getElementById('form-fields');
+    const msg = document.getElementById('form-locked-msg');
+    if (fields) { fields.style.opacity = '1'; fields.style.pointerEvents = 'auto'; }
+    if (msg) msg.style.display = 'none';
+  }
+
+  // Si des photos existent déjà au chargement, le formulaire est déjà débloqué
+  if (completionPhotos.length > 0) unlockForm();
+
   // Zones de nettoyage — état local des checkboxes
   let cleaningChecklist = ${JSON.stringify(payload.intervention.cleaningChecklist)};
 
@@ -2712,19 +2735,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   updateZoneCount();
 
   function renderPhotos() {
+    if (!photosList) return;
     if (!completionPhotos.length) {
       photosList.innerHTML = '<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>';
       return;
     }
     photosList.innerHTML = completionPhotos.map((url) =>
-      '<a href="' + url + '" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">📷 Voir la photo</a>'
+      '<a href="' + url + '" target="_blank" style="display:flex;align-items:center;gap:6px;margin:6px 0;color:#2563eb;font-size:14px;">📷 Voir la photo</a>'
     ).join('');
   }
 
-  document.getElementById('uploadPhotoBtn').addEventListener('click', async () => {
-    success.style.display = 'none'; error.style.display = 'none';
+  const uploadBtn = document.getElementById('uploadPhotoBtn');
+  if (uploadBtn) uploadBtn.addEventListener('click', async () => {
+    const photoError = document.getElementById('photo-error');
+    if (photoError) photoError.style.display = 'none';
     const file = document.getElementById('photoInput').files[0];
-    if (!file) { error.textContent = 'Choisissez une photo.'; error.style.display = 'block'; return; }
+    if (!file) {
+      if (photoError) { photoError.textContent = 'Choisissez une photo.'; photoError.style.display = 'block'; }
+      return;
+    }
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = 'Envoi en cours...';
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -2738,8 +2769,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!res.ok) throw new Error(data.error || 'Erreur upload');
         completionPhotos = data.completionPhotos || completionPhotos;
         renderPhotos();
-        success.textContent = 'Photo envoyée avec succès.'; success.style.display = 'block';
-      } catch (e) { error.textContent = e.message || 'Erreur upload'; error.style.display = 'block'; }
+        unlockForm();
+        uploadBtn.textContent = '✅ Photo envoyée — en ajouter une autre';
+        uploadBtn.disabled = false;
+      } catch (e) {
+        if (photoError) { photoError.textContent = e.message || 'Erreur upload'; photoError.style.display = 'block'; }
+        uploadBtn.textContent = '📷 Envoyer la photo';
+        uploadBtn.disabled = false;
+      }
     };
     reader.readAsDataURL(file);
   });
