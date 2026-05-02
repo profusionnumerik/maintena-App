@@ -35,6 +35,18 @@ service cloud.firestore {
       allow read, update, delete: if isSuperAdmin();
     }
 
+    // Index d'unicité des numéros de téléphone (vérifié avant/après inscription)
+    match /phoneIndex/{phone} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Prestataires en attente d'inscription (écrits par le serveur Admin SDK)
+    match /pendingProviders/{phone} {
+      allow read, delete: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
     match /inviteCodes/{code} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.coProId is string;
