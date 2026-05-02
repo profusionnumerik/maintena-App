@@ -512,6 +512,7 @@ async function buildGuestInterventionPayload(token: string) {
       cleaningChecklist: (intervention.cleaningChecklist && typeof intervention.cleaningChecklist === "object")
         ? intervention.cleaningChecklist as Record<string, boolean>
         : {} as Record<string, boolean>,
+      guestUpdatedAt: intervention.guestUpdatedAt ?? null,
     },
     copro: {
       id: invite.data.coProId,
@@ -2082,6 +2083,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Renvoyer l'email d'invitation au prestataire (réutilise l'invite existante)
+  app.post("/api/guest-access/resend", async (req: Request, res: Response) => {
+    const { coProId, interventionId } = req.body as { coProId?: string; interventionId?: string };
+    if (!coProId || !interventionId) {
+      return res.status(400).json({ error: "coProId et interventionId requis." });
+    }
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase Admin non configuré." });
+
+    try {
+      // Chercher l'invite existante pour cette intervention
+      const invitesSnap = await db.collection("guestInterventionInvites")
+        .where("coProId", "==", coProId)
+        .where("interventionId", "==", interventionId)
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+
+      if (invitesSnap.empty) {
+        return res.status(404).json({ error: "Aucune invitation trouvée pour cette intervention." });
+      }
+
+      const invite = invitesSnap.docs[0].data();
+      const providerEmail = invite.providerEmail;
+      if (!providerEmail) return res.status(400).json({ error: "Email prestataire manquant." });
+
+      const providerName = invite.providerName ||
+        [invite.providerFirstName, invite.providerLastName].filter(Boolean).join(" ").trim() ||
+        providerEmail;
+
+      const coproSnap = await db.collection("copros").doc(coProId).get();
+      const interventionSnap = await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).get();
+      const coproName = (coproSnap.data() as any)?.name ?? "Copropriété";
+      const interventionTitle = (interventionSnap.data() as any)?.title ?? "Intervention";
+
+      // Regénérer un mot de passe temporaire et le mettre à jour
+      let tempPassword: string | undefined;
+      try {
+        const adminAuth = getAuth();
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        tempPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+        try {
+          const existing = await adminAuth.getUserByEmail(providerEmail);
+          await adminAuth.updateUser(existing.uid, { password: tempPassword });
+        } catch {
+          await adminAuth.createUser({ email: providerEmail, password: tempPassword, displayName: providerName });
+        }
+      } catch { tempPassword = undefined; }
+
+      const emailSent = await sendGuestInviteEmail({
+        to: providerEmail,
+        providerName,
+        coproName,
+        interventionTitle,
+        webLink: invite.webLink ?? "",
+        completeAccountLink: invite.completeAccountLink ?? "",
+        tempPassword,
+      });
+
+      return res.json({ success: true, emailSent });
+    } catch (e: any) {
+      console.error("guest-access/resend error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.post("/api/guest-invites", async (req: Request, res: Response) => {
     const {
       coProId,
@@ -2413,6 +2480,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const pStatus = payload.intervention.providerStatus; // "pending" | "accepted" | "refused"
+    const reportLocked = !!payload.intervention.guestUpdatedAt && payload.intervention.status === "termine";
     const dateStr = payload.intervention.date
       ? new Date(payload.intervention.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
       : "Non renseignée";
@@ -2521,6 +2589,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   <!-- Compte-rendu -->
   <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
     <div style="font-size:18px;font-weight:800;color:#0f172a;margin-bottom:18px;">Compte-rendu d'intervention</div>
+
+    ${reportLocked ? `
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:16px 18px;margin-bottom:18px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:20px;">✅</span>
+      <div>
+        <div style="font-weight:700;color:#166534;">Compte-rendu déjà soumis</div>
+        <div style="font-size:13px;color:#15803d;">L'intervention a été marquée comme terminée. Aucune modification n'est possible.</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:6px;">Rapport</div>
+      <div style="font-size:14px;color:#0f172a;">${escapeHtml(payload.intervention.interventionReport || "Aucun rapport saisi.")}</div>
+    </div>
+    ${payload.intervention.interventionRemaining ? `<div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;margin-bottom:6px;">Travaux restants</div>
+      <div style="font-size:14px;color:#0f172a;">${escapeHtml(payload.intervention.interventionRemaining)}</div>
+    </div>` : ""}
+    ` : `
     <form id="report-form">
       <label class="m-label" for="status">Statut</label>
       <select id="status" name="status" class="m-input">${statusOptions}</select>
@@ -2540,6 +2626,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div class="m-success" id="success">Compte-rendu enregistré avec succès !</div>
       <div class="m-error" id="error"></div>
     </form>
+    `}
 
     <div style="margin-top:20px;">
       <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:10px;">Photos envoyées</div>

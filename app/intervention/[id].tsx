@@ -26,8 +26,8 @@ import { StarRating } from "@/components/StarRating";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { uploadPhoto } from "@/lib/storage";
-import { crossShare } from "@/lib/share";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
+import { getApiUrl } from "@/lib/query-client";
 
 function formatFrenchPhone(value?: string): string {
   if (!value) return "";
@@ -603,55 +603,33 @@ export default function InterventionDetailScreen() {
     }
   };
 
-  const handleShareGuestInvite = async () => {
+  const handleResendGuestEmail = async () => {
     if (!currentCopro?.id) {
       wa("Erreur", "Aucune copropriété active.");
       return;
     }
-
     if (!invitedProvider?.email) {
       wa("Erreur", "Aucun prestataire invité associé à cette intervention.");
       return;
     }
-
-    const categoryInviteCode = getCategoryInviteCode(
-      currentCopro,
-      intervention.category
-    );
-    const guestWebUrl = (intervention as any).guestWebUrl as string | undefined;
-
     try {
       setIsSharingGuestInvite(true);
-
-      const providerName =
-        [invitedProvider.firstName, invitedProvider.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim() || "Prestataire";
-
-      const message = buildProviderShareMessage({
-        providerName,
-        coproName: currentCopro.name || "Copropriété",
-        title: intervention.title,
-        description: intervention.description || "",
-        date: formatDateFull(intervention.date),
-        categoryLabel: getCategoryLabel(intervention.category),
-        categoryInviteCode: categoryInviteCode || undefined,
-        guestWebUrl: guestWebUrl || undefined,
-        appLink: getAppDownloadUrl(),
+      const apiBase = getApiUrl();
+      const res = await fetch(`${apiBase}/api/guest-access/resend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ coProId: currentCopro.id, interventionId: intervention.id }),
       });
-
-      await crossShare(message, "Partager l’intervention");
-
-      await updateIntervention(intervention.id, {
-        guestInviteLastSharedAt: new Date().toISOString(),
-        ...(categoryInviteCode ? { sharedCategoryInviteCode: categoryInviteCode } : {}),
-      } as any);
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erreur serveur");
+      if (Platform.OS === "web") {
+        window.alert("Mail renvoyé avec succès à " + invitedProvider.email);
+      } else {
+        Alert.alert("Mail envoyé", `L’invitation a été renvoyée à ${invitedProvider.email}.`);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e) {
-      console.error("Guest invite share failed:", e);
-      wa("Partage impossible", "Le message n’a pas pu être partagé.");
+    } catch (e: any) {
+      wa("Erreur", e.message || "Le mail n’a pas pu être envoyé.");
     } finally {
       setIsSharingGuestInvite(false);
     }
@@ -674,7 +652,7 @@ export default function InterventionDetailScreen() {
           </Pressable>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {isAdmin && (
+            {isAdmin && intervention.status !== "termine" && (
               <Pressable
                 onPress={() => router.push(`/add?editId=${intervention.id}` as any)}
                 style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
@@ -965,37 +943,27 @@ export default function InterventionDetailScreen() {
               </View>
             </View>
 
-            {/* Statut de confirmation du prestataire */}
-            <View style={[
-              styles.providerStatusBadge,
-              providerStatus === "accepted" && styles.providerStatusAccepted,
-              providerStatus === "refused" && styles.providerStatusRefused,
-              (!providerStatus || providerStatus === "pending") && styles.providerStatusPending,
-            ]}>
-              <Ionicons
-                name={
-                  providerStatus === "accepted" ? "checkmark-circle" :
-                  providerStatus === "refused" ? "close-circle" : "time-outline"
-                }
-                size={16}
-                color={
-                  providerStatus === "accepted" ? COLORS.success :
-                  providerStatus === "refused" ? COLORS.danger : COLORS.warning
-                }
-              />
-              <Text style={[
-                styles.providerStatusText,
-                providerStatus === "accepted" && { color: COLORS.success },
-                providerStatus === "refused" && { color: COLORS.danger },
-                (!providerStatus || providerStatus === "pending") && { color: COLORS.warning },
+            {/* Statut de confirmation du prestataire — uniquement si répondu */}
+            {(providerStatus === "accepted" || providerStatus === "refused") && (
+              <View style={[
+                styles.providerStatusBadge,
+                providerStatus === "accepted" && styles.providerStatusAccepted,
+                providerStatus === "refused" && styles.providerStatusRefused,
               ]}>
-                {providerStatus === "accepted"
-                  ? "Prestataire a accepté"
-                  : providerStatus === "refused"
-                  ? "Prestataire a refusé"
-                  : "En attente de confirmation"}
-              </Text>
-            </View>
+                <Ionicons
+                  name={providerStatus === "accepted" ? "checkmark-circle" : "close-circle"}
+                  size={16}
+                  color={providerStatus === "accepted" ? COLORS.success : COLORS.danger}
+                />
+                <Text style={[
+                  styles.providerStatusText,
+                  providerStatus === "accepted" && { color: COLORS.success },
+                  providerStatus === "refused" && { color: COLORS.danger },
+                ]}>
+                  {providerStatus === "accepted" ? "Prestataire a accepté" : "Prestataire a refusé"}
+                </Text>
+              </View>
+            )}
 
             {/* Réattribuer si refusé */}
             {providerStatus === "refused" && (
@@ -1008,9 +976,9 @@ export default function InterventionDetailScreen() {
               </Pressable>
             )}
 
-            {/* Email déjà envoyé automatiquement — partager à nouveau si besoin */}
+            {/* Renvoyer le mail d’invitation */}
             <Pressable
-              onPress={handleShareGuestInvite}
+              onPress={handleResendGuestEmail}
               disabled={isSharingGuestInvite}
               style={({ pressed }) => [
                 styles.shareBtnSecondary,
@@ -1022,8 +990,8 @@ export default function InterventionDetailScreen() {
                 <ActivityIndicator color={COLORS.primary} size="small" />
               ) : (
                 <>
-                  <Ionicons name="paper-plane-outline" size={16} color={COLORS.primary} />
-                  <Text style={styles.shareBtnSecondaryText}>Renvoyer le lien d’accès</Text>
+                  <Ionicons name="mail-outline" size={16} color={COLORS.primary} />
+                  <Text style={styles.shareBtnSecondaryText}>Renvoyer le mail</Text>
                 </>
               )}
             </Pressable>
