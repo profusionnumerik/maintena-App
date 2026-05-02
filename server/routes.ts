@@ -404,6 +404,13 @@ async function createGuestInviteRecord(params: {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+  // Code d'activation personnel, usage unique, 8 caractères sans ambiguïté visuelle
+  const activationChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const activationCode = Array.from(
+    { length: 8 },
+    () => activationChars[Math.floor(Math.random() * activationChars.length)]
+  ).join("");
+
   const baseUrl = getBaseUrl(params.req);
   const webLink = `${baseUrl}/guest-intervention/${token}`;
   const completeAccountLink = `${baseUrl}/guest-complete-account/${token}`;
@@ -425,6 +432,8 @@ async function createGuestInviteRecord(params: {
     providerPhone: params.providerPhone ?? "",
     providerCompany: params.providerCompany ?? "",
     categoryInviteCode: params.categoryInviteCode ?? null,
+    activationCode,
+    activationCodeUsed: false,
     status: "sent",
     createdAt: now.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -435,6 +444,7 @@ async function createGuestInviteRecord(params: {
   return {
     inviteId: docRef.id,
     token,
+    activationCode,
     webLink,
     completeAccountLink,
     appLink: getAppDownloadUrl(),
@@ -636,7 +646,7 @@ async function sendGuestInviteEmail(params: {
   interventionTitle: string;
   webLink: string;
   completeAccountLink: string;
-  categoryInviteCode?: string;
+  activationCode?: string;
   tempPassword?: string;
   existingAccount?: boolean;
 }): Promise<boolean> {
@@ -715,12 +725,12 @@ async function sendGuestInviteEmail(params: {
         <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:10px;">Modifiez votre mot de passe après votre première connexion</div>
       </div>` : ""}
 
-      ${params.categoryInviteCode ? `
-      <div style="border:2px dashed #2563EB;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;background:#EFF6FF;">
-        <div style="font-size:12px;color:#1D4ED8;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">Code d'accès à l'application</div>
-        <div style="font-size:32px;font-weight:800;color:#1D4ED8;letter-spacing:6px;font-family:monospace;">${escapeHtml(params.categoryInviteCode)}</div>
-        <div style="font-size:13px;color:#3B82F6;margin-top:10px;line-height:1.5;">
-          Utilisez ce code dans l'application Maintena pour rejoindre votre espace prestataire <strong>sans frais</strong>.
+      ${params.activationCode ? `
+      <div style="border:2px solid #059669;border-radius:14px;padding:20px 24px;margin:20px 0;text-align:center;background:#ECFDF5;">
+        <div style="font-size:11px;color:#065F46;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;">🔑 Votre code d'activation personnel</div>
+        <div style="font-size:36px;font-weight:800;color:#065F46;letter-spacing:8px;font-family:monospace;margin:8px 0;">${escapeHtml(params.activationCode)}</div>
+        <div style="font-size:13px;color:#047857;margin-top:10px;line-height:1.5;">
+          Ce code est <strong>personnel et à usage unique</strong>. Entrez-le sur la page "Finaliser mon compte" pour créer votre espace Maintena.
         </div>
       </div>` : ""}
 
@@ -2105,7 +2115,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
           webLink: payload.webLink,
           completeAccountLink: payload.completeAccountLink,
-          categoryInviteCode: categoryInviteCode ?? undefined,
+          activationCode: payload.activationCode,
           tempPassword,
           existingAccount,
         });
@@ -2178,6 +2188,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch { tempPassword = undefined; }
 
+      // Conserver le code d'activation existant, ou en générer un nouveau si absent (invites anciennes)
+      let activationCode: string = invite.activationCode ?? "";
+      if (!activationCode) {
+        const activationChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        activationCode = Array.from(
+          { length: 8 },
+          () => activationChars[Math.floor(Math.random() * activationChars.length)]
+        ).join("");
+        await invitesSnap.docs[0].ref.set(
+          { activationCode, activationCodeUsed: false },
+          { merge: true }
+        );
+      }
+
       const emailSent = await sendGuestInviteEmail({
         to: providerEmail,
         providerName,
@@ -2185,7 +2209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         interventionTitle,
         webLink: invite.webLink ?? "",
         completeAccountLink: invite.completeAccountLink ?? "",
-        categoryInviteCode: invite.categoryInviteCode ?? undefined,
+        activationCode,
         tempPassword,
         existingAccount,
       });
@@ -2263,6 +2287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
         webLink: payload.webLink,
         completeAccountLink: payload.completeAccountLink,
+        activationCode: payload.activationCode,
       });
 
       return res.json(payload);
@@ -2304,12 +2329,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(payload.status).json({ error: payload.error });
     }
 
-    const { password } = req.body as { password?: string };
+    const { password, activationCode } = req.body as { password?: string; activationCode?: string };
 
     if (!password || password.trim().length < 6) {
       return res.status(400).json({
         error: "Le mot de passe doit contenir au moins 6 caractères.",
       });
+    }
+
+    // Valider le code d'activation s'il est défini sur l'invitation
+    const storedCode: string = payload.invite.data.activationCode ?? "";
+    const codeAlreadyUsed: boolean = payload.invite.data.activationCodeUsed === true;
+
+    if (storedCode) {
+      if (codeAlreadyUsed) {
+        return res.status(403).json({
+          error: "Ce code d'activation a déjà été utilisé. Connectez-vous directement avec votre email et mot de passe.",
+        });
+      }
+      if (!activationCode || activationCode.trim().toUpperCase() !== storedCode.toUpperCase()) {
+        return res.status(400).json({
+          error: "Code d'activation invalide. Vérifiez votre email d'invitation.",
+        });
+      }
     }
 
     const db = getAdminDb();
@@ -2318,22 +2360,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
-      if (!serviceAccountStr) {
-        return res.status(503).json({
-          error: "FIREBASE_SERVICE_ACCOUNT manquant.",
-        });
-      }
-
       const { getAuth } = await import("firebase-admin/auth");
       const adminAuth = getAuth();
 
-      let userRecord;
+      // Chercher le compte existant
+      let userRecord: import("firebase-admin/auth").UserRecord | null = null;
       try {
         userRecord = await adminAuth.getUserByEmail(payload.provider.email);
+      } catch {
+        // Compte inexistant — on le crée ci-dessous
+      }
+
+      if (userRecord) {
         // Compte existant → mettre à jour le mot de passe avec celui choisi par l'utilisateur
         await adminAuth.updateUser(userRecord.uid, { password: password.trim() });
-      } catch {
+      } else {
         userRecord = await adminAuth.createUser({
           email: payload.provider.email,
           password: password.trim(),
@@ -2359,6 +2400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         {
           completedAccountAt: new Date().toISOString(),
           completedAccountUid: userRecord.uid,
+          activationCodeUsed: storedCode ? true : false,
         },
         { merge: true }
       );
@@ -2776,6 +2818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!file) return; // pas de photo sélectionnée → on passe
     const reader = new FileReader();
     return new Promise((resolve, reject) => {
+      reader.onerror = () => reject(new Error('Impossible de lire le fichier image.'));
       reader.onload = async () => {
         try {
           const result = String(reader.result || '');
@@ -2865,13 +2908,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const completeAccountToken = req.params.token;
+    const hasActivationCode = !!payload.invite.data.activationCode;
+    const codeAlreadyUsed = payload.invite.data.activationCodeUsed === true;
+
     const body = `
 <div class="m-container">
   <div class="m-card" style="margin-bottom:20px;">
     <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">Finaliser mon compte</h1>
-    <p style="color:#64748b;font-size:14px;margin:0;">Vos informations ont déjà été enregistrées par le syndic. Il ne vous reste qu’à choisir un mot de passe.</p>
+    <p style="color:#64748b;font-size:14px;margin:0;">Vos informations ont déjà été enregistrées. Entrez votre code d’activation et choisissez un mot de passe.</p>
   </div>
 
+  ${codeAlreadyUsed ? `
+  <div class="m-card">
+    <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:14px;">
+      <span style="font-size:24px;">✅</span>
+      <div>
+        <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Compte déjà finalisé</div>
+        <div style="font-size:14px;color:#047857;">Votre mot de passe a déjà été défini. Connectez-vous directement à l’application Maintena avec votre email et mot de passe.</div>
+      </div>
+    </div>
+  </div>` : `
   <div class="m-card">
     <label class="m-label">Prénom</label>
     <input class="m-input" value="${escapeHtml(payload.provider.firstName || "")}" disabled />
@@ -2882,8 +2938,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <label class="m-label">Email</label>
     <input class="m-input" value="${escapeHtml(payload.provider.email || "")}" disabled />
 
-    <label class="m-label">Téléphone</label>
-    <input class="m-input" value="${escapeHtml(payload.provider.phone || "")}" disabled />
+    ${hasActivationCode ? `
+    <div style="background:#f0fdf4;border:2px solid #6ee7b7;border-radius:12px;padding:16px 18px;margin:18px 0 4px;">
+      <div style="font-size:11px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">🔑 Code d’activation</div>
+      <div style="font-size:13px;color:#047857;margin-bottom:10px;">Reportez le code reçu dans votre email d’invitation (8 caractères, ex : A7XK2PBM).</div>
+      <label class="m-label" for="activationCode" style="margin-top:0;">Code d’activation *</label>
+      <input class="m-input" id="activationCode" type="text" placeholder="ex : A7XK2PBM" maxlength="8" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;font-size:20px;font-weight:700;font-family:monospace;" />
+    </div>` : ""}
 
     <label class="m-label" for="password">Mot de passe</label>
     <input class="m-input" id="password" type="password" placeholder="Au moins 6 caractères" />
@@ -2892,7 +2953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     <div class="m-success" id="success" style="display:none;">Compte créé avec succès. Vous pouvez maintenant vous connecter à l’application.</div>
     <div class="m-error" id="error" style="display:none;"></div>
-  </div>
+  </div>`}
 </div>
 
 <script>
@@ -2900,13 +2961,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const success = document.getElementById(‘success’);
   const error = document.getElementById(‘error’);
 
-  btn.addEventListener(‘click’, async () => {
-    success.style.display = ‘none’;
-    error.style.display = ‘none’;
-    const password = document.getElementById(‘password’).value;
+  if (btn) btn.addEventListener(‘click’, async () => {
+    if (success) success.style.display = ‘none’;
+    if (error) error.style.display = ‘none’;
+    const password = document.getElementById(‘password’) ? document.getElementById(‘password’).value : ‘’;
     if (!password || password.length < 6) {
-      error.textContent = ‘Le mot de passe doit contenir au moins 6 caractères.’;
-      error.style.display = ‘block’;
+      if (error) { error.textContent = ‘Le mot de passe doit contenir au moins 6 caractères.’; error.style.display = ‘block’; }
+      return;
+    }
+    const activationCodeEl = document.getElementById(‘activationCode’);
+    const activationCode = activationCodeEl ? activationCodeEl.value.trim().toUpperCase() : ‘’;
+    if (activationCodeEl && !activationCode) {
+      if (error) { error.textContent = ‘Veuillez entrer votre code d\\’activation (reçu par email).’; error.style.display = ‘block’; }
       return;
     }
     btn.disabled = true;
@@ -2915,15 +2981,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const res = await fetch(‘/api/public/complete-account/${completeAccountToken}’, {
         method: ‘POST’,
         headers: { ‘Content-Type’: ‘application/json’ },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, activationCode: activationCode || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || ‘Erreur’);
-      success.style.display = ‘block’;
+      if (success) success.style.display = ‘block’;
       btn.style.display = ‘none’;
     } catch (e) {
-      error.textContent = e.message || ‘Erreur création compte’;
-      error.style.display = ‘block’;
+      if (error) { error.textContent = e.message || ‘Erreur création compte’; error.style.display = ‘block’; }
       btn.disabled = false;
       btn.textContent = ‘Créer mon compte’;
     }
