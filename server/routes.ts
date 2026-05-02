@@ -2755,6 +2755,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');
       success.textContent = 'Compte-rendu enregistré avec succès !'; success.style.display = 'block';
+      // Verrouiller le formulaire après soumission réussie
+      const form = document.getElementById('report-form');
+      if (form) {
+        form.querySelectorAll('input, textarea, select, button').forEach(el => {
+          el.disabled = true;
+          el.style.opacity = '0.6';
+          el.style.cursor = 'not-allowed';
+        });
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) { error.textContent = e.message; error.style.display = 'block'; }
   });
