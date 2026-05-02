@@ -433,6 +433,7 @@ async function buildGuestInterventionPayload(token: string) {
       description: intervention.description ?? "",
       category: intervention.category ?? "divers",
       status: intervention.status ?? "planifie",
+      providerStatus: (intervention.providerStatus ?? "pending") as "pending" | "accepted" | "refused",
       date: intervention.date?.toDate
         ? intervention.date.toDate().toISOString()
         : intervention.date ?? null,
@@ -2249,6 +2250,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Acceptation ou refus de l'intervention par le prestataire externe
+  app.post("/api/public/intervention/:token/respond", async (req: Request, res: Response) => {
+    const payload = await buildGuestInterventionPayload(String(req.params.token));
+    if (payload.status !== 200) {
+      return res.status(payload.status).json({ error: payload.error });
+    }
+    const { action } = req.body as { action?: "accepted" | "refused" };
+    if (action !== "accepted" && action !== "refused") {
+      return res.status(400).json({ error: "action doit être 'accepted' ou 'refused'." });
+    }
+    try {
+      await payload.interventionRef.set(
+        {
+          providerStatus: action,
+          providerStatusAt: new Date().toISOString(),
+          ...(action === "accepted" ? { status: "en_cours" } : {}),
+        },
+        { merge: true }
+      );
+      return res.json({ success: true, providerStatus: action });
+    } catch (e: any) {
+      console.error("guest respond error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.post("/api/public/intervention/:token/report", async (req: Request, res: Response) => {
     const payload = await buildGuestInterventionPayload(String(req.params.token));
     if (payload.status !== 200) {
@@ -2280,6 +2307,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? completionPhotos
             : payload.intervention.completionPhotos,
           guestUpdatedAt: new Date().toISOString(),
+          // Soumettre un rapport implique l'acceptation
+          providerStatus: "accepted",
+          providerStatusAt: payload.intervention.providerStatus === "accepted"
+            ? undefined
+            : new Date().toISOString(),
         },
         { merge: true }
       );
@@ -2300,236 +2332,221 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/guest-intervention/:token", async (req: Request, res: Response) => {
-    const payload = await buildGuestInterventionPayload(String(req.params.token));
+    const token = String(req.params.token);
+    const payload = await buildGuestInterventionPayload(token);
 
     if (payload.status !== 200) {
       return res.status(payload.status).send(
-        `<!doctype html><html><body style="font-family:Arial,sans-serif;padding:40px"><h1>Lien indisponible</h1><p>${escapeHtml(
-          payload.error
-        )}</p></body></html>`
+        pageShell("Lien indisponible", `<div class="m-container"><div class="m-card"><h1>Lien indisponible</h1><p>${escapeHtml(payload.error)}</p></div></div>`)
       );
     }
 
+    const pStatus = payload.intervention.providerStatus; // "pending" | "accepted" | "refused"
+    const dateStr = payload.intervention.date
+      ? new Date(payload.intervention.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+      : "Non renseignée";
+
+    const existingPhotosHtml = payload.intervention.completionPhotos.length > 0
+      ? payload.intervention.completionPhotos.map((url: string) =>
+          `<a href="${escapeHtml(url)}" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">📷 Voir la photo</a>`
+        ).join("")
+      : `<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>`;
+
     const statusOptions = [
-      ["planifie", "Planifiée"],
       ["en_cours", "En cours"],
       ["termine", "Terminée"],
-    ]
-      .map(
-        ([value, label]) =>
-          `<option value="${value}" ${
-            payload.intervention.status === value ? "selected" : ""
-          }>${label}</option>`
-      )
-      .join("");
+    ].map(([value, label]) =>
+      `<option value="${value}" ${payload.intervention.status === value ? "selected" : ""}>${label}</option>`
+    ).join("");
 
-    const existingPhotosHtml =
-      payload.intervention.completionPhotos.length > 0
-        ? payload.intervention.completionPhotos
-            .map(
-              (url: string) =>
-                `<a href="${escapeHtml(
-                  url
-                )}" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">Voir la photo</a>`
-            )
-            .join("")
-        : `<p class="muted">Aucune photo envoyée.</p>`;
+    // Bloc de confirmation (visible seulement si "pending")
+    const confirmBlock = pStatus === "pending" ? `
+      <div id="confirm-block" style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:2px solid #e2e8f0;">
+        <div style="font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Confirmation requise</div>
+        <p style="font-size:16px;color:#0f172a;margin:0 0 20px;">Pouvez-vous confirmer votre disponibilité pour cette intervention ?</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button id="btn-accept" onclick="respond('accepted')" style="flex:1;min-width:140px;background:#10b981;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-weight:700;font-size:15px;cursor:pointer;">
+            ✓ Accepter l'intervention
+          </button>
+          <button id="btn-refuse" onclick="respond('refused')" style="flex:1;min-width:140px;background:#fff;color:#ef4444;border:2px solid #ef4444;border-radius:12px;padding:14px 20px;font-weight:700;font-size:15px;cursor:pointer;">
+            ✗ Refuser l'intervention
+          </button>
+        </div>
+        <div id="respond-msg" style="display:none;margin-top:14px;padding:12px;border-radius:10px;font-size:14px;"></div>
+      </div>` : "";
 
-    const html = `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Intervention Maintena</title>
-  <style>
-    body{font-family:Inter,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0;padding:24px;}
-    .wrap{max-width:760px;margin:0 auto;}
-    .card{background:#fff;border-radius:18px;padding:24px;box-shadow:0 8px 32px rgba(15,23,42,.08);margin-bottom:16px;}
-    .pill{display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;margin-bottom:12px;}
-    h1{font-size:28px;margin:0 0 8px;}
-    h2{font-size:18px;margin:0 0 16px;}
-    p,li{line-height:1.6;}
-    label{display:block;font-size:14px;font-weight:600;margin-bottom:6px;}
-    input,textarea,select{width:100%;padding:12px 14px;border:1px solid #cbd5e1;border-radius:12px;font-size:14px;box-sizing:border-box;margin-bottom:14px;}
-    textarea{min-height:140px;resize:vertical;}
-    button{background:#2563eb;color:#fff;border:none;border-radius:12px;padding:14px 18px;font-weight:700;font-size:15px;cursor:pointer;}
-    .secondary{background:#0f766e;}
-    .muted{color:#64748b;font-size:14px;}
-    .success,.error{display:none;padding:12px 14px;border-radius:12px;margin-top:12px;}
-    .success{background:#dcfce7;color:#166534;}
-    .error{background:#fee2e2;color:#991b1b;}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <div class="pill">Accès invité sécurisé</div>
-      <h1>${escapeHtml(payload.intervention.title)}</h1>
-      <p class="muted">${escapeHtml(payload.copro.name)}${
-      payload.copro.address ? ` · ${escapeHtml(payload.copro.address)}` : ""
-    }</p>
-      <p><strong>Prestataire :</strong> ${escapeHtml(payload.provider.name)}</p>
-      <p><strong>Email :</strong> ${escapeHtml(payload.provider.email)}</p>
-      <p><strong>Date prévue :</strong> ${
-        payload.intervention.date
-          ? new Date(payload.intervention.date).toLocaleString("fr-FR")
-          : "Non renseignée"
-      }</p>
-      <p><strong>Description :</strong><br/>${escapeHtml(
-        payload.intervention.description || "Aucune description fournie."
-      )}</p>
+    // Bannière statut si déjà répondu
+    const statusBanner = pStatus === "accepted"
+      ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">✅</span><div><div style="font-weight:700;color:#065f46;">Intervention acceptée</div><div style="font-size:13px;color:#047857;">Remplissez le compte-rendu ci-dessous après votre intervention.</div></div></div>`
+      : pStatus === "refused"
+      ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">❌</span><div><div style="font-weight:700;color:#991b1b;">Intervention refusée</div><div style="font-size:13px;color:#b91c1c;">Le syndic a été notifié. <button onclick="respond('accepted')" style="background:none;border:none;color:#2563eb;cursor:pointer;font-size:13px;text-decoration:underline;">Changer d'avis →</button></div></div></div>`
+      : "";
+
+    const body = `
+<div class="m-container">
+
+  ${confirmBlock}
+  ${statusBanner}
+
+  <!-- Fiche intervention -->
+  <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
+    <div style="display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:700;margin-bottom:14px;">Intervention</div>
+    <h1 style="font-size:24px;font-weight:800;color:#0f172a;margin:0 0 6px;">${escapeHtml(payload.intervention.title)}</h1>
+    <p style="color:#64748b;font-size:14px;margin:0 0 20px;">${escapeHtml(payload.copro.name)}${payload.copro.address ? ` · ${escapeHtml(payload.copro.address)}` : ""}</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;">
+      <div style="background:#f8fafc;border-radius:12px;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Prestataire</div>
+        <div style="font-weight:600;color:#0f172a;">${escapeHtml(payload.provider.name)}</div>
+        <div style="font-size:13px;color:#64748b;">${escapeHtml(payload.provider.email)}</div>
+      </div>
+      <div style="background:#f8fafc;border-radius:12px;padding:14px;">
+        <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;">Date prévue</div>
+        <div style="font-weight:600;color:#0f172a;">${escapeHtml(dateStr)}</div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Compte-rendu d'intervention</h2>
-      <form id="report-form">
-        <label for="status">Statut</label>
-        <select id="status" name="status">${statusOptions}</select>
-
-        <label for="report">Rapport</label>
-        <textarea id="report" name="report" placeholder="Décrivez votre intervention...">${escapeHtml(
-          payload.intervention.interventionReport || ""
-        )}</textarea>
-
-        <label for="completionComment">Commentaire de clôture</label>
-        <textarea id="completionComment" name="completionComment" placeholder="Commentaires complémentaires...">${escapeHtml(
-          payload.intervention.completionComment || ""
-        )}</textarea>
-
-        <label for="interventionRemaining">Travaux restants</label>
-        <textarea id="interventionRemaining" name="interventionRemaining" placeholder="Ce qu'il reste éventuellement à faire...">${escapeHtml(
-          payload.intervention.interventionRemaining || ""
-        )}</textarea>
-
-        <label for="photoInput">Ajouter une photo</label>
-        <input id="photoInput" type="file" accept="image/*" />
-
-        <button type="button" id="uploadPhotoBtn" class="secondary">Envoyer la photo</button>
-        <button type="submit">Enregistrer</button>
-
-        <div class="success" id="success">Compte-rendu enregistré avec succès.</div>
-        <div class="error" id="error"></div>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Photos envoyées</h2>
-      <div id="photosList">${existingPhotosHtml}</div>
-    </div>
-
-    <div class="card">
-      <h2>Créer votre compte Maintena</h2>
-      <p class="muted">
-        Vous pouvez aussi finaliser votre inscription sans ressaisir vos informations :
-        <a href="${escapeHtml(
-          payload.links.completeAccountLink
-        )}" style="color:#2563eb;">finaliser mon compte</a>
-      </p>
+    <div style="background:#f8fafc;border-radius:12px;padding:14px;">
+      <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Description</div>
+      <div style="font-size:15px;color:#0f172a;line-height:1.6;">${escapeHtml(payload.intervention.description || "Aucune description fournie.")}</div>
     </div>
   </div>
 
-  <script>
-    const form = document.getElementById('report-form');
-    const success = document.getElementById('success');
-    const error = document.getElementById('error');
-    const uploadBtn = document.getElementById('uploadPhotoBtn');
-    const photoInput = document.getElementById('photoInput');
-    const photosList = document.getElementById('photosList');
+  <!-- Compte-rendu -->
+  <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
+    <div style="font-size:18px;font-weight:800;color:#0f172a;margin-bottom:18px;">Compte-rendu d'intervention</div>
+    <form id="report-form">
+      <label class="m-label" for="status">Statut</label>
+      <select id="status" name="status" class="m-input">${statusOptions}</select>
 
-    let completionPhotos = ${JSON.stringify(
-      payload.intervention.completionPhotos || []
-    )};
+      <label class="m-label" for="report">Rapport d'intervention</label>
+      <textarea id="report" name="report" class="m-input" style="min-height:120px;resize:vertical;" placeholder="Décrivez ce que vous avez réalisé...">${escapeHtml(payload.intervention.interventionReport || "")}</textarea>
 
-    function renderPhotos() {
-      if (!completionPhotos.length) {
-        photosList.innerHTML = '<p class="muted">Aucune photo envoyée.</p>';
-        return;
+      <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
+      <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
+
+      <label class="m-label" for="photoInput">Ajouter une photo</label>
+      <input id="photoInput" type="file" accept="image/*" class="m-input" />
+      <button type="button" id="uploadPhotoBtn" class="m-btn" style="background:#0f766e;margin-top:0;">📷 Envoyer la photo</button>
+
+      <button type="submit" class="m-btn" style="margin-top:12px;">✓ Enregistrer le compte-rendu</button>
+
+      <div class="m-success" id="success">Compte-rendu enregistré avec succès !</div>
+      <div class="m-error" id="error"></div>
+    </form>
+
+    <div style="margin-top:20px;">
+      <div style="font-size:14px;font-weight:600;color:#0f172a;margin-bottom:10px;">Photos envoyées</div>
+      <div id="photosList">${existingPhotosHtml}</div>
+    </div>
+  </div>
+
+  <!-- Créer son compte -->
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">
+    <div style="font-weight:700;color:#1d4ed8;margin-bottom:6px;">Finalisez votre compte Maintena</div>
+    <p style="font-size:14px;color:#3b82f6;margin:0 0 14px;">Accédez à toutes vos interventions depuis l'application.</p>
+    <a href="${escapeHtml(payload.links.completeAccountLink)}" class="m-btn" style="display:inline-block;text-decoration:none;padding:12px 24px;">Créer mon compte →</a>
+  </div>
+
+</div>
+
+<script>
+  const TOKEN = '${token}';
+
+  async function respond(action) {
+    const btnAccept = document.getElementById('btn-accept');
+    const btnRefuse = document.getElementById('btn-refuse');
+    const msg = document.getElementById('respond-msg');
+
+    if (btnAccept) btnAccept.disabled = true;
+    if (btnRefuse) btnRefuse.disabled = true;
+
+    try {
+      const res = await fetch('/api/public/intervention/' + TOKEN + '/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+
+      // Recharger la page pour refléter le nouveau statut
+      window.location.reload();
+    } catch (e) {
+      if (msg) {
+        msg.textContent = e.message || 'Erreur réseau';
+        msg.style.display = 'block';
+        msg.style.background = '#fee2e2';
+        msg.style.color = '#991b1b';
       }
-      photosList.innerHTML = completionPhotos.map((url) =>
-        '<a href="' + url + '" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">Voir la photo</a>'
-      ).join('');
+      if (btnAccept) btnAccept.disabled = false;
+      if (btnRefuse) btnRefuse.disabled = false;
     }
+  }
 
-    uploadBtn.addEventListener('click', async () => {
-      success.style.display = 'none';
-      error.style.display = 'none';
+  let completionPhotos = ${JSON.stringify(payload.intervention.completionPhotos || [])};
+  const photosList = document.getElementById('photosList');
+  const success = document.getElementById('success');
+  const error = document.getElementById('error');
 
-      const file = photoInput.files && photoInput.files[0];
-      if (!file) {
-        error.textContent = 'Choisissez une photo.';
-        error.style.display = 'block';
-        return;
-      }
+  function renderPhotos() {
+    if (!completionPhotos.length) {
+      photosList.innerHTML = '<p style="color:#64748b;font-size:14px;">Aucune photo envoyée.</p>';
+      return;
+    }
+    photosList.innerHTML = completionPhotos.map((url) =>
+      '<a href="' + url + '" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">📷 Voir la photo</a>'
+    ).join('');
+  }
 
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const result = String(reader.result || '');
-          const base64 = result.includes(',') ? result.split(',')[1] : result;
-
-          const res = await fetch('/api/public/intervention/${req.params.token}/photo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              base64,
-              mimeType: file.type || 'image/jpeg'
-            }),
-          });
-
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Erreur upload');
-
-          completionPhotos = data.completionPhotos || completionPhotos;
-          renderPhotos();
-          success.textContent = 'Photo envoyée avec succès.';
-          success.style.display = 'block';
-        } catch (e) {
-          error.textContent = e.message || 'Erreur upload photo';
-          error.style.display = 'block';
-        }
-      };
-
-      reader.readAsDataURL(file);
-    });
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      success.style.display = 'none';
-      error.style.display = 'none';
-
-      const body = {
-        status: document.getElementById('status').value,
-        report: document.getElementById('report').value,
-        completionComment: document.getElementById('completionComment').value,
-        interventionRemaining: document.getElementById('interventionRemaining').value,
-        completionPhotos,
-      };
-
+  document.getElementById('uploadPhotoBtn').addEventListener('click', async () => {
+    success.style.display = 'none'; error.style.display = 'none';
+    const file = document.getElementById('photoInput').files[0];
+    if (!file) { error.textContent = 'Choisissez une photo.'; error.style.display = 'block'; return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
       try {
-        const res = await fetch('/api/public/intervention/${req.params.token}/report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+        const result = String(reader.result || '');
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        const res = await fetch('/api/public/intervention/' + TOKEN + '/photo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64, mimeType: file.type || 'image/jpeg' }),
         });
-
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erreur inconnue');
+        if (!res.ok) throw new Error(data.error || 'Erreur upload');
+        completionPhotos = data.completionPhotos || completionPhotos;
+        renderPhotos();
+        success.textContent = 'Photo envoyée avec succès.'; success.style.display = 'block';
+      } catch (e) { error.textContent = e.message || 'Erreur upload'; error.style.display = 'block'; }
+    };
+    reader.readAsDataURL(file);
+  });
 
-        success.textContent = 'Compte-rendu enregistré avec succès.';
-        success.style.display = 'block';
-      } catch (e) {
-        error.textContent = e.message;
-        error.style.display = 'block';
-      }
-    });
-
-    renderPhotos();
-  </script>
-</body>
-</html>`;
+  document.getElementById('report-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    success.style.display = 'none'; error.style.display = 'none';
+    const body = {
+      status: document.getElementById('status').value,
+      report: document.getElementById('report').value,
+      completionComment: '',
+      interventionRemaining: document.getElementById('interventionRemaining').value,
+      completionPhotos,
+    };
+    try {
+      const res = await fetch('/api/public/intervention/' + TOKEN + '/report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      success.textContent = 'Compte-rendu enregistré avec succès !'; success.style.display = 'block';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) { error.textContent = e.message; error.style.display = 'block'; }
+  });
+</script>`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(html);
+    return res.status(200).send(pageShell(`Intervention — ${escapeHtml(payload.intervention.title)}`, body, `← ${escapeHtml(payload.copro.name)}`, "/"));
   });
 
   app.get("/guest-complete-account/:token", async (req: Request, res: Response) => {
