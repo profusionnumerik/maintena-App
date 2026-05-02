@@ -41,7 +41,7 @@ export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, isSuperAdmin, logout, deleteAccount } = useAuth();
-  const { currentCopro, currentRole, members, copros, switchCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember } = useCoPro();
+  const { currentCopro, currentRole, members, copros, switchCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedOwnerCode, setCopiedOwnerCode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,8 +118,9 @@ export default function AdminScreen() {
         `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que membre du conseil syndical.\n\n` +
         `${appLine}\n\n` +
         `Accès web : ${webAccessLink}\n\n` +
-        `Rôle : Conseil syndical\n` +
-        `Code d'invitation : ${code}`
+        `Rôle : Conseil syndical (propriétaire élu)\n` +
+        `Code d'invitation : ${code}\n\n` +
+        `Utilisez ce code comme un propriétaire. Votre accès "Contrôle des comptes" sera activé par le syndic.`
       );
     }
 
@@ -137,7 +138,7 @@ export default function AdminScreen() {
     if (!currentCopro) return null;
     if (inviteRole === "propriétaire") return currentCopro.ownerInviteCode ?? null;
     if (inviteRole === "collaborateur") return currentCopro.inviteCode;
-    if (inviteRole === "conseil") return currentCopro.inviteCode; // même code que collaborateur, rôle changé manuellement par l'admin
+    if (inviteRole === "conseil") return currentCopro.ownerInviteCode ?? null; // même code que propriétaire — l'admin change ensuite le rôle en "conseil"
     return currentCopro.categoryInviteCodes?.[inviteCategory] ?? null;
   };
 
@@ -174,6 +175,49 @@ export default function AdminScreen() {
       Alert.alert("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
     } finally {
       setInviteGenerating(false);
+    }
+  };
+
+  const handleChangeRole = (uid: string, currentMemberRole: string, name: string) => {
+    // Propriétaire ↔ Conseil syndical — seuls ces deux rôles sont interchangeables
+    if (currentMemberRole === "propriétaire") {
+      Alert.alert(
+        `Promouvoir ${name}`,
+        "Voulez-vous lui donner accès au Contrôle des comptes (Conseil syndical) ?",
+        [
+          { text: "Annuler", style: "cancel" },
+          {
+            text: "Conseil syndical",
+            onPress: async () => {
+              try {
+                await changeMemberRole(uid, "conseil");
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch (e: any) {
+                Alert.alert("Erreur", e.message ?? "Impossible de modifier le rôle.");
+              }
+            },
+          },
+        ]
+      );
+    } else if (currentMemberRole === "conseil") {
+      Alert.alert(
+        `Modifier le rôle de ${name}`,
+        "Retirer l'accès au Contrôle des comptes ?",
+        [
+          { text: "Annuler", style: "cancel" },
+          {
+            text: "Redevenir Propriétaire",
+            onPress: async () => {
+              try {
+                await changeMemberRole(uid, "propriétaire");
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch (e: any) {
+                Alert.alert("Erreur", e.message ?? "Impossible de modifier le rôle.");
+              }
+            },
+          },
+        ]
+      );
     }
   };
 
@@ -846,13 +890,17 @@ export default function AdminScreen() {
                   <Text style={styles.memberName}>{m.displayName || m.email}</Text>
                   <Text style={styles.memberEmail}>{m.email}</Text>
                 </View>
-                <View style={[
-                  styles.memberRoleBadge,
-                  m.role === "admin" && styles.memberRoleAdmin,
-                  m.role === "propriétaire" && styles.memberRoleOwner,
-                  m.role === "conseil" && { backgroundColor: "#E0F2FE" },
-                  m.role === "prestataire" && { backgroundColor: "#F3E8FF" },
-                ]}>
+                <Pressable
+                  style={[
+                    styles.memberRoleBadge,
+                    m.role === "admin" && styles.memberRoleAdmin,
+                    m.role === "propriétaire" && styles.memberRoleOwner,
+                    m.role === "conseil" && { backgroundColor: "#E0F2FE" },
+                    m.role === "prestataire" && { backgroundColor: "#F3E8FF" },
+                    (m.role === "propriétaire" || m.role === "conseil") && { borderWidth: 1, borderColor: m.role === "conseil" ? "#0891B2" : "#0D9488" },
+                  ]}
+                  onPress={() => (m.role === "propriétaire" || m.role === "conseil") ? handleChangeRole(m.uid, m.role, m.displayName || m.email || m.uid) : undefined}
+                >
                   <Text style={[
                     styles.memberRoleText,
                     m.role === "admin" && styles.memberRoleTextAdmin,
@@ -860,9 +908,9 @@ export default function AdminScreen() {
                     m.role === "conseil" && { color: "#0891B2" },
                     m.role === "prestataire" && { color: "#7C3AED" },
                   ]}>
-                    {m.role === "admin" ? "Syndic" : m.role === "propriétaire" ? "Propriétaire" : m.role === "conseil" ? "Conseil syndical" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
+                    {m.role === "admin" ? "Syndic" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
                   </Text>
-                </View>
+                </Pressable>
                 {m.role === "prestataire" && (
                   <Pressable
                     style={styles.memberDeleteBtn}

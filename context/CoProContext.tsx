@@ -95,6 +95,7 @@ interface CoProContextValue {
     payload: PreRegisterProviderPayload
   ) => Promise<{ status: "new" | "updated" | "already_registered" }>;
   removeMember: (uid: string) => Promise<void>;
+  changeMemberRole: (uid: string, newRole: MemberRole) => Promise<void>;
   addSignalement: (
     message: string,
     senderName: string,
@@ -934,6 +935,14 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     [currentCopro, members]
   );
 
+  const changeMemberRole = useCallback(
+    async (uid: string, newRole: MemberRole) => {
+      if (!currentCopro) return;
+      await updateDoc(doc(db, "copros", currentCopro.id, "members", uid), { role: newRole });
+    },
+    [currentCopro]
+  );
+
   const addSignalement = useCallback(
     async (
       message: string,
@@ -1077,6 +1086,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       invitePrestataire,
       preRegisterProvider,
       removeMember,
+      changeMemberRole,
       addSignalement,
       markSignalementRead,
       acknowledgeSignalement,
@@ -1108,6 +1118,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       invitePrestataire,
       preRegisterProvider,
       removeMember,
+      changeMemberRole,
       addSignalement,
       markSignalementRead,
       acknowledgeSignalement,
