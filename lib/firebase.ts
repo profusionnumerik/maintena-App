@@ -4,8 +4,9 @@ import {
   getReactNativePersistence,
   getAuth,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
@@ -39,7 +40,16 @@ try {
   auth = getAuth(app);
 }
 
-const db = getFirestore(app);
+// Sur React Native, experimentalForceLongPolling évite le bug Firebase 12.x
+// "INTERNAL ASSERTION FAILED: Unexpected state (ID: 3186)" lors d'uploads Storage concurrents
+let db: ReturnType<typeof getFirestore>;
+try {
+  db = Platform.OS !== "web"
+    ? initializeFirestore(app, { experimentalForceLongPolling: true })
+    : getFirestore(app);
+} catch {
+  db = getFirestore(app);
+}
 const storage = getStorage(app);
 
 export { app, auth, db, storage };

@@ -2024,12 +2024,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Récupérer tous les membres propriétaires
     const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
-    const ownerEmails: string[] = membersSnap.docs
-      .map((d) => d.data())
+    const allMembers = membersSnap.docs.map((d) => d.data());
+    console.log(`[notify-announcement] ${allMembers.length} membres total, rôles:`, allMembers.map((m) => m.role));
+    const ownerEmails: string[] = allMembers
       .filter((m) => m.role === "propriétaire" && m.email && m.receiveAnnouncementEmails !== false)
       .map((m) => m.email as string);
+    console.log(`[notify-announcement] ${ownerEmails.length} propriétaires à notifier`);
 
-    if (ownerEmails.length === 0) return res.json({ sent: 0 });
+    if (ownerEmails.length === 0) return res.json({ sent: 0, reason: "no_owners" });
 
     let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
     try {
