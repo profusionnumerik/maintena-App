@@ -19,11 +19,12 @@ import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 
-const ANNUAL_PRICE_EUR = 169;
 const LAUNCH_OFFER_LIMIT = 25;
-const TABLET_OFFER_LABEL = `Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers`;
-const PRICE_LABEL = `${ANNUAL_PRICE_EUR} € / an`;
-const PAY_BUTTON_LABEL = `Payer et activer — ${ANNUAL_PRICE_EUR} €`;
+const PLANS = {
+  annuel:  { label: "Annuel", price: 169, unit: "/ an",   saving: "Économie 70 €", button: "Payer et activer — 169 € / an" },
+  mensuel: { label: "Mensuel", price: 19.99, unit: "/ mois", saving: "",            button: "Payer et activer — 19,99 € / mois" },
+} as const;
+type PlanKey = keyof typeof PLANS;
 
 export default function BlockedScreen() {
   const insets = useSafeAreaInsets();
@@ -39,12 +40,14 @@ export default function BlockedScreen() {
   const [loading, setLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<PlanKey>("annuel");
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
   const isAdmin = currentRole === "admin";
   const isExpired = userSubscription?.status === "expired";
+  const plan = PLANS[selectedPlan];
 
   const handlePayment = async () => {
     if (!currentCopro || !user) {
@@ -79,6 +82,7 @@ export default function BlockedScreen() {
           adminEmail: user.email ?? "",
           coProName: currentCopro.name ?? "",
           inviteCode: currentCopro.inviteCode ?? "",
+          plan: selectedPlan,
         }),
       });
 
@@ -133,7 +137,7 @@ export default function BlockedScreen() {
       await crossShare(
         `Rejoignez ma copropriété "${currentCopro.name}" sur Maintena.\n` +
         `Code d'invitation : ${currentCopro.inviteCode}\n\n` +
-        `Offre de lancement : ${PRICE_LABEL} — ${TABLET_OFFER_LABEL}.`
+        `Offre de lancement : 169 € / an — Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers.`
       );
     } catch {}
   };
@@ -258,50 +262,53 @@ export default function BlockedScreen() {
 
                 <View style={styles.offerBox}>
                   <View style={styles.offerBadge}>
-                    <Ionicons
-                      name="gift-outline"
-                      size={14}
-                      color={COLORS.primary}
-                    />
+                    <Ionicons name="gift-outline" size={14} color={COLORS.primary} />
                     <Text style={styles.offerBadgeText}>Offre de lancement</Text>
                   </View>
-                  <Text style={styles.offerTitle}>{TABLET_OFFER_LABEL}</Text>
+                  <Text style={styles.offerTitle}>{`Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers`}</Text>
                   <Text style={styles.offerText}>
-                    Application prête à l'emploi, solution clé en main pour les
-                    syndics.
+                    Application prête à l'emploi, solution clé en main pour les syndics.
                   </Text>
                 </View>
 
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Abonnement annuel</Text>
-                  <Text style={styles.priceValue}>{PRICE_LABEL}</Text>
+                {/* Toggle mensuel / annuel */}
+                <View style={styles.planToggle}>
+                  {(Object.keys(PLANS) as PlanKey[]).map((key) => (
+                    <Pressable
+                      key={key}
+                      style={[styles.planBtn, selectedPlan === key && styles.planBtnActive]}
+                      onPress={() => setSelectedPlan(key)}
+                    >
+                      <Text style={[styles.planBtnText, selectedPlan === key && styles.planBtnTextActive]}>
+                        {PLANS[key].label}
+                      </Text>
+                      <Text style={[styles.planBtnSub, selectedPlan === key && styles.planBtnSubActive]}>
+                        {key === "annuel" ? "169 € / an" : "19,99 € / mois"}
+                      </Text>
+                      {PLANS[key].saving ? (
+                        <Text style={[styles.planBtnSaving, selectedPlan === key && { color: "#fff" }]}>
+                          {PLANS[key].saving}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  ))}
                 </View>
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.payBtn,
-                    { backgroundColor: COLORS.danger },
-                    pressed && { opacity: 0.88 },
-                  ]}
+                  style={({ pressed }) => [styles.payBtn, { backgroundColor: COLORS.danger }, pressed && { opacity: 0.88 }]}
                   onPress={handlePayment}
                   disabled={loading}
                 >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
+                  {loading ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>Renouveler maintenant</Text>
+                      <Text style={styles.payBtnText}>Renouveler — {plan.price === 169 ? "169 € / an" : "19,99 € / mois"}</Text>
                     </>
                   )}
                 </Pressable>
 
                 <Text style={styles.secureNote}>
-                  <Ionicons
-                    name="shield-checkmark-outline"
-                    size={12}
-                    color={COLORS.textMuted}
-                  />{" "}
+                  <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
                   Paiement sécurisé par Stripe
                 </Text>
               </View>
@@ -341,49 +348,53 @@ export default function BlockedScreen() {
 
                 <View style={styles.offerBox}>
                   <View style={styles.offerBadge}>
-                    <Ionicons
-                      name="rocket-outline"
-                      size={14}
-                      color={COLORS.primary}
-                    />
+                    <Ionicons name="rocket-outline" size={14} color={COLORS.primary} />
                     <Text style={styles.offerBadgeText}>Lancement Maintena</Text>
                   </View>
-                  <Text style={styles.offerTitle}>{TABLET_OFFER_LABEL}</Text>
+                  <Text style={styles.offerTitle}>{`Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers`}</Text>
                   <Text style={styles.offerText}>
-                    Pour les {LAUNCH_OFFER_LIMIT} premières copropriétés :
-                    tablette incluse, application installée, prête à l'emploi.
+                    Pour les {LAUNCH_OFFER_LIMIT} premières copropriétés : tablette incluse, application installée, prête à l'emploi.
                   </Text>
                 </View>
 
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Abonnement annuel</Text>
-                  <Text style={styles.priceValue}>{PRICE_LABEL}</Text>
+                {/* Toggle mensuel / annuel */}
+                <View style={styles.planToggle}>
+                  {(Object.keys(PLANS) as PlanKey[]).map((key) => (
+                    <Pressable
+                      key={key}
+                      style={[styles.planBtn, selectedPlan === key && styles.planBtnActive]}
+                      onPress={() => setSelectedPlan(key)}
+                    >
+                      <Text style={[styles.planBtnText, selectedPlan === key && styles.planBtnTextActive]}>
+                        {PLANS[key].label}
+                      </Text>
+                      <Text style={[styles.planBtnSub, selectedPlan === key && styles.planBtnSubActive]}>
+                        {key === "annuel" ? "169 € / an" : "19,99 € / mois"}
+                      </Text>
+                      {PLANS[key].saving ? (
+                        <Text style={[styles.planBtnSaving, selectedPlan === key && { color: "#fff" }]}>
+                          {PLANS[key].saving}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  ))}
                 </View>
 
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.payBtn,
-                    pressed && { opacity: 0.88 },
-                  ]}
+                  style={({ pressed }) => [styles.payBtn, pressed && { opacity: 0.88 }]}
                   onPress={handlePayment}
                   disabled={loading}
                 >
-                  {loading ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
+                  {loading ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>{PAY_BUTTON_LABEL}</Text>
+                      <Text style={styles.payBtnText}>{plan.button}</Text>
                     </>
                   )}
                 </Pressable>
 
                 <Text style={styles.secureNote}>
-                  <Ionicons
-                    name="shield-checkmark-outline"
-                    size={12}
-                    color={COLORS.textMuted}
-                  />{" "}
+                  <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
                   Paiement sécurisé par Stripe
                 </Text>
 
@@ -625,17 +636,56 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
   },
-
   priceLabel: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     color: COLORS.textSecondary,
   },
-
   priceValue: {
     fontSize: 17,
     fontFamily: "Inter_700Bold",
     color: COLORS.text,
+  },
+  planToggle: {
+    flexDirection: "row",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 16,
+  },
+  planBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+  },
+  planBtnActive: {
+    backgroundColor: COLORS.primary,
+  },
+  planBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: COLORS.textMuted,
+  },
+  planBtnTextActive: {
+    color: "#fff",
+  },
+  planBtnSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  planBtnSubActive: {
+    color: "rgba(255,255,255,0.85)",
+  },
+  planBtnSaving: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.primary,
+    marginTop: 2,
   },
 
   payBtn: {

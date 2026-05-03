@@ -816,19 +816,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    const { coProId, userId, adminEmail, coProName, inviteCode } = req.body as {
+    const { coProId, userId, adminEmail, coProName, inviteCode, plan } = req.body as {
       coProId?: string;
       userId?: string;
       adminEmail?: string;
       coProName?: string;
       inviteCode?: string;
+      plan?: string;
     };
 
     if (!coProId || !userId) {
       return res.status(400).json({ error: "Paramètres manquants." });
     }
 
-    const priceId = process.env.STRIPE_PRICE_ID;
+    const selectedPlan = String(plan ?? "annuel").trim().toLowerCase();
+    const priceId = selectedPlan === "mensuel"
+      ? (process.env.STRIPE_PRICE_ID || process.env.STRIPE_PRICE_ID_ANNUAL)
+      : (process.env.STRIPE_PRICE_ID_ANNUAL || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
