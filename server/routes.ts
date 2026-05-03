@@ -1934,13 +1934,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/notify-signalement", async (req: Request, res: Response) => {
     try {
-      const { adminEmail, coProName, message, senderName, apartmentNumber } =
+      const { adminEmail, coProName, message, senderName, apartmentNumber, photoUrl } =
         req.body as {
           adminEmail?: string;
           coProName?: string;
           message?: string;
           senderName?: string;
           apartmentNumber?: string;
+          photoUrl?: string | null;
         };
 
       if (!adminEmail || !message) {
@@ -1988,6 +1989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message
         )}</div>
       </div>
+      ${photoUrl ? `<img src="${photoUrl}" alt="Photo du signalement" style="width:100%;max-width:456px;border-radius:12px;margin-bottom:16px;display:block;" />` : ""}
       <p style="font-size:13px;color:#64748B;line-height:1.6;">
         Connectez-vous à l'application Maintena pour consulter et répondre à ce signalement.
       </p>

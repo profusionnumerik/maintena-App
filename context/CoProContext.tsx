@@ -1015,6 +1015,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
             message,
             senderName,
             apartmentNumber,
+            photoUrl: photos[0] ?? null,
           });
         } catch (e) {
           console.warn("Email notification failed:", e);
