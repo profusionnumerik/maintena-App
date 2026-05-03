@@ -1051,6 +1051,20 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         createdAt: serverTimestamp(),
         ...(expiresAt ? { expiresAt } : {}),
       });
+
+      // Notifier les propriétaires par email
+      try {
+        await apiRequest("POST", "/api/notify-announcement", {
+          coProId: currentCopro.id,
+          title: title.trim(),
+          message: message.trim(),
+          type,
+          coProName: currentCopro.name,
+          senderName: user.displayName ?? user.email ?? "Le syndic",
+        });
+      } catch (e) {
+        console.warn("Announcement email notification failed:", e);
+      }
     },
     [user, currentCopro]
   );

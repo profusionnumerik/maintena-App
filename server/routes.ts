@@ -2009,6 +2009,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/notify-announcement", async (req: Request, res: Response) => {
+    const { coProId, title, message, type, coProName, senderName } = req.body as {
+      coProId?: string; title?: string; message?: string;
+      type?: string; coProName?: string; senderName?: string;
+    };
+
+    if (!coProId || !title || !message) {
+      return res.status(400).json({ error: "coProId, title et message requis" });
+    }
+
+    const db = getAdminDb();
+    if (!db) return res.json({ sent: 0, reason: "firebase_unavailable" });
+
+    // Récupérer tous les membres propriétaires
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
+    const ownerEmails: string[] = membersSnap.docs
+      .map((d) => d.data())
+      .filter((m) => m.role === "propriétaire" && m.email)
+      .map((m) => m.email as string);
+
+    if (ownerEmails.length === 0) return res.json({ sent: 0 });
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try {
+      resendClient = await getUncachableResendClient();
+    } catch {
+      return res.json({ sent: 0, reason: "resend_unavailable" });
+    }
+
+    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+
+    const typeColors: Record<string, string> = {
+      info: "#2563EB", eau: "#0EBAAA", chauffage: "#F59E0B", travaux: "#8B5CF6", urgent: "#EF4444",
+    };
+    const typeLabels: Record<string, string> = {
+      info: "Information", eau: "Coupure d'eau", chauffage: "Coupure de chauffage",
+      travaux: "Travaux", urgent: "Urgence",
+    };
+    const color = typeColors[type ?? "info"] ?? "#2563EB";
+    const typeLabel = typeLabels[type ?? "info"] ?? "Annonce";
+
+    try {
+      // Resend accepte un tableau d'adresses
+      await resendClient.client.emails.send({
+        from: fromAddress,
+        to: ownerEmails,
+        subject: `${typeLabel} · ${coProName ?? "Votre copropriété"}`,
+        html: `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:${color}18;color:${color};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;margin-bottom:20px;">
+        ${escapeHtml(typeLabel)}
+      </div>
+      <h2 style="font-size:22px;font-weight:700;color:#0B1628;margin:0 0 6px;">
+        ${escapeHtml(title)}
+      </h2>
+      <p style="font-size:13px;color:#64748B;margin:0 0 20px;">
+        ${escapeHtml(coProName ?? "Votre copropriété")} · ${escapeHtml(senderName ?? "Le syndic")}
+      </p>
+      <div style="background:#F8FAFF;border-left:4px solid ${color};border-radius:0 12px 12px 0;padding:18px 20px;margin-bottom:24px;">
+        <p style="font-size:15px;color:#1E293B;line-height:1.6;margin:0;">${escapeHtml(message).replace(/\n/g, "<br/>")}</p>
+      </div>
+      <p style="font-size:12px;color:#94A3B8;line-height:1.6;margin:0;">
+        Vous recevez cet email car vous êtes inscrit comme copropriétaire sur Maintena.
+      </p>
+    </div>
+    <div style="background:#F8FAFF;padding:20px 32px;border-top:1px solid #E2E8F0;">
+      <div style="font-size:12px;color:#94A3B8;text-align:center;">Maintena · Gestion de copropriété professionnelle</div>
+    </div>
+  </div>
+</body>
+</html>`,
+      });
+      return res.json({ sent: ownerEmails.length });
+    } catch (e: any) {
+      console.error("notify-announcement error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.post("/api/guest-access/create", async (req: Request, res: Response) => {
     const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body as {
       coProId?: string;
