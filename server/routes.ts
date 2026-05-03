@@ -1551,11 +1551,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div class="plan-toggle" id="plan-toggle" role="group" aria-label="Choisir un plan">
         <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">
           Starter
-          <small>1 à 3 copros · 5,99 €/mois</small>
+          <small>1 à 3 copros · 7,99 €/mois</small>
         </button>
         <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">
           Pro
-          <small>4 à 15 copros · 15 €/mois</small>
+          <small>4 à 15 copros · 14,99 €/mois</small>
         </button>
         <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">
           Business
@@ -1604,7 +1604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           </div>
         </div>
 
-        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "15 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "5,99 €/mois"}</button>
+        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "14,99 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "7,99 €/mois"}</button>
         <div class="m-error" id="error"></div>
       </form>
 
@@ -1616,7 +1616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   <script>
     var currentPlan = "${initialPlan}";
-    var planLabels = { starter: "Continuer → 5,99 €/mois", pro: "Continuer → 15 €/mois", business: "Continuer → 19,99 €/mois" };
+    var planLabels = { starter: "Continuer → 7,99 €/mois", pro: "Continuer → 14,99 €/mois", business: "Continuer → 19,99 €/mois" };
 
     var form = document.getElementById("signup-form");
     var errorBox = document.getElementById("error");
