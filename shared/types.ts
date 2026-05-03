@@ -7,9 +7,9 @@ export const PLAN_COPRO_LIMITS: Record<SubscriptionPlan, number> = {
 };
 
 export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: number; label: string }> = {
-  starter:  { monthly: 9,  annual: 89,  label: "Starter" },
-  pro:      { monthly: 19, annual: 179, label: "Pro" },
-  business: { monthly: 39, annual: 349, label: "Business" },
+  starter:  { monthly: 5.99, annual: 59,  label: "Starter" },
+  pro:      { monthly: 15,   annual: 149, label: "Pro" },
+  business: { monthly: 19.99, annual: 199, label: "Business" },
 };
 
 export interface UserSubscription {

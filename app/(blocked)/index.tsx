@@ -18,13 +18,15 @@ import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
+import { PLAN_PRICES, PLAN_COPRO_LIMITS, SubscriptionPlan } from "@/shared/types";
 
 const LAUNCH_OFFER_LIMIT = 25;
-const PLANS = {
-  annuel:  { label: "Annuel", price: 169, unit: "/ an",   saving: "Économie 70 €", button: "Payer et activer — 169 € / an" },
-  mensuel: { label: "Mensuel", price: 19.99, unit: "/ mois", saving: "",            button: "Payer et activer — 19,99 € / mois" },
-} as const;
-type PlanKey = keyof typeof PLANS;
+
+const PLAN_LIMIT_LABELS: Record<SubscriptionPlan, string> = {
+  starter:  "1 à 3 copropriétés",
+  pro:      "4 à 15 copropriétés",
+  business: "+15 copropriétés",
+};
 
 export default function BlockedScreen() {
   const insets = useSafeAreaInsets();
@@ -40,14 +42,13 @@ export default function BlockedScreen() {
   const [loading, setLoading] = useState(false);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<PlanKey>("annuel");
+  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan>("starter");
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
   const isAdmin = currentRole === "admin";
   const isExpired = userSubscription?.status === "expired";
-  const plan = PLANS[selectedPlan];
 
   const handlePayment = async () => {
     if (!currentCopro || !user) {
@@ -271,27 +272,32 @@ export default function BlockedScreen() {
                   </Text>
                 </View>
 
-                {/* Toggle mensuel / annuel */}
-                <View style={styles.planToggle}>
-                  {(Object.keys(PLANS) as PlanKey[]).map((key) => (
-                    <Pressable
-                      key={key}
-                      style={[styles.planBtn, selectedPlan === key && styles.planBtnActive]}
-                      onPress={() => setSelectedPlan(key)}
-                    >
-                      <Text style={[styles.planBtnText, selectedPlan === key && styles.planBtnTextActive]}>
-                        {PLANS[key].label}
-                      </Text>
-                      <Text style={[styles.planBtnSub, selectedPlan === key && styles.planBtnSubActive]}>
-                        {key === "annuel" ? "169 € / an" : "19,99 € / mois"}
-                      </Text>
-                      {PLANS[key].saving ? (
-                        <Text style={[styles.planBtnSaving, selectedPlan === key && { color: "#fff" }]}>
-                          {PLANS[key].saving}
+                {/* Sélecteur de plan */}
+                <View style={styles.planSelector}>
+                  {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
+                    const isActive = selectedPlan === key;
+                    const isLast = idx === 2;
+                    return (
+                      <Pressable
+                        key={key}
+                        style={[styles.planRow, isActive && styles.planRowActive, isLast && { borderBottomWidth: 0 }]}
+                        onPress={() => setSelectedPlan(key)}
+                      >
+                        <View style={styles.planRowLeft}>
+                          <View style={[styles.planRadio, isActive && styles.planRadioActive]}>
+                            {isActive && <View style={styles.planRadioDot} />}
+                          </View>
+                          <View>
+                            <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
+                            <Text style={[styles.planRowLimit, isActive && styles.planRowLimitActive]}>{PLAN_LIMIT_LABELS[key]}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.planRowPrice, isActive && styles.planRowPriceActive]}>
+                          {`${PLAN_PRICES[key].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
                         </Text>
-                      ) : null}
-                    </Pressable>
-                  ))}
+                      </Pressable>
+                    );
+                  })}
                 </View>
 
                 <Pressable
@@ -302,7 +308,7 @@ export default function BlockedScreen() {
                   {loading ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>Renouveler — {plan.price === 169 ? "169 € / an" : "19,99 € / mois"}</Text>
+                      <Text style={styles.payBtnText}>{`Renouveler — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
                     </>
                   )}
                 </Pressable>
@@ -357,27 +363,32 @@ export default function BlockedScreen() {
                   </Text>
                 </View>
 
-                {/* Toggle mensuel / annuel */}
-                <View style={styles.planToggle}>
-                  {(Object.keys(PLANS) as PlanKey[]).map((key) => (
-                    <Pressable
-                      key={key}
-                      style={[styles.planBtn, selectedPlan === key && styles.planBtnActive]}
-                      onPress={() => setSelectedPlan(key)}
-                    >
-                      <Text style={[styles.planBtnText, selectedPlan === key && styles.planBtnTextActive]}>
-                        {PLANS[key].label}
-                      </Text>
-                      <Text style={[styles.planBtnSub, selectedPlan === key && styles.planBtnSubActive]}>
-                        {key === "annuel" ? "169 € / an" : "19,99 € / mois"}
-                      </Text>
-                      {PLANS[key].saving ? (
-                        <Text style={[styles.planBtnSaving, selectedPlan === key && { color: "#fff" }]}>
-                          {PLANS[key].saving}
+                {/* Sélecteur de plan */}
+                <View style={styles.planSelector}>
+                  {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
+                    const isActive = selectedPlan === key;
+                    const isLast = idx === 2;
+                    return (
+                      <Pressable
+                        key={key}
+                        style={[styles.planRow, isActive && styles.planRowActive, isLast && { borderBottomWidth: 0 }]}
+                        onPress={() => setSelectedPlan(key)}
+                      >
+                        <View style={styles.planRowLeft}>
+                          <View style={[styles.planRadio, isActive && styles.planRadioActive]}>
+                            {isActive && <View style={styles.planRadioDot} />}
+                          </View>
+                          <View>
+                            <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
+                            <Text style={[styles.planRowLimit, isActive && styles.planRowLimitActive]}>{PLAN_LIMIT_LABELS[key]}</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.planRowPrice, isActive && styles.planRowPriceActive]}>
+                          {`${PLAN_PRICES[key].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
                         </Text>
-                      ) : null}
-                    </Pressable>
-                  ))}
+                      </Pressable>
+                    );
+                  })}
                 </View>
 
                 <Pressable
@@ -388,7 +399,7 @@ export default function BlockedScreen() {
                   {loading ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>{plan.button}</Text>
+                      <Text style={styles.payBtnText}>{`Payer et activer — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
                     </>
                   )}
                 </Pressable>
@@ -646,46 +657,74 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     color: COLORS.text,
   },
-  planToggle: {
-    flexDirection: "row",
+  planSelector: {
+    width: "100%",
     borderRadius: 12,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: COLORS.border,
     marginBottom: 16,
   },
-  planBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
+  planRow: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 13,
+    paddingHorizontal: 14,
     backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
-  planBtnActive: {
+  planRowActive: {
     backgroundColor: COLORS.primary,
   },
-  planBtnText: {
+  planRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  planRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: COLORS.textMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  planRadioActive: {
+    borderColor: "#fff",
+  },
+  planRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#fff",
+  },
+  planRowName: {
     fontSize: 14,
     fontFamily: "Inter_700Bold",
-    color: COLORS.textMuted,
+    color: COLORS.text,
   },
-  planBtnTextActive: {
+  planRowNameActive: {
     color: "#fff",
   },
-  planBtnSub: {
-    fontSize: 12,
+  planRowLimit: {
+    fontSize: 11,
     fontFamily: "Inter_400Regular",
     color: COLORS.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
-  planBtnSubActive: {
-    color: "rgba(255,255,255,0.85)",
+  planRowLimitActive: {
+    color: "rgba(255,255,255,0.75)",
   },
-  planBtnSaving: {
-    fontSize: 10,
+  planRowPrice: {
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
-    color: COLORS.primary,
-    marginTop: 2,
+    color: COLORS.text,
+  },
+  planRowPriceActive: {
+    color: "#fff",
   },
 
   payBtn: {

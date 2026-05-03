@@ -829,10 +829,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Paramètres manquants." });
     }
 
-    const selectedPlan = String(plan ?? "annuel").trim().toLowerCase();
-    const priceId = selectedPlan === "mensuel"
-      ? (process.env.STRIPE_PRICE_ID || process.env.STRIPE_PRICE_ID_ANNUAL)
-      : (process.env.STRIPE_PRICE_ID_ANNUAL || process.env.STRIPE_PRICE_ID);
+    const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
+    const priceId =
+      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
+                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -909,10 +910,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    const selectedPlan = String(plan ?? "mensuel").trim().toLowerCase();
-    const priceId = selectedPlan === "annuel"
-      ? (process.env.STRIPE_PRICE_ID_ANNUAL || process.env.STRIPE_PRICE_ID)
-      : process.env.STRIPE_PRICE_ID;
+    const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
+    const priceId =
+      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
+                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -1524,8 +1526,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/inscription", (req: Request, res: Response) => {
-    const queryPlan = String(req.query?.plan ?? "mensuel").trim().toLowerCase();
-    const initialPlan = queryPlan === "annuel" ? "annuel" : "mensuel";
+    const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
+    const initialPlan = ["pro", "business"].includes(queryPlan) ? queryPlan : "starter";
     const html = pageShell("Créer mon espace syndic", `
   <style>
     .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
@@ -1547,13 +1549,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       <!-- Sélecteur de plan -->
       <div class="plan-toggle" id="plan-toggle" role="group" aria-label="Choisir un plan">
-        <button type="button" class="plan-btn${initialPlan === "mensuel" ? " active" : ""}" data-plan="mensuel">
-          Mensuel
-          <small>19,99 € / mois</small>
+        <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">
+          Starter
+          <small>1 à 3 copros · 5,99 €/mois</small>
         </button>
-        <button type="button" class="plan-btn${initialPlan === "annuel" ? " active" : ""}" data-plan="annuel">
-          Annuel ⭐
-          <small>169 € / an — économie 70 €</small>
+        <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">
+          Pro
+          <small>4 à 15 copros · 15 €/mois</small>
+        </button>
+        <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">
+          Business
+          <small>+15 copros · 19,99 €/mois</small>
         </button>
       </div>
 
@@ -1598,7 +1604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           </div>
         </div>
 
-        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "annuel" ? "169 €/an" : "19,99 €/mois"}</button>
+        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "15 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "5,99 €/mois"}</button>
         <div class="m-error" id="error"></div>
       </form>
 
@@ -1610,7 +1616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   <script>
     var currentPlan = "${initialPlan}";
-    var planLabels = { mensuel: "Continuer → 19,99 €/mois", annuel: "Continuer → 169 €/an" };
+    var planLabels = { starter: "Continuer → 5,99 €/mois", pro: "Continuer → 15 €/mois", business: "Continuer → 19,99 €/mois" };
 
     var form = document.getElementById("signup-form");
     var errorBox = document.getElementById("error");
@@ -1622,7 +1628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       b.addEventListener("click", function () {
         currentPlan = b.dataset.plan;
         toggleBtns.forEach(function (x) { x.classList.toggle("active", x === b); });
-        btn.textContent = planLabels[currentPlan] || planLabels.mensuel;
+        btn.textContent = planLabels[currentPlan] || planLabels.starter;
       });
     });
 
@@ -1665,7 +1671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (err) {
         errorBox.textContent = err.message || "Erreur inconnue";
         errorBox.style.display = "block";
-        btn.textContent = planLabels[currentPlan] || planLabels.mensuel;
+        btn.textContent = planLabels[currentPlan] || planLabels.starter;
         btn.disabled = false;
       }
     });
