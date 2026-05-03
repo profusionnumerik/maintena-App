@@ -68,7 +68,12 @@ service cloud.firestore {
     match /copros/{coProId} {
       allow read: if canReadCopro(coProId);
       allow create: if isSignedIn();
-      allow update: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(coProId));
+      allow update: if isSignedIn() && (
+        isSuperAdmin() ||
+        isCoProAdmin(coProId) ||
+        // Membres du conseil : uniquement les champs du vote trésorier
+        (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid']))
+      );
 
       match /members/{userId} {
         allow read: if isSignedIn() && (isSuperAdmin() || isMember(coProId));
