@@ -17,47 +17,71 @@ import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import {
-  ALL_EXPENSE_CATEGORIES, AnnualBudget, CATEGORY_LABELS, Expense, ExpenseCategory,
+  ALL_EXPENSE_CATEGORIES, AnnualBudget, BudgetCustomLine,
+  BuildingDef, CATEGORY_LABELS, Expense, ExpenseCategory,
   EXPENSE_CATEGORY_COLORS, EXPENSE_CATEGORY_ICONS, EXPENSE_CATEGORY_LABELS, Intervention,
 } from "@/shared/types";
 
 const YEARS = Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i);
 const MONTHS_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+const COMMUN = "commun";
 
+function genId() { return Math.random().toString(36).slice(2, 9); }
 function safeHaptic() {
   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 }
-
-const EMPTY_FORM: {
-  label: string; amount: string; category: ExpenseCategory;
-  date: string; description: string;
-} = {
-  label: "", amount: "", category: "divers",
-  date: new Date().toISOString().slice(0, 10), description: "",
-};
-
 function formatAmount(n: number) {
   return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
-
 function todayStr() {
   const d = new Date();
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 }
-
 function isoToDisplay(iso: string) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
-
 function displayToIso(display: string) {
   const parts = display.split("/");
   if (parts.length !== 3) return "";
   return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
 }
+function formatDateInput(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+}
+
+const COMMON_SUGGESTIONS = [
+  "Honoraires syndic", "Assurance immeuble", "Portail / Accès parking",
+  "Nettoyage parties communes", "Espaces verts", "Eau froide",
+  "Électricité parties communes", "ECS (eau chaude sanitaire)",
+  "Chauffage collectif", "Gaz", "Désinfection nuisibles",
+  "Toiture / Étanchéité", "Façade", "Interphone / Digicode",
+  "VMC", "Travaux imprévus", "Autre…",
+];
+const BUILDING_SUGGESTIONS = [
+  "Ascenseur — maintenance", "ECS (eau chaude sanitaire)",
+  "Nettoyage cage / paliers", "Électricité bâtiment",
+  "Chauffage bâtiment", "VMC bâtiment", "Autre…",
+];
 
 type Tab = "depenses" | "budget" | "synthese";
+
+interface ExpenseForm {
+  label: string; amount: string; category: ExpenseCategory;
+  date: string; description: string; buildingId: string;
+}
+const EMPTY_FORM: ExpenseForm = {
+  label: "", amount: "", category: "divers",
+  date: new Date().toISOString().slice(0, 10), description: "", buildingId: COMMUN,
+};
+
+interface BudgetFormLine {
+  id: string; label: string; amount: string; buildingId: string;
+}
 
 export default function ConseilFinancesScreen() {
   const insets = useSafeAreaInsets();
@@ -69,6 +93,7 @@ export default function ConseilFinancesScreen() {
   const [tab, setTab] = useState<Tab>("depenses");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
+  const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null); // null = tous
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [budget, setBudget] = useState<AnnualBudget | null>(null);
@@ -77,24 +102,35 @@ export default function ConseilFinancesScreen() {
   // Modal dépense
   const [expenseModal, setExpenseModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [form, setForm] = useState<ExpenseForm>({ ...EMPTY_FORM });
   const [dateDisplay, setDateDisplay] = useState(todayStr());
   const [saving, setSaving] = useState(false);
 
-  // Modal "depuis une intervention"
+  // Modal intervention
   const [interventionPickerModal, setInterventionPickerModal] = useState(false);
   const [interventionSearch, setInterventionSearch] = useState("");
 
   // Modal budget
   const [budgetModal, setBudgetModal] = useState(false);
-  const [budgetForm, setBudgetForm] = useState<Partial<Record<ExpenseCategory, string>>>({});
+  const [budgetLines, setBudgetLines] = useState<BudgetFormLine[]>([]);
   const [savingBudget, setSavingBudget] = useState(false);
 
   const isAdmin = currentRole === "admin";
   const isConseil = currentRole === "conseil";
   const canWrite = isAdmin || isConseil;
 
-  // Chargement dépenses
+  // Bâtiments de la résidence
+  const buildings: BuildingDef[] = useMemo(() => {
+    return currentCopro?.buildingConfig?.buildings ?? [];
+  }, [currentCopro]);
+  const isMulti = buildings.length > 1;
+
+  // Sections budget (commun + bâtiments)
+  const budgetSections = useMemo(() => {
+    const bIds = [COMMUN, ...buildings.map((b) => b.name)];
+    return bIds;
+  }, [buildings]);
+
   useEffect(() => {
     if (!currentCopro?.id) return;
     const q = query(
@@ -110,42 +146,61 @@ export default function ConseilFinancesScreen() {
     return unsub;
   }, [currentCopro?.id, selectedYear]);
 
-  // Chargement budget
   useEffect(() => {
     if (!currentCopro?.id) return;
-    const q = query(
-      collection(db, "copros", currentCopro.id, "budgets"),
-      where("year", "==", selectedYear)
-    );
+    const q = query(collection(db, "copros", currentCopro.id, "budgets"), where("year", "==", selectedYear));
     const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        setBudget({ id: snap.docs[0].id, ...snap.docs[0].data() } as AnnualBudget);
-      } else {
-        setBudget(null);
-      }
+      if (!snap.empty) setBudget({ id: snap.docs[0].id, ...snap.docs[0].data() } as AnnualBudget);
+      else setBudget(null);
     });
     return unsub;
   }, [currentCopro?.id, selectedYear]);
 
-  // Dépenses filtrées par mois
+  // Dépenses filtrées par bâtiment puis par mois
   const filteredExpenses = useMemo(() => {
-    if (selectedMonth === null) return expenses;
-    const monthStr = String(selectedMonth + 1).padStart(2, "0");
-    return expenses.filter((e) => e.date.startsWith(`${selectedYear}-${monthStr}`));
-  }, [expenses, selectedYear, selectedMonth]);
+    let list = expenses;
+    if (selectedBuilding !== null) {
+      list = list.filter((e) => (e.buildingId ?? COMMUN) === selectedBuilding);
+    }
+    if (selectedMonth !== null) {
+      const monthStr = String(selectedMonth + 1).padStart(2, "0");
+      list = list.filter((e) => e.date.startsWith(`${selectedYear}-${monthStr}`));
+    }
+    return list;
+  }, [expenses, selectedBuilding, selectedMonth, selectedYear]);
 
-  // Totaux par catégorie
-  const totalsByCategory = useMemo(() => {
-    const map: Partial<Record<ExpenseCategory, number>> = {};
+  const grandTotal = useMemo(() => expenses.reduce((s, e) => s + e.amount, 0), [expenses]);
+
+  // Totaux par bâtiment (dépenses)
+  const expTotalByBuilding = useMemo(() => {
+    const map: Record<string, number> = {};
     expenses.forEach((e) => {
-      map[e.category] = (map[e.category] ?? 0) + e.amount;
+      const k = e.buildingId ?? COMMUN;
+      map[k] = (map[k] ?? 0) + e.amount;
     });
     return map;
   }, [expenses]);
 
-  const grandTotal = useMemo(() => expenses.reduce((s, e) => s + e.amount, 0), [expenses]);
+  // Totaux budget par bâtiment
+  const budTotalByBuilding = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (budget?.customLines) {
+      budget.customLines.forEach((l) => {
+        const k = l.buildingId ?? COMMUN;
+        map[k] = (map[k] ?? 0) + l.amount;
+      });
+    } else if (budget?.lines) {
+      // legacy: tout en commun
+      const total = Object.values(budget.lines).reduce((s, v) => s + (v ?? 0), 0);
+      map[COMMUN] = total;
+    }
+    return map;
+  }, [budget]);
 
-  // Groupement par mois pour la liste
+  const totalBudget = useMemo(() => Object.values(budTotalByBuilding).reduce((s, v) => s + v, 0), [budTotalByBuilding]);
+
+  const hasBudget = useMemo(() => totalBudget > 0, [totalBudget]);
+
   const groupedByMonth = useMemo(() => {
     const map: Record<string, Expense[]> = {};
     filteredExpenses.forEach((e) => {
@@ -156,21 +211,13 @@ export default function ConseilFinancesScreen() {
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [filteredExpenses]);
 
-  // Interventions éligibles : terminées, avec montant syndic, pas encore importées
   const linkedInterventionIds = useMemo(
     () => new Set(expenses.map((e) => e.interventionId).filter(Boolean)),
     [expenses]
   );
-
-  const eligibleInterventions = useMemo(() => {
-    return allInterventions.filter(
-      (i) =>
-        i.status === "termine" &&
-        (i as any).amount !== undefined &&
-        !linkedInterventionIds.has(i.id)
-    );
-  }, [allInterventions, linkedInterventionIds]);
-
+  const eligibleInterventions = useMemo(() => allInterventions.filter(
+    (i) => i.status === "termine" && (i as any).amount !== undefined && !linkedInterventionIds.has(i.id)
+  ), [allInterventions, linkedInterventionIds]);
   const filteredEligible = useMemo(() => {
     if (!interventionSearch.trim()) return eligibleInterventions;
     const q = interventionSearch.toLowerCase();
@@ -179,39 +226,37 @@ export default function ConseilFinancesScreen() {
     );
   }, [eligibleInterventions, interventionSearch]);
 
-  // Sélectionner une intervention et pré-remplir le formulaire de dépense
   const handlePickIntervention = (intervention: Intervention) => {
     const amount = (intervention as any).amount as number;
     const isoDate = intervention.date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
     const cat: ExpenseCategory = (intervention.category as any) in EXPENSE_CATEGORY_LABELS
-      ? (intervention.category as ExpenseCategory)
-      : "travaux";
+      ? (intervention.category as ExpenseCategory) : "travaux";
     setInterventionPickerModal(false);
     setInterventionSearch("");
     setEditingExpense(null);
     setForm({
-      label: intervention.title,
-      amount: String(amount),
-      category: cat,
-      date: isoDate,
+      label: intervention.title, amount: String(amount), category: cat, date: isoDate,
       description: `Intervention du ${isoToDisplay(isoDate)}${intervention.assignedToName ? ` — ${intervention.assignedToName}` : ""}`,
+      buildingId: COMMUN,
     });
     setDateDisplay(isoToDisplay(isoDate));
-    // Stocker l'interventionId pour le lien — on le passe via un ref léger
     setEditingExpense({ interventionId: intervention.id } as any);
     setExpenseModal(true);
   };
 
   const openAddExpense = () => {
     setEditingExpense(null);
-    setForm({ ...EMPTY_FORM });
+    setForm({ ...EMPTY_FORM, buildingId: selectedBuilding ?? COMMUN });
     setDateDisplay(todayStr());
     setExpenseModal(true);
   };
 
   const openEditExpense = (e: Expense) => {
     setEditingExpense(e);
-    setForm({ label: e.label, amount: String(e.amount), category: e.category, date: e.date, description: e.description ?? "" });
+    setForm({
+      label: e.label, amount: String(e.amount), category: e.category,
+      date: e.date, description: e.description ?? "", buildingId: e.buildingId ?? COMMUN,
+    });
     setDateDisplay(isoToDisplay(e.date));
     setExpenseModal(true);
   };
@@ -223,24 +268,16 @@ export default function ConseilFinancesScreen() {
     if (isNaN(amount) || amount <= 0) { Alert.alert("Erreur", "Montant invalide."); return; }
     const isoDate = displayToIso(dateDisplay) || form.date;
     if (!isoDate.match(/^\d{4}-\d{2}-\d{2}$/)) { Alert.alert("Erreur", "Date invalide (JJ/MM/AAAA)."); return; }
-
     setSaving(true);
     try {
       const linkedInterventionId = (editingExpense as any)?.interventionId as string | undefined;
       const data: Record<string, any> = {
-        coProId: currentCopro.id,
-        label: form.label.trim(),
-        amount,
-        category: form.category,
-        date: isoDate,
-        description: form.description.trim(),
-        addedBy: user.uid,
-        addedByName: user.displayName || user.email || "Inconnu",
+        coProId: currentCopro.id, label: form.label.trim(), amount, category: form.category,
+        date: isoDate, description: form.description.trim(), buildingId: form.buildingId,
+        addedBy: user.uid, addedByName: user.displayName || user.email || "Inconnu",
         updatedAt: new Date().toISOString(),
       };
       if (linkedInterventionId) data.interventionId = linkedInterventionId;
-
-      // editingExpense sans id = pré-remplissage depuis intervention (nouveau doc)
       if (editingExpense?.id) {
         await setDoc(doc(db, "copros", currentCopro.id, "expenses", editingExpense.id), { ...data, createdAt: editingExpense.createdAt }, { merge: false });
       } else {
@@ -255,53 +292,62 @@ export default function ConseilFinancesScreen() {
   const handleDeleteExpense = (e: Expense) => {
     Alert.alert("Supprimer cette dépense ?", `${e.label} — ${formatAmount(e.amount)}`, [
       { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer", style: "destructive",
-        onPress: async () => {
-          try { await deleteDoc(doc(db, "copros", currentCopro!.id, "expenses", e.id)); }
-          catch { Alert.alert("Erreur", "Impossible de supprimer."); }
-        },
-      },
+      { text: "Supprimer", style: "destructive", onPress: async () => {
+        try { await deleteDoc(doc(db, "copros", currentCopro!.id, "expenses", e.id)); }
+        catch { Alert.alert("Erreur", "Impossible de supprimer."); }
+      }},
     ]);
   };
 
   const openBudgetModal = () => {
-    const init: Partial<Record<ExpenseCategory, string>> = {};
-    ALL_EXPENSE_CATEGORIES.forEach((c) => {
-      const v = budget?.lines[c];
-      init[c] = v !== undefined ? String(v) : "";
-    });
-    setBudgetForm(init);
+    let lines: BudgetFormLine[] = [];
+    if (budget?.customLines && budget.customLines.length > 0) {
+      lines = budget.customLines.map((l) => ({
+        id: l.id, label: l.label, amount: String(l.amount), buildingId: l.buildingId ?? COMMUN,
+      }));
+    } else if (budget?.lines) {
+      lines = ALL_EXPENSE_CATEGORIES
+        .filter((c) => (budget.lines[c] ?? 0) > 0)
+        .map((c) => ({ id: c, label: EXPENSE_CATEGORY_LABELS[c], amount: String(budget.lines[c]), buildingId: COMMUN }));
+    }
+    if (lines.length === 0) {
+      lines = [{ id: genId(), label: "", amount: "", buildingId: COMMUN }];
+    }
+    setBudgetLines(lines);
     setBudgetModal(true);
+  };
+
+  const addBudgetLine = (buildingId: string, label = "") => {
+    setBudgetLines((prev) => [...prev, { id: genId(), label, amount: "", buildingId }]);
   };
 
   const handleSaveBudget = useCallback(async () => {
     if (!currentCopro?.id || !user) return;
     setSavingBudget(true);
     try {
-      const lines: Partial<Record<ExpenseCategory, number>> = {};
-      ALL_EXPENSE_CATEGORIES.forEach((c) => {
-        const v = parseFloat((budgetForm[c] ?? "").replace(",", "."));
-        if (!isNaN(v) && v > 0) lines[c] = v;
-      });
+      const validLines: BudgetCustomLine[] = budgetLines
+        .filter((l) => l.label.trim())
+        .map((l) => {
+          const v = parseFloat(l.amount.replace(",", "."));
+          return { id: l.id, label: l.label.trim(), amount: isNaN(v) || v < 0 ? 0 : v, buildingId: l.buildingId };
+        });
       const docId = budget?.id ?? `${currentCopro.id}_${selectedYear}`;
       await setDoc(doc(db, "copros", currentCopro.id, "budgets", docId), {
-        coProId: currentCopro.id,
-        year: selectedYear,
-        lines,
-        createdBy: user.uid,
-        createdAt: budget?.createdAt ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        coProId: currentCopro.id, year: selectedYear, lines: {}, customLines: validLines,
+        createdBy: user.uid, createdAt: budget?.createdAt ?? new Date().toISOString(), updatedAt: new Date().toISOString(),
       });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setBudgetModal(false);
     } catch { Alert.alert("Erreur", "Impossible d'enregistrer le budget."); }
     finally { setSavingBudget(false); }
-  }, [budgetForm, budget, currentCopro?.id, selectedYear, user]);
+  }, [budgetLines, budget, currentCopro?.id, selectedYear, user]);
 
   if (!currentCopro) {
     return <View style={styles.root}><Text style={{ color: COLORS.textMuted, textAlign: "center", marginTop: 60 }}>Aucune résidence sélectionnée.</Text></View>;
   }
+
+  const sectionLabel = (bid: string) => bid === COMMUN ? "Charges communes" : bid;
+  const buildingChips = [{ id: null, label: "Tout" }, { id: COMMUN, label: "Commun" }, ...buildings.map((b) => ({ id: b.name, label: b.name }))];
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -317,10 +363,7 @@ export default function ConseilFinancesScreen() {
         {canWrite && tab === "depenses" && (
           <View style={{ flexDirection: "row", gap: 8 }}>
             {eligibleInterventions.length > 0 && (
-              <Pressable
-                style={[styles.addBtn, { backgroundColor: "#0891B2" }]}
-                onPress={() => { safeHaptic(); setInterventionPickerModal(true); }}
-              >
+              <Pressable style={[styles.addBtn, { backgroundColor: "#0891B2" }]} onPress={() => { safeHaptic(); setInterventionPickerModal(true); }}>
                 <Ionicons name="link-outline" size={20} color="#fff" />
               </Pressable>
             )}
@@ -334,11 +377,8 @@ export default function ConseilFinancesScreen() {
       {/* Sélecteur d'année */}
       <View style={styles.yearRow}>
         {YEARS.map((y) => (
-          <Pressable
-            key={y}
-            style={[styles.yearChip, selectedYear === y && styles.yearChipActive]}
-            onPress={() => { safeHaptic(); setSelectedYear(y); setSelectedMonth(null); }}
-          >
+          <Pressable key={y} style={[styles.yearChip, selectedYear === y && styles.yearChipActive]}
+            onPress={() => { safeHaptic(); setSelectedYear(y); setSelectedMonth(null); }}>
             <Text style={[styles.yearChipText, selectedYear === y && styles.yearChipTextActive]}>{y}</Text>
           </Pressable>
         ))}
@@ -347,7 +387,7 @@ export default function ConseilFinancesScreen() {
       {/* Tabs */}
       <View style={styles.tabs}>
         {(["depenses", "budget", "synthese"] as Tab[]).map((t) => {
-          const labels = { depenses: "Dépenses", budget: "Budget", synthese: "Synthèse" };
+          const labels = { depenses: "Dépenses réelles", budget: "Budget AG", synthese: "Comparatif" };
           return (
             <Pressable key={t} style={[styles.tab, tab === t && styles.tabActive]} onPress={() => setTab(t)}>
               <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{labels[t]}</Text>
@@ -356,20 +396,48 @@ export default function ConseilFinancesScreen() {
         })}
       </View>
 
-      {loading ? (
-        <ActivityIndicator style={{ marginTop: 40 }} color={COLORS.primary} />
-      ) : (
+      {loading ? <ActivityIndicator style={{ marginTop: 40 }} color={COLORS.primary} /> : (
         <ScrollView contentContainerStyle={styles.content}>
 
           {/* ── TAB DÉPENSES ── */}
           {tab === "depenses" && (
             <>
-              {/* Total + filtre mois */}
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Total {selectedYear}{selectedMonth !== null ? ` — ${MONTHS_FR[selectedMonth]}` : ""}</Text>
+                <Text style={styles.summaryLabel}>
+                  Total {selectedYear}
+                  {selectedBuilding ? ` — ${sectionLabel(selectedBuilding)}` : ""}
+                  {selectedMonth !== null ? ` — ${MONTHS_FR[selectedMonth]}` : ""}
+                </Text>
                 <Text style={styles.summaryAmount}>{formatAmount(filteredExpenses.reduce((s, e) => s + e.amount, 0))}</Text>
+                {isMulti && selectedBuilding === null && (
+                  <View style={styles.buildingMiniRow}>
+                    {[COMMUN, ...buildings.map((b) => b.name)].map((bid) => {
+                      const t = expTotalByBuilding[bid] ?? 0;
+                      if (t === 0) return null;
+                      return (
+                        <View key={bid} style={styles.buildingMiniChip}>
+                          <Text style={styles.buildingMiniLabel}>{bid === COMMUN ? "Commun" : bid}</Text>
+                          <Text style={styles.buildingMiniAmount}>{formatAmount(t)}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
 
+              {/* Filtre bâtiment */}
+              {isMulti && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+                  {buildingChips.map((chip) => (
+                    <Pressable key={String(chip.id)} style={[styles.filterChip, selectedBuilding === chip.id && styles.filterChipActive]}
+                      onPress={() => setSelectedBuilding(chip.id)}>
+                      <Text style={[styles.filterChipText, selectedBuilding === chip.id && styles.filterChipTextActive]}>{chip.label}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Filtre mois */}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.monthScroll}>
                 <Pressable style={[styles.monthChip, selectedMonth === null && styles.monthChipActive]} onPress={() => setSelectedMonth(null)}>
                   <Text style={[styles.monthChipText, selectedMonth === null && styles.monthChipTextActive]}>Tous</Text>
@@ -390,12 +458,11 @@ export default function ConseilFinancesScreen() {
               ) : (
                 groupedByMonth.map(([monthKey, items]) => {
                   const [y, m] = monthKey.split("-");
-                  const monthTotal = items.reduce((s, e) => s + e.amount, 0);
                   return (
                     <View key={monthKey}>
                       <View style={styles.monthHeader}>
                         <Text style={styles.monthHeaderText}>{MONTHS_FR[parseInt(m) - 1]} {y}</Text>
-                        <Text style={styles.monthHeaderAmount}>{formatAmount(monthTotal)}</Text>
+                        <Text style={styles.monthHeaderAmount}>{formatAmount(items.reduce((s, e) => s + e.amount, 0))}</Text>
                       </View>
                       {items.map((e) => (
                         <Pressable key={e.id} style={styles.expenseRow} onPress={() => canWrite && openEditExpense(e)}>
@@ -408,6 +475,13 @@ export default function ConseilFinancesScreen() {
                               <Text style={styles.expenseMeta}>
                                 {EXPENSE_CATEGORY_LABELS[e.category]} · {isoToDisplay(e.date)}
                               </Text>
+                              {isMulti && (
+                                <View style={[styles.buildingBadge, e.buildingId && e.buildingId !== COMMUN && { backgroundColor: COLORS.primary + "15" }]}>
+                                  <Text style={styles.buildingBadgeText}>
+                                    {!e.buildingId || e.buildingId === COMMUN ? "Commun" : e.buildingId}
+                                  </Text>
+                                </View>
+                              )}
                               {e.interventionId && (
                                 <View style={styles.interventionBadge}>
                                   <Ionicons name="link-outline" size={10} color="#0891B2" />
@@ -432,75 +506,162 @@ export default function ConseilFinancesScreen() {
             </>
           )}
 
-          {/* ── TAB BUDGET ── */}
+          {/* ── TAB BUDGET AG ── */}
           {tab === "budget" && (
             <>
               <View style={styles.budgetHeader}>
-                <Text style={styles.budgetHeaderText}>Budget prévisionnel {selectedYear}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.budgetHeaderText}>Budget prévisionnel {selectedYear}</Text>
+                  <Text style={styles.budgetHeaderSub}>Voté en Assemblée Générale</Text>
+                </View>
                 {canWrite && (
                   <Pressable style={styles.editBudgetBtn} onPress={openBudgetModal}>
                     <Ionicons name="create-outline" size={16} color={COLORS.primary} />
-                    <Text style={styles.editBudgetText}>{budget ? "Modifier" : "Définir"}</Text>
+                    <Text style={styles.editBudgetText}>{hasBudget ? "Modifier" : "Définir"}</Text>
                   </Pressable>
                 )}
               </View>
 
-              {ALL_EXPENSE_CATEGORIES.map((cat) => {
-                const budgeted = budget?.lines[cat] ?? 0;
-                const spent = totalsByCategory[cat] ?? 0;
-                const pct = budgeted > 0 ? Math.min(spent / budgeted, 1) : 0;
-                const over = budgeted > 0 && spent > budgeted;
-                return (
-                  <View key={cat} style={styles.budgetRow}>
-                    <View style={styles.budgetRowHeader}>
-                      <View style={styles.budgetRowLeft}>
-                        <Ionicons name={EXPENSE_CATEGORY_ICONS[cat] as any} size={16} color={EXPENSE_CATEGORY_COLORS[cat]} />
-                        <Text style={styles.budgetCatLabel}>{EXPENSE_CATEGORY_LABELS[cat]}</Text>
-                      </View>
-                      <View style={styles.budgetRowRight}>
-                        <Text style={[styles.budgetSpent, over && { color: COLORS.danger }]}>{formatAmount(spent)}</Text>
-                        {budgeted > 0 && <Text style={styles.budgetOf}> / {formatAmount(budgeted)}</Text>}
-                      </View>
+              {hasBudget && (
+                <View style={[styles.summaryCard, { marginBottom: 12 }]}>
+                  <Text style={styles.summaryLabel}>Total budgété {selectedYear}</Text>
+                  <Text style={styles.summaryAmount}>{formatAmount(totalBudget)}</Text>
+                  {isMulti && (
+                    <View style={styles.buildingMiniRow}>
+                      {[COMMUN, ...buildings.map((b) => b.name)].map((bid) => {
+                        const t = budTotalByBuilding[bid] ?? 0;
+                        if (t === 0) return null;
+                        return (
+                          <View key={bid} style={styles.buildingMiniChip}>
+                            <Text style={styles.buildingMiniLabel}>{bid === COMMUN ? "Commun" : bid}</Text>
+                            <Text style={styles.buildingMiniAmount}>{formatAmount(t)}</Text>
+                          </View>
+                        );
+                      })}
                     </View>
-                    {budgeted > 0 && (
-                      <View style={styles.progressBg}>
-                        <View style={[styles.progressFill, { width: `${pct * 100}%`, backgroundColor: over ? COLORS.danger : EXPENSE_CATEGORY_COLORS[cat] }]} />
+                  )}
+                </View>
+              )}
+
+              {/* Affichage par section */}
+              {hasBudget && budgetSections.map((bid) => {
+                const lines = budget?.customLines?.filter((l) => (l.buildingId ?? COMMUN) === bid) ?? [];
+                const secTotal = lines.reduce((s, l) => s + l.amount, 0);
+                if (lines.length === 0) return null;
+                return (
+                  <View key={bid} style={styles.budgetSection}>
+                    <View style={styles.budgetSectionHeader}>
+                      <View style={[styles.budgetSectionDot, bid === COMMUN && { backgroundColor: "#64748B" }]} />
+                      <Text style={styles.budgetSectionTitle}>{sectionLabel(bid)}</Text>
+                      <Text style={styles.budgetSectionTotal}>{formatAmount(secTotal)}</Text>
+                    </View>
+                    {lines.map((line) => (
+                      <View key={line.id} style={styles.budgetRow}>
+                        <View style={styles.budgetLineDot} />
+                        <Text style={styles.budgetCatLabel}>{line.label}</Text>
+                        <Text style={styles.budgetAmount}>{formatAmount(line.amount)}</Text>
                       </View>
-                    )}
+                    ))}
                   </View>
                 );
               })}
+
+              {/* Lignes legacy (rétrocompat) */}
+              {!hasBudget && budget && (
+                ALL_EXPENSE_CATEGORIES.filter((cat) => (budget?.lines?.[cat] ?? 0) > 0).map((cat) => (
+                  <View key={cat} style={styles.budgetRow}>
+                    <Ionicons name={EXPENSE_CATEGORY_ICONS[cat] as any} size={14} color={EXPENSE_CATEGORY_COLORS[cat]} />
+                    <Text style={[styles.budgetCatLabel, { marginLeft: 6 }]}>{EXPENSE_CATEGORY_LABELS[cat]}</Text>
+                    <Text style={styles.budgetAmount}>{formatAmount(budget.lines[cat] ?? 0)}</Text>
+                  </View>
+                ))
+              )}
+
+              {!hasBudget && (
+                <View style={styles.emptyState}>
+                  <Ionicons name="document-text-outline" size={40} color={COLORS.textMuted} />
+                  <Text style={styles.emptyText}>Aucun budget défini pour {selectedYear}</Text>
+                  {canWrite && (
+                    <Pressable style={styles.emptyBtn} onPress={openBudgetModal}>
+                      <Text style={styles.emptyBtnText}>Définir le budget prévisionnel</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
             </>
           )}
 
-          {/* ── TAB SYNTHÈSE ── */}
+          {/* ── TAB COMPARATIF ── */}
           {tab === "synthese" && (
             <>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Total dépenses {selectedYear}</Text>
-                <Text style={styles.summaryAmount}>{formatAmount(grandTotal)}</Text>
+              {/* Carte globale */}
+              <View style={styles.syntheseGlobalCard}>
+                <View style={styles.syntheseGlobalRow}>
+                  <View style={styles.syntheseGlobalCol}>
+                    <Text style={styles.syntheseGlobalLabel}>Budget prévisionnel</Text>
+                    <Text style={styles.syntheseGlobalAmount}>{formatAmount(totalBudget)}</Text>
+                  </View>
+                  <View style={styles.syntheseGlobalDivider} />
+                  <View style={styles.syntheseGlobalCol}>
+                    <Text style={styles.syntheseGlobalLabel}>Dépenses réelles</Text>
+                    <Text style={[styles.syntheseGlobalAmount, totalBudget > 0 && grandTotal > totalBudget && { color: "#FCA5A5" }]}>
+                      {formatAmount(grandTotal)}
+                    </Text>
+                  </View>
+                </View>
+                {totalBudget > 0 && (
+                  <View style={styles.syntheseGlobalEcart}>
+                    <Ionicons name={grandTotal > totalBudget ? "arrow-up-circle" : "arrow-down-circle"} size={14}
+                      color={grandTotal > totalBudget ? "#FCA5A5" : "#6EE7B7"} />
+                    <Text style={[styles.syntheseGlobalEcartText, { color: grandTotal > totalBudget ? "#FCA5A5" : "#6EE7B7" }]}>
+                      {grandTotal > totalBudget ? "Dépassement" : "Économie"} de {formatAmount(Math.abs(grandTotal - totalBudget))}
+                    </Text>
+                  </View>
+                )}
               </View>
 
-              {ALL_EXPENSE_CATEGORIES.filter((c) => (totalsByCategory[c] ?? 0) > 0).map((cat) => {
-                const spent = totalsByCategory[cat] ?? 0;
-                const pct = grandTotal > 0 ? spent / grandTotal : 0;
+              {/* Comparatif par bâtiment */}
+              {[COMMUN, ...buildings.map((b) => b.name)].map((bid) => {
+                const budgeted = budTotalByBuilding[bid] ?? 0;
+                const spent = expTotalByBuilding[bid] ?? 0;
+                if (budgeted === 0 && spent === 0) return null;
+                const over = budgeted > 0 && spent > budgeted;
+                const max = Math.max(budgeted, spent, 1);
                 return (
-                  <View key={cat} style={styles.syntheseRow}>
-                    <View style={[styles.syntheseDot, { backgroundColor: EXPENSE_CATEGORY_COLORS[cat] }]} />
-                    <Text style={styles.syntheseLabel}>{EXPENSE_CATEGORY_LABELS[cat]}</Text>
-                    <View style={styles.syntheseBar}>
-                      <View style={[styles.syntheseBarFill, { width: `${pct * 100}%`, backgroundColor: EXPENSE_CATEGORY_COLORS[cat] }]} />
+                  <View key={bid} style={styles.syntheseCompCard}>
+                    <View style={styles.syntheseCompHeader}>
+                      <View style={[styles.budgetSectionDot, { width: 10, height: 10, borderRadius: 5, marginRight: 4 }, bid === COMMUN && { backgroundColor: "#64748B" }]} />
+                      <Text style={styles.syntheseCompLabel}>{sectionLabel(bid)}</Text>
+                      {over && (
+                        <View style={styles.syntheseOverBadge}>
+                          <Text style={styles.syntheseOverText}>+{formatAmount(spent - budgeted)}</Text>
+                        </View>
+                      )}
                     </View>
-                    <Text style={styles.syntheseAmount}>{formatAmount(spent)}</Text>
-                    <Text style={styles.synthesePct}>{(pct * 100).toFixed(0)}%</Text>
+                    {budgeted > 0 && (
+                      <View style={styles.syntheseBarRow}>
+                        <Text style={styles.syntheseBarLabel}>Prévu</Text>
+                        <View style={styles.syntheseBarBg}>
+                          <View style={[styles.syntheseBarFill, { width: `${(budgeted / max) * 100}%` as any, backgroundColor: "#CBD5E1" }]} />
+                        </View>
+                        <Text style={styles.syntheseBarAmt}>{formatAmount(budgeted)}</Text>
+                      </View>
+                    )}
+                    <View style={styles.syntheseBarRow}>
+                      <Text style={styles.syntheseBarLabel}>Réel</Text>
+                      <View style={styles.syntheseBarBg}>
+                        <View style={[styles.syntheseBarFill, { width: `${(spent / max) * 100}%` as any, backgroundColor: over ? COLORS.danger : COLORS.primary }]} />
+                      </View>
+                      <Text style={[styles.syntheseBarAmt, over && { color: COLORS.danger }]}>{formatAmount(spent)}</Text>
+                    </View>
                   </View>
                 );
               })}
 
-              {grandTotal === 0 && (
+              {grandTotal === 0 && totalBudget === 0 && (
                 <View style={styles.emptyState}>
-                  <Ionicons name="pie-chart-outline" size={40} color={COLORS.textMuted} />
-                  <Text style={styles.emptyText}>Aucune dépense pour {selectedYear}</Text>
+                  <Ionicons name="bar-chart-outline" size={40} color={COLORS.textMuted} />
+                  <Text style={styles.emptyText}>Aucune donnée pour {selectedYear}</Text>
                 </View>
               )}
             </>
@@ -510,57 +671,62 @@ export default function ConseilFinancesScreen() {
         </ScrollView>
       )}
 
-      {/* ── Modal ajout / édition dépense ── */}
+      {/* ── Modal dépense ── */}
       <Modal visible={expenseModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setExpenseModal(false)}><Text style={styles.modalCancel}>Annuler</Text></Pressable>
-            <Text style={styles.modalTitle}>{editingExpense ? "Modifier la dépense" : "Nouvelle dépense"}</Text>
+            <Text style={styles.modalTitle}>{editingExpense?.id ? "Modifier la dépense" : "Nouvelle dépense"}</Text>
             <Pressable onPress={handleSaveExpense} disabled={saving}>
               {saving ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Text style={styles.modalSave}>Enregistrer</Text>}
             </Pressable>
           </View>
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLabel}>Libellé *</Text>
-            <TextInput
-              style={styles.input}
-              value={form.label}
+            <TextInput style={styles.input} value={form.label}
               onChangeText={(v) => setForm((f) => ({ ...f, label: v }))}
-              placeholder="Facture EDF Mars, Eau trimestre 1…"
-              placeholderTextColor={COLORS.textMuted}
-            />
+              placeholder="Facture EDF janv., Eau Bât. A trim. 1…"
+              placeholderTextColor={COLORS.textMuted} />
 
             <Text style={styles.fieldLabel}>Montant (€) *</Text>
-            <TextInput
-              style={styles.input}
-              value={form.amount}
+            <TextInput style={styles.input} value={form.amount}
               onChangeText={(v) => setForm((f) => ({ ...f, amount: v }))}
-              placeholder="250,00"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="decimal-pad"
-            />
+              placeholder="250,00" placeholderTextColor={COLORS.textMuted} keyboardType="decimal-pad" />
 
             <Text style={styles.fieldLabel}>Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={dateDisplay}
-              onChangeText={setDateDisplay}
-              placeholder="JJ/MM/AAAA"
-              placeholderTextColor={COLORS.textMuted}
-              keyboardType="numeric"
-              maxLength={10}
-            />
+            <TextInput style={styles.input} value={dateDisplay}
+              onChangeText={(v) => setDateDisplay(formatDateInput(v))}
+              placeholder="JJ/MM/AAAA" placeholderTextColor={COLORS.textMuted} keyboardType="numeric" maxLength={10} />
+
+            {/* Bâtiment / secteur */}
+            {isMulti && (
+              <>
+                <Text style={styles.fieldLabel}>Bâtiment / Secteur</Text>
+                <View style={styles.catGrid}>
+                  {[{ id: COMMUN, label: "Charges communes" }, ...buildings.map((b) => ({ id: b.name, label: b.name }))].map((opt) => {
+                    const active = form.buildingId === opt.id;
+                    return (
+                      <Pressable key={opt.id}
+                        style={[styles.catChip, active && { borderColor: COLORS.primary, backgroundColor: COLORS.primary + "18" }]}
+                        onPress={() => setForm((f) => ({ ...f, buildingId: opt.id }))}>
+                        <Ionicons name={opt.id === COMMUN ? "people-outline" : "business-outline"} size={13}
+                          color={active ? COLORS.primary : COLORS.textMuted} />
+                        <Text style={[styles.catChipText, active && { color: COLORS.primary }]}>{opt.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
 
             <Text style={styles.fieldLabel}>Catégorie</Text>
             <View style={styles.catGrid}>
               {ALL_EXPENSE_CATEGORIES.map((c) => {
                 const active = form.category === c;
                 return (
-                  <Pressable
-                    key={c}
+                  <Pressable key={c}
                     style={[styles.catChip, active && { borderColor: EXPENSE_CATEGORY_COLORS[c], backgroundColor: EXPENSE_CATEGORY_COLORS[c] + "18" }]}
-                    onPress={() => setForm((f) => ({ ...f, category: c }))}
-                  >
+                    onPress={() => setForm((f) => ({ ...f, category: c }))}>
                     <Ionicons name={EXPENSE_CATEGORY_ICONS[c] as any} size={14} color={active ? EXPENSE_CATEGORY_COLORS[c] : COLORS.textMuted} />
                     <Text style={[styles.catChipText, active && { color: EXPENSE_CATEGORY_COLORS[c] }]}>{EXPENSE_CATEGORY_LABELS[c]}</Text>
                   </Pressable>
@@ -569,20 +735,15 @@ export default function ConseilFinancesScreen() {
             </View>
 
             <Text style={styles.fieldLabel}>Note (optionnel)</Text>
-            <TextInput
-              style={[styles.input, { minHeight: 70, textAlignVertical: "top" }]}
-              value={form.description}
+            <TextInput style={[styles.input, { minHeight: 70, textAlignVertical: "top" }]} value={form.description}
               onChangeText={(v) => setForm((f) => ({ ...f, description: v }))}
-              placeholder="Référence facture, remarque…"
-              placeholderTextColor={COLORS.textMuted}
-              multiline
-            />
+              placeholder="Référence facture, remarque…" placeholderTextColor={COLORS.textMuted} multiline />
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
       </Modal>
 
-      {/* ── Modal sélection intervention ── */}
+      {/* ── Modal intervention ── */}
       <Modal visible={interventionPickerModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
           <View style={styles.modalHeader}>
@@ -592,87 +753,118 @@ export default function ConseilFinancesScreen() {
             <Text style={styles.modalTitle}>Choisir une intervention</Text>
             <View style={{ width: 60 }} />
           </View>
-
           <View style={styles.interventionSearchWrap}>
             <Ionicons name="search-outline" size={16} color={COLORS.textMuted} />
-            <TextInput
-              style={styles.interventionSearchInput}
-              placeholder="Rechercher…"
-              placeholderTextColor={COLORS.textMuted}
-              value={interventionSearch}
-              onChangeText={setInterventionSearch}
-              autoCapitalize="none"
-            />
+            <TextInput style={styles.interventionSearchInput} placeholder="Rechercher…"
+              placeholderTextColor={COLORS.textMuted} value={interventionSearch}
+              onChangeText={setInterventionSearch} autoCapitalize="none" />
           </View>
-
           <Text style={styles.interventionPickerHint}>
-            Interventions terminées avec un montant validé par le syndic, pas encore comptabilisées.
+            Interventions terminées avec un montant validé, pas encore comptabilisées.
           </Text>
-
           <ScrollView style={{ flex: 1 }}>
             {filteredEligible.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="checkmark-done-outline" size={36} color={COLORS.textMuted} />
                 <Text style={styles.emptyText}>Toutes les interventions sont déjà comptabilisées</Text>
               </View>
-            ) : (
-              filteredEligible.map((i) => {
-                const amount = (i as any).amount as number;
-                const date = i.date?.slice(0, 10) ?? "";
-                return (
-                  <Pressable key={i.id} style={styles.interventionPickerRow} onPress={() => handlePickIntervention(i)}>
-                    <View style={styles.interventionPickerIcon}>
-                      <Ionicons name="construct-outline" size={18} color={COLORS.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.interventionPickerTitle}>{i.title}</Text>
-                      <Text style={styles.interventionPickerMeta}>
-                        {CATEGORY_LABELS[i.category]} · {isoToDisplay(date)}
-                        {i.assignedToName ? ` · ${i.assignedToName}` : ""}
-                      </Text>
-                    </View>
-                    <Text style={styles.interventionPickerAmount}>{formatAmount(amount)}</Text>
-                    <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
-                  </Pressable>
-                );
-              })
-            )}
+            ) : filteredEligible.map((i) => {
+              const amount = (i as any).amount as number;
+              const date = i.date?.slice(0, 10) ?? "";
+              return (
+                <Pressable key={i.id} style={styles.interventionPickerRow} onPress={() => handlePickIntervention(i)}>
+                  <View style={styles.interventionPickerIcon}>
+                    <Ionicons name="construct-outline" size={18} color={COLORS.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.interventionPickerTitle}>{i.title}</Text>
+                    <Text style={styles.interventionPickerMeta}>
+                      {CATEGORY_LABELS[i.category]} · {isoToDisplay(date)}{i.assignedToName ? ` · ${i.assignedToName}` : ""}
+                    </Text>
+                  </View>
+                  <Text style={styles.interventionPickerAmount}>{formatAmount(amount)}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+                </Pressable>
+              );
+            })}
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
       </Modal>
 
-      {/* ── Modal budget prévisionnel ── */}
+      {/* ── Modal budget — lignes libres par section ── */}
       <Modal visible={budgetModal} animationType="slide" presentationStyle="pageSheet">
         <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
           <View style={styles.modalHeader}>
             <Pressable onPress={() => setBudgetModal(false)}><Text style={styles.modalCancel}>Annuler</Text></Pressable>
-            <Text style={styles.modalTitle}>Budget {selectedYear}</Text>
+            <Text style={styles.modalTitle}>Budget prévisionnel {selectedYear}</Text>
             <Pressable onPress={handleSaveBudget} disabled={savingBudget}>
               {savingBudget ? <ActivityIndicator size="small" color={COLORS.primary} /> : <Text style={styles.modalSave}>Enregistrer</Text>}
             </Pressable>
           </View>
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             <Text style={styles.budgetModalHint}>
-              Entrez le budget prévisionnel pour chaque poste. Laissez vide si non concerné.
+              Nommez chaque poste librement. {isMulti ? "Les postes sont organisés par bâtiment." : "Exemples : Ascenseur, ECS, Honoraires syndic…"}
             </Text>
-            {ALL_EXPENSE_CATEGORIES.map((c) => (
-              <View key={c} style={styles.budgetFieldRow}>
-                <View style={styles.budgetFieldLabel}>
-                  <Ionicons name={EXPENSE_CATEGORY_ICONS[c] as any} size={15} color={EXPENSE_CATEGORY_COLORS[c]} />
-                  <Text style={styles.budgetFieldText}>{EXPENSE_CATEGORY_LABELS[c]}</Text>
+
+            {/* Sections par bâtiment */}
+            {budgetSections.map((bid) => {
+              const sectionLines = budgetLines.filter((l) => l.buildingId === bid);
+              const suggestions = bid === COMMUN ? COMMON_SUGGESTIONS : BUILDING_SUGGESTIONS;
+              return (
+                <View key={bid} style={styles.budgetModalSection}>
+                  {/* En-tête de section */}
+                  <View style={styles.budgetModalSectionHeader}>
+                    <View style={[styles.budgetSectionDot, bid === COMMUN && { backgroundColor: "#64748B" }]} />
+                    <Text style={styles.budgetModalSectionTitle}>{sectionLabel(bid)}</Text>
+                  </View>
+
+                  {/* Lignes de la section */}
+                  {sectionLines.map((line) => {
+                    const idx = budgetLines.findIndex((l) => l.id === line.id);
+                    return (
+                      <View key={line.id} style={styles.budgetLineRow}>
+                        <View style={{ flex: 1, gap: 6 }}>
+                          <TextInput style={styles.input} value={line.label}
+                            onChangeText={(v) => setBudgetLines((prev) => prev.map((l, i) => i === idx ? { ...l, label: v } : l))}
+                            placeholder={bid === COMMUN ? "Ex : Honoraires syndic, Portail…" : `Ex : Ascenseur, ECS ${bid}…`}
+                            placeholderTextColor={COLORS.textMuted} />
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <TextInput style={[styles.input, { flex: 1 }]} value={line.amount}
+                              onChangeText={(v) => setBudgetLines((prev) => prev.map((l, i) => i === idx ? { ...l, amount: v } : l))}
+                              placeholder="Montant €" placeholderTextColor={COLORS.textMuted} keyboardType="decimal-pad" />
+                            <Text style={styles.budgetEuro}>€</Text>
+                          </View>
+                        </View>
+                        <Pressable style={{ padding: 8, alignSelf: "center" }}
+                          onPress={() => setBudgetLines((prev) => prev.filter((_, i) => i !== idx))}>
+                          <Ionicons name="close-circle-outline" size={22} color={COLORS.danger} />
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+
+                  {/* Ajouter poste libre */}
+                  <Pressable style={styles.addLineBtn} onPress={() => addBudgetLine(bid)}>
+                    <Ionicons name="add-circle-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.addLineBtnText}>Ajouter un poste</Text>
+                  </Pressable>
+
+                  {/* Suggestions pour cette section */}
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6, marginBottom: 4 }}>
+                    {suggestions
+                      .filter((s) => s !== "Autre…" && !sectionLines.some((l) => l.label.toLowerCase().trim() === s.toLowerCase()))
+                      .slice(0, 6)
+                      .map((s) => (
+                        <Pressable key={s} style={styles.catChip} onPress={() => addBudgetLine(bid, s)}>
+                          <Text style={styles.catChipText}>{s}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
                 </View>
-                <TextInput
-                  style={styles.budgetInput}
-                  value={budgetForm[c] ?? ""}
-                  onChangeText={(v) => setBudgetForm((f) => ({ ...f, [c]: v }))}
-                  placeholder="0"
-                  placeholderTextColor={COLORS.textMuted}
-                  keyboardType="decimal-pad"
-                />
-                <Text style={styles.budgetEuro}>€</Text>
-              </View>
-            ))}
+              );
+            })}
+
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>
@@ -684,57 +876,53 @@ export default function ConseilFinancesScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
   header: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingHorizontal: 16, paddingVertical: 12,
+    flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12,
     backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   backBtn: { padding: 4 },
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text },
   headerSub: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
-  addBtn: {
-    backgroundColor: COLORS.primary, borderRadius: 20, width: 36, height: 36,
-    alignItems: "center", justifyContent: "center",
-  },
+  addBtn: { backgroundColor: COLORS.primary, borderRadius: 20, width: 36, height: 36, alignItems: "center", justifyContent: "center" },
   yearRow: {
     flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 10,
     backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
-  yearChip: {
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
-  },
+  yearChip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   yearChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   yearChipText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   yearChipTextActive: { color: "#fff" },
   tabs: { flexDirection: "row", backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
   tab: { flex: 1, paddingVertical: 12, alignItems: "center" },
   tabActive: { borderBottomWidth: 2, borderBottomColor: COLORS.primary },
-  tabText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  tabText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   tabTextActive: { color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
   content: { padding: 12 },
-  summaryCard: {
-    backgroundColor: COLORS.primary, borderRadius: 16, padding: 20, marginBottom: 12,
-  },
+  summaryCard: { backgroundColor: COLORS.primary, borderRadius: 16, padding: 20, marginBottom: 12 },
   summaryLabel: { fontSize: 13, color: "rgba(255,255,255,0.7)", fontFamily: "Inter_400Regular" },
   summaryAmount: { fontSize: 32, color: "#fff", fontFamily: "Inter_700Bold", marginTop: 4 },
-  monthScroll: { marginBottom: 12 },
-  monthChip: {
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8,
+  buildingMiniRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+  buildingMiniChip: { backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  buildingMiniLabel: { fontSize: 10, color: "rgba(255,255,255,0.8)", fontFamily: "Inter_500Medium" },
+  buildingMiniAmount: { fontSize: 13, color: "#fff", fontFamily: "Inter_700Bold", marginTop: 1 },
+  filterScroll: { marginBottom: 8 },
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, marginRight: 8,
     borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
   },
+  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterChipText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  filterChipTextActive: { color: "#fff" },
+  monthScroll: { marginBottom: 12 },
+  monthChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   monthChipActive: { backgroundColor: COLORS.primary + "20", borderColor: COLORS.primary },
   monthChipText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   monthChipTextActive: { color: COLORS.primary },
-  monthHeader: {
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingVertical: 8, paddingHorizontal: 2, marginTop: 4,
-  },
+  monthHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, paddingHorizontal: 2, marginTop: 4 },
   monthHeaderText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   monthHeaderAmount: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
   expenseRow: {
     flexDirection: "row", alignItems: "center", backgroundColor: "#fff",
-    borderRadius: 12, padding: 12, marginBottom: 8,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 12, padding: 12, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border,
   },
   expenseIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginRight: 10 },
   expenseInfo: { flex: 1 },
@@ -743,37 +931,50 @@ const styles = StyleSheet.create({
   expenseDesc: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular", fontStyle: "italic", marginTop: 1 },
   expenseAmount: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text, marginRight: 6 },
   deleteBtn: { padding: 6 },
+  buildingBadge: { backgroundColor: "#F1F5F9", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  buildingBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#64748B" },
+  interventionBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#E0F2FE", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  interventionBadgeText: { fontSize: 10, color: "#0891B2", fontFamily: "Inter_600SemiBold" },
   emptyState: { alignItems: "center", paddingTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
   emptyBtn: { marginTop: 8, backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
   emptyBtnText: { color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 14 },
   budgetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   budgetHeaderText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  budgetHeaderSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
   editBudgetBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: COLORS.primary + "14", borderRadius: 8 },
   editBudgetText: { fontSize: 13, color: COLORS.primary, fontFamily: "Inter_500Medium" },
-  budgetRow: { backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border },
-  budgetRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  budgetRowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  budgetCatLabel: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.text },
-  budgetRowRight: { flexDirection: "row", alignItems: "baseline" },
-  budgetSpent: { fontSize: 14, fontFamily: "Inter_700Bold", color: COLORS.text },
-  budgetOf: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
-  progressBg: { height: 6, backgroundColor: COLORS.border, borderRadius: 3, overflow: "hidden" },
-  progressFill: { height: 6, borderRadius: 3 },
-  syntheseRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  syntheseDot: { width: 10, height: 10, borderRadius: 5 },
-  syntheseLabel: { width: 100, fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.text },
-  syntheseBar: { flex: 1, height: 8, backgroundColor: COLORS.border, borderRadius: 4, overflow: "hidden" },
+  budgetSection: { backgroundColor: "#fff", borderRadius: 14, marginBottom: 12, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border },
+  budgetSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, padding: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: COLORS.surface },
+  budgetSectionDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.primary },
+  budgetSectionTitle: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  budgetSectionTotal: { fontSize: 14, fontFamily: "Inter_700Bold", color: COLORS.text },
+  budgetRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 11, gap: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border + "80" },
+  budgetLineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.border },
+  budgetCatLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
+  budgetAmount: { fontSize: 14, fontFamily: "Inter_700Bold", color: COLORS.text },
+  syntheseGlobalCard: { backgroundColor: COLORS.primary, borderRadius: 16, padding: 20, marginBottom: 16 },
+  syntheseGlobalRow: { flexDirection: "row", alignItems: "center" },
+  syntheseGlobalCol: { flex: 1, alignItems: "center" },
+  syntheseGlobalDivider: { width: 1, height: 40, backgroundColor: "rgba(255,255,255,0.3)", marginHorizontal: 12 },
+  syntheseGlobalLabel: { fontSize: 12, color: "rgba(255,255,255,0.7)", fontFamily: "Inter_400Regular", marginBottom: 4, textAlign: "center" },
+  syntheseGlobalAmount: { fontSize: 20, color: "#fff", fontFamily: "Inter_700Bold", textAlign: "center" },
+  syntheseGlobalEcart: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.2)" },
+  syntheseGlobalEcartText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  syntheseCompCard: { backgroundColor: "#fff", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: COLORS.border },
+  syntheseCompHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  syntheseCompLabel: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  syntheseOverBadge: { backgroundColor: "#FEE2E2", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  syntheseOverText: { fontSize: 11, color: COLORS.danger, fontFamily: "Inter_600SemiBold" },
+  syntheseBarRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  syntheseBarLabel: { width: 36, fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  syntheseBarBg: { flex: 1, height: 8, backgroundColor: COLORS.border, borderRadius: 4, overflow: "hidden" },
   syntheseBarFill: { height: 8, borderRadius: 4 },
-  syntheseAmount: { width: 70, fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "right" },
-  synthesePct: { width: 32, fontSize: 11, color: COLORS.textMuted, textAlign: "right" },
+  syntheseBarAmt: { width: 72, fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "right" },
   modal: { flex: 1, backgroundColor: "#fff" },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border,
-  },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   modalCancel: { fontSize: 15, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
-  modalTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text },
+  modalTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
   modalSave: { fontSize: 15, color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
   modalBody: { padding: 16 },
   fieldLabel: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted, marginBottom: 6, marginTop: 14 },
@@ -784,45 +985,32 @@ const styles = StyleSheet.create({
   },
   catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   catChip: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+    flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
   },
   catChipText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   budgetModalHint: { fontSize: 13, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginBottom: 16, lineHeight: 18 },
-  budgetFieldRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
-  budgetFieldLabel: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
-  budgetFieldText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
-  budgetInput: {
-    width: 90, borderWidth: 1, borderColor: COLORS.border, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 8, fontSize: 14,
-    fontFamily: "Inter_400Regular", color: COLORS.text, textAlign: "right",
+  budgetModalSection: { marginBottom: 20, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, overflow: "hidden" },
+  budgetModalSectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  budgetModalSectionTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  budgetLineRow: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    padding: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border + "60",
   },
+  addLineBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, padding: 12,
+    justifyContent: "center", backgroundColor: COLORS.primary + "08",
+  },
+  addLineBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
   budgetEuro: { fontSize: 14, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
-  interventionBadge: {
-    flexDirection: "row", alignItems: "center", gap: 3,
-    backgroundColor: "#E0F2FE", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
-  },
-  interventionBadgeText: { fontSize: 10, color: "#0891B2", fontFamily: "Inter_600SemiBold" },
   interventionSearchWrap: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    marginHorizontal: 16, marginVertical: 10, paddingHorizontal: 12, paddingVertical: 9,
-    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+    flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginVertical: 10,
+    paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface,
   },
   interventionSearchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text },
-  interventionPickerHint: {
-    fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular",
-    marginHorizontal: 16, marginBottom: 8, lineHeight: 16,
-  },
-  interventionPickerRow: {
-    flexDirection: "row", alignItems: "center", gap: 10,
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border,
-  },
-  interventionPickerIcon: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: COLORS.primary + "18", alignItems: "center", justifyContent: "center",
-  },
+  interventionPickerHint: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginHorizontal: 16, marginBottom: 8, lineHeight: 16 },
+  interventionPickerRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  interventionPickerIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary + "18", alignItems: "center", justifyContent: "center" },
   interventionPickerTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   interventionPickerMeta: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginTop: 2 },
   interventionPickerAmount: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#0891B2", marginRight: 4 },

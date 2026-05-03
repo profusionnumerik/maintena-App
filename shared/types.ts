@@ -373,6 +373,8 @@ export const ANNOUNCEMENT_TYPE_COLORS: Record<AnnouncementType, string> = {
 
 export type ExpenseCategory =
   | "eau"
+  | "ecs"
+  | "chauffage"
   | "electricite"
   | "gaz"
   | "assurance"
@@ -384,7 +386,9 @@ export type ExpenseCategory =
   | "divers";
 
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
-  eau: "Eau",
+  eau: "Eau froide",
+  ecs: "ECS (eau chaude)",
+  chauffage: "Chauffage collectif",
   electricite: "Électricité",
   gaz: "Gaz",
   assurance: "Assurance",
@@ -398,6 +402,8 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
 
 export const EXPENSE_CATEGORY_ICONS: Record<ExpenseCategory, string> = {
   eau: "water-outline",
+  ecs: "thermometer-outline",
+  chauffage: "bonfire-outline",
   electricite: "flash-outline",
   gaz: "flame-outline",
   assurance: "shield-checkmark-outline",
@@ -411,8 +417,10 @@ export const EXPENSE_CATEGORY_ICONS: Record<ExpenseCategory, string> = {
 
 export const EXPENSE_CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   eau: "#0EBAAA",
+  ecs: "#F97316",
+  chauffage: "#EF4444",
   electricite: "#F59E0B",
-  gaz: "#F97316",
+  gaz: "#FB923C",
   assurance: "#6366F1",
   ascenseur: "#8B5CF6",
   nettoyage: "#10B981",
@@ -423,7 +431,7 @@ export const EXPENSE_CATEGORY_COLORS: Record<ExpenseCategory, string> = {
 };
 
 export const ALL_EXPENSE_CATEGORIES: ExpenseCategory[] = [
-  "eau", "electricite", "gaz", "assurance", "ascenseur",
+  "eau", "ecs", "chauffage", "electricite", "gaz", "assurance", "ascenseur",
   "nettoyage", "espaces_verts", "travaux", "honoraires_syndic", "divers",
 ];
 
@@ -436,6 +444,7 @@ export interface Expense {
   date: string;
   description?: string;
   interventionId?: string;
+  buildingId?: string; // "commun" | building name
   addedBy: string;
   addedByName: string;
   createdAt: string;
@@ -447,11 +456,19 @@ export interface BudgetLine {
   budgeted: number;
 }
 
+export interface BudgetCustomLine {
+  id: string;
+  label: string;
+  amount: number;
+  buildingId?: string; // "commun" | building name
+}
+
 export interface AnnualBudget {
   id: string;
   coProId: string;
   year: number;
   lines: Partial<Record<ExpenseCategory, number>>;
+  customLines?: BudgetCustomLine[];
   createdBy: string;
   createdAt: string;
   updatedAt?: string;
