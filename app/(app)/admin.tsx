@@ -118,9 +118,9 @@ export default function AdminScreen() {
         `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que membre du conseil syndical.\n\n` +
         `${appLine}\n\n` +
         `Accès web : ${webAccessLink}\n\n` +
-        `Rôle : Conseil syndical (propriétaire élu)\n` +
+        `Rôle : Conseil syndical\n` +
         `Code d'invitation : ${code}\n\n` +
-        `Utilisez ce code comme un propriétaire. Votre accès "Contrôle des comptes" sera activé par le syndic.`
+        `Ce code vous donne un accès direct au module "Contrôle des comptes" (dépenses, budget, comparatif).`
       );
     }
 
@@ -138,7 +138,7 @@ export default function AdminScreen() {
     if (!currentCopro) return null;
     if (inviteRole === "propriétaire") return currentCopro.ownerInviteCode ?? null;
     if (inviteRole === "collaborateur") return currentCopro.inviteCode;
-    if (inviteRole === "conseil") return currentCopro.ownerInviteCode ?? null; // même code que propriétaire — l'admin change ensuite le rôle en "conseil"
+    if (inviteRole === "conseil") return currentCopro.conseilInviteCode ?? null;
     return currentCopro.categoryInviteCodes?.[inviteCategory] ?? null;
   };
 
@@ -150,6 +150,9 @@ export default function AdminScreen() {
       if (!code) {
         if (inviteRole === "prestataire") {
           code = await generateCategoryCode(inviteCategory);
+        } else if (inviteRole === "conseil") {
+          await handleGenerateConseilCode();
+          code = getInviteCode();
         } else if (inviteRole === "propriétaire") {
           Alert.alert("Code manquant", "Veuillez d'abord générer le code propriétaire dans la section Codes.");
           return;
@@ -372,6 +375,28 @@ export default function AdminScreen() {
         createdAt: new Date().toISOString(),
       });
       await updateDoc(doc(db, "copros", currentCopro.id), { ownerInviteCode: newCode });
+      await refreshCoPros();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    }
+  };
+
+  const handleGenerateConseilCode = async () => {
+    if (!currentCopro) return;
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const newCode = Array.from({ length: 6 }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
+    ).join("");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await setDoc(doc(db, "inviteCodes", newCode), {
+        coProId: currentCopro.id,
+        coProName: currentCopro.name,
+        role: "conseil",
+        createdAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, "copros", currentCopro.id), { conseilInviteCode: newCode });
       await refreshCoPros();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {

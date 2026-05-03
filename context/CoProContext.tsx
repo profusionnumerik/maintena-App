@@ -571,6 +571,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         isSuperAdmin || hasActiveCopro || userSubscription?.status === "active";
 
       const ownerCode = generateCode();
+      const conseilCode = generateCode();
 
       const coProData: Record<string, any> = {
         name: name.trim(),
@@ -583,6 +584,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         status: autoActivate ? "active" : "pending",
         inviteCode: code,
         ownerInviteCode: ownerCode,
+        conseilInviteCode: conseilCode,
         createdAt: new Date().toISOString(),
       };
 
@@ -624,6 +626,13 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
       });
 
+      await setDoc(doc(db, "inviteCodes", conseilCode), {
+        coProId: coProRef.id,
+        coProName: name.trim(),
+        role: "conseil",
+        createdAt: new Date().toISOString(),
+      });
+
       try {
         await updateDoc(doc(db, "users", user.uid), {
           managedCoproIds: arrayUnion(coProRef.id),
@@ -648,6 +657,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         status: autoActivate ? "active" : "pending",
         inviteCode: code,
         ownerInviteCode: ownerCode,
+        conseilInviteCode: conseilCode,
         createdAt: new Date().toISOString(),
         ...(lat !== undefined && lng !== undefined
           ? { latitude: lat, longitude: lng, locationRadius: 300 }

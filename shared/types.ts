@@ -177,6 +177,7 @@ export interface CoPro {
   status: CoProStatus;
   inviteCode: string;
   ownerInviteCode?: string;
+  conseilInviteCode?: string;
   stripeSessionId?: string;
   stripePaid?: boolean;
   createdAt: string;
