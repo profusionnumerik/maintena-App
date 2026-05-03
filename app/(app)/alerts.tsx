@@ -116,11 +116,18 @@ function SignalementModal({
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { Alert.alert("Permission requise", "Autorisez l'accès à l'appareil photo dans les réglages."); return; }
     try {
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.75 });
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.4,      // réduit la résolution native pour éviter le crash mémoire
+        exif: false,       // pas de métadonnées EXIF = fichier plus léger
+        allowsEditing: false,
+      });
       if (!result.canceled && result.assets.length > 0) {
         setPhotoUris((prev) => [...prev, result.assets[0].uri].slice(0, MAX_SIGNAL_PHOTOS));
       }
-    } catch { Alert.alert("Erreur", "Impossible d'ouvrir l'appareil photo."); }
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message ?? "Impossible d'ouvrir l'appareil photo.");
+    }
   };
 
   const removePhoto = (idx: number) => setPhotoUris((prev) => prev.filter((_, i) => i !== idx));
