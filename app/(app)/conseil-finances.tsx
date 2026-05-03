@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
   addDoc, collection, deleteDoc, doc, onSnapshot,
-  orderBy, query, setDoc, where,
+  orderBy, query, setDoc, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
@@ -18,7 +18,7 @@ import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import {
   ALL_EXPENSE_CATEGORIES, AnnualBudget, BudgetCustomLine,
-  BuildingDef, CATEGORY_LABELS, Expense, ExpenseCategory,
+  BuildingDef, CATEGORY_LABELS, ConseilVote, Expense, ExpenseCategory,
   EXPENSE_CATEGORY_COLORS, EXPENSE_CATEGORY_ICONS, EXPENSE_CATEGORY_LABELS, Intervention,
 } from "@/shared/types";
 
@@ -87,7 +87,7 @@ export default function ConseilFinancesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { currentCopro, currentRole } = useCoPro();
+  const { currentCopro, currentRole, members } = useCoPro();
   const { interventions: allInterventions } = useInterventions();
 
   const [tab, setTab] = useState<Tab>("depenses");
@@ -115,9 +115,19 @@ export default function ConseilFinancesScreen() {
   const [budgetLines, setBudgetLines] = useState<BudgetFormLine[]>([]);
   const [savingBudget, setSavingBudget] = useState(false);
 
+  // Vote trésorier — état live (subscription Firestore)
+  const [liveVote, setLiveVote] = useState<ConseilVote | null | undefined>(undefined);
+  const [liveTresorierUid, setLiveTresorierUid] = useState<string | null | undefined>(undefined);
+  const [voteSaving, setVoteSaving] = useState(false);
+
   const isAdmin = currentRole === "admin";
   const isConseil = currentRole === "conseil";
-  const canWrite = isAdmin || isConseil;
+  const conseilMembers = members.filter((m) => m.role === "conseil");
+  const tresorierUid = liveTresorierUid !== undefined ? liveTresorierUid : (currentCopro?.tresorierUid ?? null);
+  const conseilVote = liveVote !== undefined ? liveVote : (currentCopro?.conseilVote ?? null);
+  const isTresorier = isConseil && user?.uid === tresorierUid;
+  // Seul le trésorier désigné peut écrire ; le syndic (admin) est en lecture seule
+  const canWrite = isTresorier;
 
   // Bâtiments de la résidence — fallback si config absente
   const buildings: BuildingDef[] = useMemo(() => {
@@ -157,6 +167,19 @@ export default function ConseilFinancesScreen() {
     });
     return unsub;
   }, [currentCopro?.id, selectedYear]);
+
+  // Subscription live sur le document copro pour mise à jour du vote en temps réel
+  useEffect(() => {
+    if (!currentCopro?.id) return;
+    const unsub = onSnapshot(doc(db, "copros", currentCopro.id), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setLiveTresorierUid(data.tresorierUid ?? null);
+        setLiveVote((data.conseilVote ?? null) as ConseilVote | null);
+      }
+    });
+    return unsub;
+  }, [currentCopro?.id]);
 
   // Dépenses filtrées par bâtiment puis par mois
   const filteredExpenses = useMemo(() => {
@@ -344,6 +367,95 @@ export default function ConseilFinancesScreen() {
     finally { setSavingBudget(false); }
   }, [budgetLines, budget, currentCopro?.id, selectedYear, user]);
 
+  // ── Fonctions de vote trésorier ──────────────────────────────────────────
+
+  const handleStartVote = async () => {
+    if (!currentCopro?.id || !user) return;
+    setVoteSaving(true);
+    try {
+      const newVote: ConseilVote = {
+        status: "open", candidates: [], votes: {},
+        requestedBy: user.uid, requestedAt: new Date().toISOString(),
+      };
+      await updateDoc(doc(db, "copros", currentCopro.id), { conseilVote: newVote, tresorierUid: null });
+    } finally { setVoteSaving(false); }
+  };
+
+  const handleNominateSelf = async () => {
+    if (!currentCopro?.id || !user || !conseilVote || conseilVote.status !== "open") return;
+    if (conseilVote.candidates.some((c) => c.uid === user.uid)) return;
+    setVoteSaving(true);
+    try {
+      const newCandidates = [
+        ...conseilVote.candidates,
+        { uid: user.uid, displayName: user.displayName ?? user.email ?? "Inconnu" },
+      ];
+      await updateDoc(doc(db, "copros", currentCopro.id), { "conseilVote.candidates": newCandidates });
+    } finally { setVoteSaving(false); }
+  };
+
+  const handleCastVote = async (candidateUid: string) => {
+    if (!currentCopro?.id || !user || !conseilVote || conseilVote.status !== "open") return;
+    if (conseilVote.votes[user.uid]) return;
+    setVoteSaving(true);
+    try {
+      const newVotes: Record<string, string> = { ...conseilVote.votes, [user.uid]: candidateUid };
+      const allVoted = conseilMembers.length > 0 && conseilMembers.every((m) => newVotes[m.uid] !== undefined);
+      if (allVoted) {
+        const tally: Record<string, number> = {};
+        Object.values(newVotes).forEach((uid) => { tally[uid] = (tally[uid] ?? 0) + 1; });
+        const winnerId = Object.entries(tally).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null;
+        await updateDoc(doc(db, "copros", currentCopro.id), {
+          "conseilVote.votes": newVotes,
+          "conseilVote.status": "closed",
+          "conseilVote.closedAt": new Date().toISOString(),
+          "conseilVote.winnerId": winnerId,
+          tresorierUid: winnerId,
+        });
+      } else {
+        await updateDoc(doc(db, "copros", currentCopro.id), { "conseilVote.votes": newVotes });
+      }
+    } finally { setVoteSaving(false); }
+  };
+
+  const handleDirectDesignate = async () => {
+    if (!currentCopro?.id || !conseilVote || conseilVote.candidates.length !== 1) return;
+    const winnerId = conseilVote.candidates[0].uid;
+    setVoteSaving(true);
+    try {
+      await updateDoc(doc(db, "copros", currentCopro.id), {
+        tresorierUid: winnerId,
+        "conseilVote.status": "closed",
+        "conseilVote.closedAt": new Date().toISOString(),
+        "conseilVote.winnerId": winnerId,
+      });
+    } finally { setVoteSaving(false); }
+  };
+
+  const handleRequestRevote = () => {
+    Alert.alert(
+      "Demander un re-vote ?",
+      "Le trésorier actuel perd son accès en écriture. Un nouveau vote est lancé entre les membres du conseil syndical.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Demander le re-vote", style: "destructive",
+          onPress: async () => {
+            if (!currentCopro?.id || !user) return;
+            setVoteSaving(true);
+            try {
+              const newVote: ConseilVote = {
+                status: "open", candidates: [], votes: {},
+                requestedBy: user.uid, requestedAt: new Date().toISOString(),
+              };
+              await updateDoc(doc(db, "copros", currentCopro.id), { conseilVote: newVote, tresorierUid: null });
+            } finally { setVoteSaving(false); }
+          },
+        },
+      ]
+    );
+  };
+
   if (!currentCopro) {
     return <View style={styles.root}><Text style={{ color: COLORS.textMuted, textAlign: "center", marginTop: 60 }}>Aucune résidence sélectionnée.</Text></View>;
   }
@@ -400,6 +512,122 @@ export default function ConseilFinancesScreen() {
 
       {loading ? <ActivityIndicator style={{ marginTop: 40 }} color={COLORS.primary} /> : (
         <ScrollView contentContainerStyle={styles.content}>
+
+          {/* ── Bannière lecture seule (syndic) ── */}
+          {isAdmin && (
+            <View style={styles.readOnlyBanner}>
+              <Ionicons name="eye-outline" size={16} color="#0369A1" />
+              <Text style={styles.readOnlyText}>Mode lecture seule — Le conseil syndical gère la saisie des comptes.</Text>
+            </View>
+          )}
+
+          {/* ── Section vote trésorier (conseil uniquement) ── */}
+          {isConseil && (
+            <View style={styles.voteCard}>
+              {/* Cas A : pas de vote, pas de trésorier */}
+              {!conseilVote && !tresorierUid && (
+                <>
+                  <View style={styles.voteCardHeader}>
+                    <Ionicons name="checkmark-circle-outline" size={18} color="#7C3AED" />
+                    <Text style={styles.voteCardTitle}>Aucun trésorier désigné</Text>
+                  </View>
+                  <Text style={styles.voteCardSub}>Lancez un vote pour désigner le membre du conseil syndical qui pourra saisir les données comptables.</Text>
+                  <Pressable style={[styles.voteBtn, { backgroundColor: "#7C3AED" }]} onPress={handleStartVote} disabled={voteSaving}>
+                    {voteSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.voteBtnText}>Lancer un vote</Text>}
+                  </Pressable>
+                </>
+              )}
+
+              {/* Cas B : vote ouvert */}
+              {conseilVote?.status === "open" && (
+                <>
+                  <View style={styles.voteCardHeader}>
+                    <Ionicons name="checkmark-circle-outline" size={18} color="#7C3AED" />
+                    <Text style={styles.voteCardTitle}>Vote en cours — Élection du trésorier</Text>
+                  </View>
+                  <Text style={styles.voteCardSub}>
+                    {Object.keys(conseilVote.votes).length}/{conseilMembers.length} membre{conseilMembers.length > 1 ? "s" : ""} {Object.keys(conseilVote.votes).length > 1 ? "ont" : "a"} voté
+                  </Text>
+
+                  {/* Candidats */}
+                  {conseilVote.candidates.length === 0 ? (
+                    <Text style={[styles.voteCardSub, { marginTop: 4, fontStyle: "italic" }]}>Aucun candidat pour l'instant. Présentez-vous !</Text>
+                  ) : (
+                    conseilVote.candidates.map((c) => {
+                      const myVote = conseilVote.votes[user?.uid ?? ""];
+                      const alreadyVoted = !!myVote;
+                      const iVotedFor = myVote === c.uid;
+                      const voteCount = Object.values(conseilVote.votes).filter((v) => v === c.uid).length;
+                      return (
+                        <View key={c.uid} style={styles.candidateRow}>
+                          <Ionicons name="person-circle-outline" size={22} color="#7C3AED" />
+                          <Text style={styles.candidateName}>{c.displayName}</Text>
+                          {voteCount > 0 && (
+                            <View style={styles.voteBadge}>
+                              <Text style={styles.voteBadgeText}>{voteCount} voix</Text>
+                            </View>
+                          )}
+                          {!alreadyVoted && c.uid !== user?.uid && (
+                            <Pressable style={styles.castVoteBtn} onPress={() => handleCastVote(c.uid)} disabled={voteSaving}>
+                              <Text style={styles.castVoteBtnText}>Voter</Text>
+                            </Pressable>
+                          )}
+                          {iVotedFor && (
+                            <View style={[styles.castVoteBtn, { backgroundColor: "#D1FAE5" }]}>
+                              <Ionicons name="checkmark" size={14} color="#065F46" />
+                              <Text style={[styles.castVoteBtnText, { color: "#065F46" }]}>Mon vote</Text>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+
+                  {/* Boutons candidature / désignation directe */}
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    {!conseilVote.candidates.some((c) => c.uid === user?.uid) && (
+                      <Pressable style={[styles.voteBtn, { flex: 1, backgroundColor: "#7C3AED" }]} onPress={handleNominateSelf} disabled={voteSaving}>
+                        <Text style={styles.voteBtnText}>Me présenter</Text>
+                      </Pressable>
+                    )}
+                    {conseilVote.candidates.length === 1 && (
+                      <Pressable style={[styles.voteBtn, { flex: 1, backgroundColor: "#059669" }]} onPress={handleDirectDesignate} disabled={voteSaving}>
+                        <Text style={styles.voteBtnText}>Désigner directement</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </>
+              )}
+
+              {/* Cas C : trésorier désigné */}
+              {tresorierUid && conseilVote?.status !== "open" && (
+                <>
+                  {isTresorier ? (
+                    <>
+                      <View style={styles.voteCardHeader}>
+                        <Ionicons name="shield-checkmark-outline" size={18} color="#059669" />
+                        <Text style={[styles.voteCardTitle, { color: "#059669" }]}>Vous êtes le trésorier désigné</Text>
+                      </View>
+                      <Text style={styles.voteCardSub}>Vous avez accès en écriture aux comptes de la copropriété.</Text>
+                    </>
+                  ) : (
+                    <>
+                      <View style={styles.voteCardHeader}>
+                        <Ionicons name="person-outline" size={18} color="#7C3AED" />
+                        <Text style={styles.voteCardTitle}>
+                          Trésorier : {members.find((m) => m.uid === tresorierUid)?.displayName ?? "Membre désigné"}
+                        </Text>
+                      </View>
+                      <Text style={styles.voteCardSub}>Ce membre gère la saisie des données comptables. Vous êtes en lecture seule.</Text>
+                      <Pressable style={[styles.voteBtn, { backgroundColor: "#DC2626" }]} onPress={handleRequestRevote} disabled={voteSaving}>
+                        <Text style={styles.voteBtnText}>Demander un re-vote</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+          )}
 
           {/* ── TAB DÉPENSES ── */}
           {tab === "depenses" && (
@@ -1016,4 +1244,26 @@ const styles = StyleSheet.create({
   interventionPickerTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   interventionPickerMeta: { fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginTop: 2 },
   interventionPickerAmount: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#0891B2", marginRight: 4 },
+  // Lecture seule (syndic)
+  readOnlyBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#E0F2FE", borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  readOnlyText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", color: "#0369A1", lineHeight: 18 },
+  // Vote trésorier
+  voteCard: {
+    backgroundColor: "#F5F3FF", borderRadius: 14, padding: 14,
+    marginBottom: 14, borderWidth: 1, borderColor: "#DDD6FE",
+  },
+  voteCardHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  voteCardTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#4C1D95", flex: 1 },
+  voteCardSub: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#6D28D9", lineHeight: 18, marginBottom: 6 },
+  candidateRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: "#EDE9FE" },
+  candidateName: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", color: "#1E1B4B" },
+  voteBadge: { backgroundColor: "#DDD6FE", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  voteBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#5B21B6" },
+  castVoteBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#7C3AED", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  castVoteBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  voteBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", justifyContent: "center", marginTop: 4 },
+  voteBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

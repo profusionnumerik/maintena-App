@@ -165,6 +165,21 @@ export function buildDefaultChecklist(config: BuildingConfig): Record<string, bo
   return checklist;
 }
 
+export interface ConseilVoteCandidate {
+  uid: string;
+  displayName: string;
+}
+
+export interface ConseilVote {
+  status: "open" | "closed";
+  candidates: ConseilVoteCandidate[];
+  votes: Record<string, string>; // voterUid → candidateUid
+  requestedBy: string;
+  requestedAt: string;
+  closedAt?: string;
+  winnerId?: string | null;
+}
+
 export interface CoPro {
   id: string;
   name: string;
@@ -188,6 +203,8 @@ export interface CoPro {
   categoryInviteCodes?: Partial<Record<Category, string>>;
   alertEmailEnabled?: boolean;
   buildingConfig?: BuildingConfig;
+  tresorierUid?: string | null;
+  conseilVote?: ConseilVote | null;
 }
 
 export interface Member {
