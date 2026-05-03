@@ -1559,7 +1559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         </button>
         <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">
           Business
-          <small>+15 copros · 19,99 €/mois</small>
+          <small>16 à 30 copros · 19,99 €/mois</small>
         </button>
       </div>
 

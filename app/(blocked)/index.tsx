@@ -25,7 +25,7 @@ const LAUNCH_OFFER_LIMIT = 25;
 const PLAN_LIMIT_LABELS: Record<SubscriptionPlan, string> = {
   starter:  "1 à 3 copropriétés",
   pro:      "4 à 15 copropriétés",
-  business: "+15 copropriétés",
+  business: "16 à 30 copropriétés",
 };
 
 export default function BlockedScreen() {

@@ -3,7 +3,7 @@ export type SubscriptionPlan = "starter" | "pro" | "business";
 export const PLAN_COPRO_LIMITS: Record<SubscriptionPlan, number> = {
   starter: 3,
   pro: 15,
-  business: Infinity,
+  business: 30,
 };
 
 export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: number; label: string }> = {

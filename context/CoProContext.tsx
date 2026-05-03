@@ -549,10 +549,11 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         const plan: SubscriptionPlan = (userSubscription as any)?.plan ?? "starter";
         const limit = PLAN_COPRO_LIMITS[plan];
         if (copros.length >= limit) {
-          const planLabel = plan === "starter" ? "Starter (3 copros max)" : plan === "pro" ? "Pro (15 copros max)" : "Business";
-          throw new Error(
-            `Votre plan ${planLabel} est atteint. Passez au plan supérieur pour ajouter d'autres copropriétés.`
-          );
+          const msg =
+            plan === "starter"  ? "Votre plan Starter est limité à 3 copropriétés. Passez en Pro pour en gérer jusqu'à 15." :
+            plan === "pro"      ? "Votre plan Pro est limité à 15 copropriétés. Passez en Business pour en gérer jusqu'à 30." :
+                                  "Votre plan Business est limité à 30 copropriétés. Contactez-nous pour un devis sur mesure.";
+          throw new Error(msg);
         }
       }
 
