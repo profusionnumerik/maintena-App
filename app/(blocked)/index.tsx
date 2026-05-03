@@ -23,7 +23,7 @@ import { PLAN_PRICES, PLAN_COPRO_LIMITS, SubscriptionPlan } from "@/shared/types
 const LAUNCH_OFFER_LIMIT = 25;
 
 const PLAN_LIMIT_LABELS: Record<SubscriptionPlan, string> = {
-  starter:  "1 à 3 copropriétés",
+  starter:  "1 à 5 copropriétés",
   pro:      "4 à 15 copropriétés",
   business: "16 à 30 copropriétés",
 };

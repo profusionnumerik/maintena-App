@@ -1551,7 +1551,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div class="plan-toggle" id="plan-toggle" role="group" aria-label="Choisir un plan">
         <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">
           Starter
-          <small>1 à 3 copros · 7,99 €/mois</small>
+          <small>1 à 5 copros · 7,99 €/mois</small>
         </button>
         <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">
           Pro
