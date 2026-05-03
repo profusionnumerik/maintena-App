@@ -119,11 +119,13 @@ export default function ConseilFinancesScreen() {
   const isConseil = currentRole === "conseil";
   const canWrite = isAdmin || isConseil;
 
-  // Bâtiments de la résidence
+  // Bâtiments de la résidence — fallback si config absente
   const buildings: BuildingDef[] = useMemo(() => {
-    return currentCopro?.buildingConfig?.buildings ?? [];
+    const b = currentCopro?.buildingConfig?.buildings ?? [];
+    return b.length > 0 ? b : [{ name: "Bâtiment", floors: 3 }];
   }, [currentCopro]);
   const isMulti = buildings.length > 1;
+  const hasBuildings = buildings.length >= 1; // afficher les sections même pour 1 seul bâtiment
 
   // Sections budget (commun + bâtiments)
   const budgetSections = useMemo(() => {
@@ -409,7 +411,7 @@ export default function ConseilFinancesScreen() {
                   {selectedMonth !== null ? ` — ${MONTHS_FR[selectedMonth]}` : ""}
                 </Text>
                 <Text style={styles.summaryAmount}>{formatAmount(filteredExpenses.reduce((s, e) => s + e.amount, 0))}</Text>
-                {isMulti && selectedBuilding === null && (
+                {hasBuildings && selectedBuilding === null && (
                   <View style={styles.buildingMiniRow}>
                     {[COMMUN, ...buildings.map((b) => b.name)].map((bid) => {
                       const t = expTotalByBuilding[bid] ?? 0;
@@ -426,7 +428,7 @@ export default function ConseilFinancesScreen() {
               </View>
 
               {/* Filtre bâtiment */}
-              {isMulti && (
+              {hasBuildings && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
                   {buildingChips.map((chip) => (
                     <Pressable key={String(chip.id)} style={[styles.filterChip, selectedBuilding === chip.id && styles.filterChipActive]}
@@ -475,7 +477,7 @@ export default function ConseilFinancesScreen() {
                               <Text style={styles.expenseMeta}>
                                 {EXPENSE_CATEGORY_LABELS[e.category]} · {isoToDisplay(e.date)}
                               </Text>
-                              {isMulti && (
+                              {hasBuildings && (
                                 <View style={[styles.buildingBadge, e.buildingId && e.buildingId !== COMMUN && { backgroundColor: COLORS.primary + "15" }]}>
                                   <Text style={styles.buildingBadgeText}>
                                     {!e.buildingId || e.buildingId === COMMUN ? "Commun" : e.buildingId}
@@ -526,7 +528,7 @@ export default function ConseilFinancesScreen() {
                 <View style={[styles.summaryCard, { marginBottom: 12 }]}>
                   <Text style={styles.summaryLabel}>Total budgété {selectedYear}</Text>
                   <Text style={styles.summaryAmount}>{formatAmount(totalBudget)}</Text>
-                  {isMulti && (
+                  {hasBuildings && (
                     <View style={styles.buildingMiniRow}>
                       {[COMMUN, ...buildings.map((b) => b.name)].map((bid) => {
                         const t = budTotalByBuilding[bid] ?? 0;
@@ -699,7 +701,7 @@ export default function ConseilFinancesScreen() {
               placeholder="JJ/MM/AAAA" placeholderTextColor={COLORS.textMuted} keyboardType="numeric" maxLength={10} />
 
             {/* Bâtiment / secteur */}
-            {isMulti && (
+            {hasBuildings && (
               <>
                 <Text style={styles.fieldLabel}>Bâtiment / Secteur</Text>
                 <View style={styles.catGrid}>
