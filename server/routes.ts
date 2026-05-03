@@ -2026,7 +2026,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
     const ownerEmails: string[] = membersSnap.docs
       .map((d) => d.data())
-      .filter((m) => m.role === "propriétaire" && m.email)
+      .filter((m) => m.role === "propriétaire" && m.email && m.receiveAnnouncementEmails !== false)
       .map((m) => m.email as string);
 
     if (ownerEmails.length === 0) return res.json({ sent: 0 });

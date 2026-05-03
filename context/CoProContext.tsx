@@ -106,6 +106,7 @@ interface CoProContextValue {
   acknowledgeSignalement: (id: string) => Promise<void>;
   deleteSignalement: (id: string) => Promise<void>;
   toggleAlertEmail: () => Promise<void>;
+  toggleAnnouncementEmail: () => Promise<void>;
   addAnnouncement: (
     title: string,
     message: string,
@@ -1033,6 +1034,15 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     });
   }, [currentCopro]);
 
+  const toggleAnnouncementEmail = useCallback(async () => {
+    if (!currentCopro || !user) return;
+    const myMember = members.find((m) => m.uid === user.uid);
+    const current = myMember?.receiveAnnouncementEmails ?? true;
+    await updateDoc(doc(db, "copros", currentCopro.id, "members", user.uid), {
+      receiveAnnouncementEmails: !current,
+    });
+  }, [currentCopro, user, members]);
+
   const addAnnouncement = useCallback(
     async (
       title: string,
@@ -1107,6 +1117,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       acknowledgeSignalement,
       deleteSignalement,
       toggleAlertEmail,
+      toggleAnnouncementEmail,
       addAnnouncement,
       deleteAnnouncement,
     }),
@@ -1139,6 +1150,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       acknowledgeSignalement,
       deleteSignalement,
       toggleAlertEmail,
+      toggleAnnouncementEmail,
       addAnnouncement,
       deleteAnnouncement,
     ]

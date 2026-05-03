@@ -385,9 +385,10 @@ export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const {
-    currentCopro, currentRole, signalements, announcements,
+    currentCopro, currentRole, members, signalements, announcements,
     acknowledgeSignalement, deleteSignalement, markSignalementRead,
-    addSignalement, toggleAlertEmail, addAnnouncement, deleteAnnouncement,
+    addSignalement, toggleAlertEmail, toggleAnnouncementEmail,
+    addAnnouncement, deleteAnnouncement,
   } = useCoPro();
 
   const isAdmin        = currentRole === "admin";
@@ -398,6 +399,10 @@ export default function AlertsScreen() {
   const [signalModalVisible, setSignalModalVisible] = useState(false);
   const [annoModalVisible, setAnnoModalVisible] = useState(false);
   const [togglingEmail, setTogglingEmail] = useState(false);
+  const [togglingAnnoEmail, setTogglingAnnoEmail] = useState(false);
+
+  const myMember = members.find((m) => m.uid === user?.uid);
+  const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
 
   const top    = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
@@ -422,6 +427,10 @@ export default function AlertsScreen() {
     if (!currentCopro) return;
     setTogglingEmail(true);
     try { await toggleAlertEmail(); } catch {} finally { setTogglingEmail(false); }
+  };
+  const handleToggleAnnoEmail = async () => {
+    setTogglingAnnoEmail(true);
+    try { await toggleAnnouncementEmail(); } catch {} finally { setTogglingAnnoEmail(false); }
   };
   const handleSend = async (message: string, senderName: string, apartmentNumber: string, photoUris?: string[]) => {
     await addSignalement(message, senderName, apartmentNumber, photoUris);
@@ -486,6 +495,25 @@ export default function AlertsScreen() {
             : <Switch
                 value={!!currentCopro?.alertEmailEnabled}
                 onValueChange={handleToggleEmail}
+                trackColor={{ false: COLORS.border, true: COLORS.primary }}
+                thumbColor="#fff"
+                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+          }
+        </View>
+      )}
+      {isProprietaire && activeTab === "annonces" && (
+        <View style={styles.emailToggleRow}>
+          <Ionicons
+            name="mail-outline"
+            size={15}
+            color={receiveAnnounceEmails ? COLORS.primary : COLORS.textMuted}
+          />
+          {togglingAnnoEmail
+            ? <ActivityIndicator size="small" color={COLORS.primary} />
+            : <Switch
+                value={receiveAnnounceEmails}
+                onValueChange={handleToggleAnnoEmail}
                 trackColor={{ false: COLORS.border, true: COLORS.primary }}
                 thumbColor="#fff"
                 style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}

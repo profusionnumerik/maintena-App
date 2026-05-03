@@ -197,6 +197,7 @@ export interface Member {
   joinedAt: string;
   invitedBy?: string;
   categoryFilter?: Category;
+  receiveAnnouncementEmails?: boolean; // undefined = true (opt-out model)
 }
 
 export type EntryType = "programmation" | "intervention";
