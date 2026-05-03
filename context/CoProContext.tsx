@@ -970,22 +970,39 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         photos = await Promise.all(
           photoUris.map((uri) => uploadPhotoPending(currentCopro.id, uri))
         );
+        // Laisse le stream Firestore se stabiliser après l'upload Storage
+        await new Promise((r) => setTimeout(r, 400));
       }
 
-      const docRef = await addDoc(
-        collection(db, "copros", currentCopro.id, "signalements"),
-        {
-          message,
-          uid: user.uid,
-          displayName: user.displayName ?? user.email ?? "Propriétaire",
-          senderName,
-          apartmentNumber,
-          ...(photos.length > 0 ? { photoUrl: photos[0], photos } : {}),
-          createdAt: serverTimestamp(),
-          read: false,
-          acknowledged: false,
+      const signalData = {
+        message,
+        uid: user.uid,
+        displayName: user.displayName ?? user.email ?? "Propriétaire",
+        senderName,
+        apartmentNumber,
+        ...(photos.length > 0 ? { photoUrl: photos[0], photos } : {}),
+        createdAt: serverTimestamp(),
+        read: false,
+        acknowledged: false,
+      };
+
+      // Retry une fois en cas de crash Firestore ID:3186 (bug Firebase 12.x)
+      let docRef: any;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          docRef = await addDoc(
+            collection(db, "copros", currentCopro.id, "signalements"),
+            signalData
+          );
+          break;
+        } catch (err: any) {
+          if (attempt < 2 && err?.message?.includes("INTERNAL ASSERTION")) {
+            await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+            continue;
+          }
+          throw err;
         }
-      );
+      }
 
       const targetEmail = currentCopro.adminEmail || user.email;
       if (currentCopro.alertEmailEnabled && targetEmail) {

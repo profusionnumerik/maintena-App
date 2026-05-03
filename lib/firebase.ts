@@ -40,12 +40,15 @@ try {
   auth = getAuth(app);
 }
 
-// Sur React Native, experimentalForceLongPolling évite le bug Firebase 12.x
-// "INTERNAL ASSERTION FAILED: Unexpected state (ID: 3186)" lors d'uploads Storage concurrents
+// Sur React Native, on force le long-polling pour éviter le bug Firebase 12.x
+// "INTERNAL ASSERTION FAILED: Unexpected state (ID: 3186)"
 let db: ReturnType<typeof getFirestore>;
 try {
   db = Platform.OS !== "web"
-    ? initializeFirestore(app, { experimentalForceLongPolling: true })
+    ? initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        experimentalAutoDetectLongPolling: false,
+      })
     : getFirestore(app);
 } catch {
   db = getFirestore(app);
