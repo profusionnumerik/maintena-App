@@ -72,7 +72,7 @@ service cloud.firestore {
         isSuperAdmin() ||
         isCoProAdmin(coProId) ||
         // Membres du conseil : uniquement les champs du vote trésorier
-        (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid']))
+        (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid', 'revoteRequest']))
       );
 
       match /members/{userId} {

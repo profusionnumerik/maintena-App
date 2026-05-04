@@ -20,6 +20,7 @@ import {
   ALL_EXPENSE_CATEGORIES, AnnualBudget, BudgetCustomLine,
   BuildingDef, CATEGORY_LABELS, ConseilVote, Expense, ExpenseCategory,
   EXPENSE_CATEGORY_COLORS, EXPENSE_CATEGORY_ICONS, EXPENSE_CATEGORY_LABELS, Intervention,
+  RevoteRequest,
 } from "@/shared/types";
 
 const YEARS = Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i);
@@ -118,6 +119,7 @@ export default function ConseilFinancesScreen() {
   // Vote trésorier — état live (subscription Firestore)
   const [liveVote, setLiveVote] = useState<ConseilVote | null | undefined>(undefined);
   const [liveTresorierUid, setLiveTresorierUid] = useState<string | null | undefined>(undefined);
+  const [liveRevoteRequest, setLiveRevoteRequest] = useState<RevoteRequest | null | undefined>(undefined);
   const [voteSaving, setVoteSaving] = useState(false);
 
   const isAdmin = currentRole === "admin";
@@ -125,6 +127,7 @@ export default function ConseilFinancesScreen() {
   const conseilMembers = members.filter((m) => m.role === "conseil");
   const tresorierUid = liveTresorierUid !== undefined ? liveTresorierUid : (currentCopro?.tresorierUid ?? null);
   const conseilVote = liveVote !== undefined ? liveVote : (currentCopro?.conseilVote ?? null);
+  const revoteRequest = liveRevoteRequest !== undefined ? liveRevoteRequest : (currentCopro?.revoteRequest ?? null);
   const isTresorier = isConseil && user?.uid === tresorierUid;
   // Seul le trésorier désigné peut écrire ; le syndic (admin) est en lecture seule
   const canWrite = isTresorier;
@@ -176,10 +179,21 @@ export default function ConseilFinancesScreen() {
         const data = snap.data();
         setLiveTresorierUid(data.tresorierUid ?? null);
         setLiveVote((data.conseilVote ?? null) as ConseilVote | null);
+        setLiveRevoteRequest((data.revoteRequest ?? null) as RevoteRequest | null);
       }
     });
     return unsub;
   }, [currentCopro?.id]);
+
+  // Expiration automatique de la demande de re-vote après 7 jours sans majorité
+  useEffect(() => {
+    if (!revoteRequest || !currentCopro?.id) return;
+    const expiresAt = new Date(revoteRequest.requestedAt);
+    expiresAt.setDate(expiresAt.getDate() + 7);
+    if (new Date() > expiresAt) {
+      updateDoc(doc(db, "copros", currentCopro.id), { revoteRequest: null }).catch(() => {});
+    }
+  }, [revoteRequest, currentCopro?.id]);
 
   // Dépenses filtrées par bâtiment puis par mois
   const filteredExpenses = useMemo(() => {
@@ -432,28 +446,58 @@ export default function ConseilFinancesScreen() {
     } finally { setVoteSaving(false); }
   };
 
-  const handleRequestRevote = () => {
-    Alert.alert(
-      "Demander un re-vote ?",
-      "Le trésorier actuel perd son accès en écriture. Un nouveau vote est lancé entre les membres du conseil syndical.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Demander le re-vote", style: "destructive",
-          onPress: async () => {
-            if (!currentCopro?.id || !user) return;
-            setVoteSaving(true);
-            try {
-              const newVote: ConseilVote = {
-                status: "open", candidates: [], votes: {},
-                requestedBy: user.uid, requestedAt: new Date().toISOString(),
-              };
-              await updateDoc(doc(db, "copros", currentCopro.id), { conseilVote: newVote, tresorierUid: null });
-            } finally { setVoteSaving(false); }
-          },
-        },
-      ]
-    );
+  const handleSubmitRevoteRequest = async () => {
+    if (!currentCopro?.id || !user || revoteRequest) return;
+    setVoteSaving(true);
+    try {
+      const req: RevoteRequest = {
+        requestedBy: user.uid,
+        requestedAt: new Date().toISOString(),
+        approvals: { [user.uid]: true }, // le demandeur vote automatiquement oui
+      };
+      // Si le conseil n'a qu'un seul membre, déclencher le re-vote directement
+      if (conseilMembers.length <= 1) {
+        const newVote: ConseilVote = {
+          status: "open", candidates: [], votes: {},
+          requestedBy: user.uid, requestedAt: new Date().toISOString(),
+        };
+        await updateDoc(doc(db, "copros", currentCopro.id), {
+          conseilVote: newVote, tresorierUid: null, revoteRequest: null,
+        });
+      } else {
+        await updateDoc(doc(db, "copros", currentCopro.id), { revoteRequest: req });
+      }
+    } finally { setVoteSaving(false); }
+  };
+
+  const handleVoteRevoteRequest = async (approve: boolean) => {
+    if (!currentCopro?.id || !user || !revoteRequest) return;
+    setVoteSaving(true);
+    try {
+      const newApprovals = { ...revoteRequest.approvals, [user.uid]: approve };
+      const majority = Math.floor(conseilMembers.length / 2) + 1;
+      const yesCount = Object.values(newApprovals).filter((v) => v === true).length;
+      const noCount = Object.values(newApprovals).filter((v) => v === false).length;
+
+      if (yesCount >= majority) {
+        // Majorité pour → re-vote déclenché
+        const newVote: ConseilVote = {
+          status: "open", candidates: [], votes: {},
+          requestedBy: revoteRequest.requestedBy, requestedAt: new Date().toISOString(),
+        };
+        await updateDoc(doc(db, "copros", currentCopro.id), {
+          conseilVote: newVote, tresorierUid: null, revoteRequest: null,
+        });
+      } else if (noCount >= majority) {
+        // Majorité contre → demande rejetée
+        await updateDoc(doc(db, "copros", currentCopro.id), { revoteRequest: null });
+      } else {
+        // Pas encore de majorité → on enregistre le vote
+        await updateDoc(doc(db, "copros", currentCopro.id), {
+          "revoteRequest.approvals": newApprovals,
+        });
+      }
+    } finally { setVoteSaving(false); }
   };
 
   if (!currentCopro) {
@@ -609,6 +653,15 @@ export default function ConseilFinancesScreen() {
                         <Text style={[styles.voteCardTitle, { color: "#059669" }]}>Vous êtes le trésorier désigné</Text>
                       </View>
                       <Text style={styles.voteCardSub}>Vous avez accès en écriture aux comptes de la copropriété.</Text>
+                      {revoteRequest && (
+                        <View style={[styles.revoteAlert]}>
+                          <Ionicons name="warning-outline" size={14} color="#92400E" />
+                          <Text style={styles.revoteAlertText}>
+                            {members.find(m => m.uid === revoteRequest.requestedBy)?.displayName ?? "Un membre"} demande un re-vote.
+                            {" "}{Object.values(revoteRequest.approvals).filter(v => v).length}/{conseilMembers.length} oui requis.
+                          </Text>
+                        </View>
+                      )}
                     </>
                   ) : (
                     <>
@@ -619,9 +672,61 @@ export default function ConseilFinancesScreen() {
                         </Text>
                       </View>
                       <Text style={styles.voteCardSub}>Ce membre gère la saisie des données comptables. Vous êtes en lecture seule.</Text>
-                      <Pressable style={[styles.voteBtn, { backgroundColor: "#DC2626" }]} onPress={handleRequestRevote} disabled={voteSaving}>
-                        <Text style={styles.voteBtnText}>Demander un re-vote</Text>
-                      </Pressable>
+
+                      {/* Demande de re-vote en cours */}
+                      {revoteRequest ? (
+                        (() => {
+                          const majority = Math.floor(conseilMembers.length / 2) + 1;
+                          const yesCount = Object.values(revoteRequest.approvals).filter(v => v === true).length;
+                          const myVote = revoteRequest.approvals[user?.uid ?? ""];
+                          const iRequested = revoteRequest.requestedBy === user?.uid;
+                          const expiresAt = new Date(revoteRequest.requestedAt);
+                          expiresAt.setDate(expiresAt.getDate() + 7);
+                          const daysLeft = Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86400000));
+                          const requesterName = members.find(m => m.uid === revoteRequest.requestedBy)?.displayName ?? "Un membre";
+                          return (
+                            <View style={styles.revoteRequestCard}>
+                              <View style={styles.voteCardHeader}>
+                                <Ionicons name="refresh-circle-outline" size={16} color="#DC2626" />
+                                <Text style={[styles.voteCardTitle, { color: "#DC2626" }]}>
+                                  {iRequested ? "Votre demande de re-vote est en cours" : `${requesterName} demande un re-vote`}
+                                </Text>
+                              </View>
+                              <Text style={styles.voteCardSub}>
+                                {yesCount}/{conseilMembers.length} accord{yesCount > 1 ? "s" : ""} — majorité à {majority} — expire dans {daysLeft} jour{daysLeft > 1 ? "s" : ""}
+                              </Text>
+                              {myVote === undefined && !iRequested && (
+                                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                                  <Pressable
+                                    style={[styles.voteBtn, { flex: 1, backgroundColor: "#DC2626" }]}
+                                    onPress={() => handleVoteRevoteRequest(true)} disabled={voteSaving}
+                                  >
+                                    <Text style={styles.voteBtnText}>Oui, re-voter</Text>
+                                  </Pressable>
+                                  <Pressable
+                                    style={[styles.voteBtn, { flex: 1, backgroundColor: "#6B7280" }]}
+                                    onPress={() => handleVoteRevoteRequest(false)} disabled={voteSaving}
+                                  >
+                                    <Text style={styles.voteBtnText}>Non, garder</Text>
+                                  </Pressable>
+                                </View>
+                              )}
+                              {myVote !== undefined && (
+                                <Text style={[styles.voteCardSub, { fontStyle: "italic", marginTop: 4 }]}>
+                                  Vous avez voté : {myVote ? "Oui" : "Non"}
+                                </Text>
+                              )}
+                            </View>
+                          );
+                        })()
+                      ) : (
+                        <Pressable
+                          style={[styles.voteBtn, { backgroundColor: "#DC2626", marginTop: 8 }]}
+                          onPress={handleSubmitRevoteRequest} disabled={voteSaving}
+                        >
+                          {voteSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.voteBtnText}>Demander un re-vote</Text>}
+                        </Pressable>
+                      )}
                     </>
                   )}
                 </>
@@ -1266,4 +1371,7 @@ const styles = StyleSheet.create({
   castVoteBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
   voteBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", justifyContent: "center", marginTop: 4 },
   voteBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  revoteRequestCard: { marginTop: 10, padding: 10, backgroundColor: "#FEF2F2", borderRadius: 10, borderWidth: 1, borderColor: "#FECACA" },
+  revoteAlert: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: "#FEF3C7", padding: 8, borderRadius: 8 },
+  revoteAlertText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: "#92400E", lineHeight: 16 },
 });

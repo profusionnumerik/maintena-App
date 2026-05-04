@@ -180,6 +180,12 @@ export interface ConseilVote {
   winnerId?: string | null;
 }
 
+export interface RevoteRequest {
+  requestedBy: string;
+  requestedAt: string; // ISO — expire après 7 jours sans majorité
+  approvals: Record<string, boolean>; // uid → true (oui) | false (non)
+}
+
 export interface CoPro {
   id: string;
   name: string;
@@ -205,6 +211,7 @@ export interface CoPro {
   buildingConfig?: BuildingConfig;
   tresorierUid?: string | null;
   conseilVote?: ConseilVote | null;
+  revoteRequest?: RevoteRequest | null;
 }
 
 export interface Member {
