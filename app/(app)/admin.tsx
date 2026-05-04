@@ -44,6 +44,9 @@ export default function AdminScreen() {
   const { currentCopro, currentRole, members, copros, switchCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedOwnerCode, setCopiedOwnerCode] = useState(false);
+  const [copiedConseilCode, setCopiedConseilCode] = useState(false);
+  const [generatingOwnerCode, setGeneratingOwnerCode] = useState(false);
+  const [generatingConseilCode, setGeneratingConseilCode] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [settingLocation, setSettingLocation] = useState(false);
   const [savingCategories, setSavingCategories] = useState(false);
@@ -151,8 +154,7 @@ export default function AdminScreen() {
         if (inviteRole === "prestataire") {
           code = await generateCategoryCode(inviteCategory);
         } else if (inviteRole === "conseil") {
-          await handleGenerateConseilCode();
-          code = getInviteCode();
+          code = await handleGenerateConseilCode();
         } else if (inviteRole === "propriétaire") {
           Alert.alert("Code manquant", "Veuillez d'abord générer le code propriétaire dans la section Codes.");
           return;
@@ -382,8 +384,8 @@ export default function AdminScreen() {
     }
   };
 
-  const handleGenerateConseilCode = async () => {
-    if (!currentCopro) return;
+  const handleGenerateConseilCode = async (): Promise<string | null> => {
+    if (!currentCopro) return null;
     const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
     const newCode = Array.from({ length: 6 }, () =>
       chars[Math.floor(Math.random() * chars.length)]
@@ -399,9 +401,27 @@ export default function AdminScreen() {
       await updateDoc(doc(db, "copros", currentCopro.id), { conseilInviteCode: newCode });
       await refreshCoPros();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return newCode;
     } catch (e: any) {
       Alert.alert("Erreur", e.message);
+      return null;
     }
+  };
+
+  const handleCopyConseilCode = async () => {
+    const code = currentCopro?.conseilInviteCode;
+    if (!code) return;
+    await Clipboard.setStringAsync(code);
+    setCopiedConseilCode(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopiedConseilCode(false), 2000);
+  };
+
+  const handleShareConseilCode = async () => {
+    if (!currentCopro?.conseilInviteCode || !currentCopro) return;
+    await crossShare(
+      `Vous êtes invité(e) à rejoindre "${currentCopro.name}" en tant que membre du conseil syndical.\nCode d'invitation : ${currentCopro.conseilInviteCode}\n\nTéléchargez l'application Maintena et entrez ce code pour rejoindre.`
+    );
   };
 
   const handleRefresh = async () => {
@@ -631,7 +651,113 @@ export default function AdminScreen() {
 
       {isAdmin && currentCopro && (
         <>
-          
+
+          {/* ── Codes d'accès propriétaires & conseil syndical ── */}
+          <View style={styles.section}>
+            <View style={styles.sectionRow}>
+              <View style={styles.codeRoleLabel}>
+                <Ionicons name="key-outline" size={14} color={COLORS.primary} />
+                <Text style={styles.codeRoleLabelText}>Codes d'accès résidents</Text>
+              </View>
+            </View>
+            <Text style={styles.sectionDesc}>
+              Partagez ces codes aux propriétaires et aux membres du conseil syndical pour qu'ils rejoignent la résidence.
+            </Text>
+
+            {/* Code propriétaires */}
+            <View style={styles.catCodeRow}>
+              <View style={styles.catCodeLeft}>
+                <View style={[styles.catCodeIcon, { backgroundColor: "#CCFBF1" }]}>
+                  <Ionicons name="home-outline" size={15} color={COLORS.teal} />
+                </View>
+                <View>
+                  <Text style={styles.catCodeLabel}>Propriétaires</Text>
+                  {currentCopro.ownerInviteCode
+                    ? <Text style={styles.catCodeValue}>{currentCopro.ownerInviteCode}</Text>
+                    : <Text style={styles.catCodeNone}>Aucun code généré</Text>
+                  }
+                </View>
+              </View>
+              <View style={styles.catCodeActions}>
+                {currentCopro.ownerInviteCode ? (
+                  <>
+                    <Pressable
+                      style={[styles.catCodeBtn, copiedOwnerCode && { backgroundColor: COLORS.success }]}
+                      onPress={handleCopyOwnerCode}
+                    >
+                      <Ionicons name={copiedOwnerCode ? "checkmark" : "copy-outline"} size={14} color={copiedOwnerCode ? "#fff" : COLORS.primary} />
+                    </Pressable>
+                    <Pressable style={[styles.catCodeBtn, { backgroundColor: COLORS.primary }]} onPress={handleShareOwnerCode}>
+                      <Ionicons name="share-outline" size={14} color="#fff" />
+                    </Pressable>
+                  </>
+                ) : (
+                  <Pressable
+                    style={[styles.catCodeBtnGenerate, generatingOwnerCode && { opacity: 0.6 }]}
+                    onPress={async () => {
+                      if (generatingOwnerCode) return;
+                      setGeneratingOwnerCode(true);
+                      await handleGenerateOwnerCode();
+                      setGeneratingOwnerCode(false);
+                    }}
+                    disabled={generatingOwnerCode}
+                  >
+                    {generatingOwnerCode
+                      ? <ActivityIndicator size="small" color={COLORS.teal} />
+                      : <Ionicons name="add-circle-outline" size={14} color={COLORS.teal} />}
+                    <Text style={[styles.catCodeBtnGenerateText, { color: COLORS.teal }]}>Générer</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+
+            {/* Code conseil syndical */}
+            <View style={styles.catCodeRow}>
+              <View style={styles.catCodeLeft}>
+                <View style={[styles.catCodeIcon, { backgroundColor: "#DBEAFE" }]}>
+                  <Ionicons name="shield-checkmark-outline" size={15} color="#0891B2" />
+                </View>
+                <View>
+                  <Text style={styles.catCodeLabel}>Conseil syndical</Text>
+                  {currentCopro.conseilInviteCode
+                    ? <Text style={styles.catCodeValue}>{currentCopro.conseilInviteCode}</Text>
+                    : <Text style={styles.catCodeNone}>Aucun code généré</Text>
+                  }
+                </View>
+              </View>
+              <View style={styles.catCodeActions}>
+                {currentCopro.conseilInviteCode ? (
+                  <>
+                    <Pressable
+                      style={[styles.catCodeBtn, copiedConseilCode && { backgroundColor: COLORS.success }]}
+                      onPress={handleCopyConseilCode}
+                    >
+                      <Ionicons name={copiedConseilCode ? "checkmark" : "copy-outline"} size={14} color={copiedConseilCode ? "#fff" : COLORS.primary} />
+                    </Pressable>
+                    <Pressable style={[styles.catCodeBtn, { backgroundColor: "#0891B2" }]} onPress={handleShareConseilCode}>
+                      <Ionicons name="share-outline" size={14} color="#fff" />
+                    </Pressable>
+                  </>
+                ) : (
+                  <Pressable
+                    style={[styles.catCodeBtnGenerate, generatingConseilCode && { opacity: 0.6 }]}
+                    onPress={async () => {
+                      if (generatingConseilCode) return;
+                      setGeneratingConseilCode(true);
+                      await handleGenerateConseilCode();
+                      setGeneratingConseilCode(false);
+                    }}
+                    disabled={generatingConseilCode}
+                  >
+                    {generatingConseilCode
+                      ? <ActivityIndicator size="small" color="#0891B2" />
+                      : <Ionicons name="add-circle-outline" size={14} color="#0891B2" />}
+                    <Text style={[styles.catCodeBtnGenerateText, { color: "#0891B2" }]}>Générer</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Position du bâtiment</Text>
