@@ -1,9 +1,10 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  Alert, FlatList, Platform, Pressable, RefreshControl, ScrollView,
+  FlatList, Platform, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -201,14 +202,7 @@ export default function HomeScreen() {
   };
 
   const handleLogout = () => {
-    if (Platform.OS === "web") {
-      if (window.confirm("Voulez-vous vous déconnecter ?")) logout();
-      return;
-    }
-    Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
-      { text: "Annuler", style: "cancel" },
-      { text: "Déconnecter", style: "destructive", onPress: () => logout() },
-    ]);
+    wConfirm("Déconnexion", "Voulez-vous vous déconnecter ?", logout, "Déconnecter");
   };
 
   if (isAdmin) {

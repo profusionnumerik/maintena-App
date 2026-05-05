@@ -55,7 +55,35 @@ export const OPTIONAL_CATEGORIES: Category[] = [
   "piscine", "interphone", "desinfection",
 ];
 
-export type RecurrenceType = "weekly" | "monthly";
+export type RecurrenceType = "daily" | "weekly" | "monthly" | "quarterly" | "biannual" | "annual";
+
+export const RECURRENCE_LABELS: Record<RecurrenceType, string> = {
+  daily:     "Quotidienne",
+  weekly:    "Hebdomadaire",
+  monthly:   "Mensuelle",
+  quarterly: "Trimestrielle",
+  biannual:  "Semestrielle",
+  annual:    "Annuelle",
+};
+
+export const RECURRENCE_ICONS: Record<RecurrenceType, string> = {
+  daily:     "sunny-outline",
+  weekly:    "calendar-outline",
+  monthly:   "calendar",
+  quarterly: "repeat",
+  biannual:  "repeat-outline",
+  annual:    "medal-outline",
+};
+
+// Nombre d'occurrences par défaut et maximum par fréquence
+export const RECURRENCE_DEFAULTS: Record<RecurrenceType, { default: number; max: number }> = {
+  daily:     { default: 30,  max: 365 },
+  weekly:    { default: 52,  max: 104 },
+  monthly:   { default: 12,  max: 36  },
+  quarterly: { default: 4,   max: 20  },
+  biannual:  { default: 2,   max: 10  },
+  annual:    { default: 1,   max: 10  },
+};
 
 export interface RecurrencePattern {
   type: RecurrenceType;
@@ -378,6 +406,29 @@ export interface Announcement {
   createdByName: string;
   expiresAt?: string;
 }
+
+// Sondages
+export type PollTarget = "conseil" | "propriétaires" | "tous";
+
+export interface Poll {
+  id: string;
+  coProId: string;
+  title: string;
+  options: string[];
+  target: PollTarget;
+  createdBy: string;       // uid
+  createdByName: string;
+  createdAt: string;
+  votes: Record<string, number>; // uid → index de l'option choisie
+  status: "open" | "closed";
+  closedAt?: string;
+}
+
+export const POLL_TARGET_LABELS: Record<PollTarget, string> = {
+  conseil: "Conseil syndical uniquement",
+  "propriétaires": "Tous les copropriétaires",
+  tous: "Tout le monde (admin inclus)",
+};
 
 export const ANNOUNCEMENT_TYPE_LABELS: Record<AnnouncementType, string> = {
   info: "Information",

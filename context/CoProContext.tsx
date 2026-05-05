@@ -36,6 +36,8 @@ import {
   CoPro,
   Member,
   MemberRole,
+  Poll,
+  PollTarget,
   UserSubscription,
   Signalement,
   PLAN_COPRO_LIMITS,
@@ -114,6 +116,11 @@ interface CoProContextValue {
     expiresAt?: string
   ) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
+  polls: Poll[];
+  addPoll: (title: string, options: string[], target: PollTarget) => Promise<void>;
+  castPollVote: (pollId: string, optionIndex: number) => Promise<void>;
+  closePoll: (pollId: string) => Promise<void>;
+  deletePoll: (pollId: string) => Promise<void>;
 }
 
 const CoProContext = createContext<CoProContextValue | null>(null);
@@ -160,6 +167,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     useState<UserSubscription | null>(null);
   const [signalements, setSignalements] = useState<Signalement[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
 
   useEffect(() => {
     if (!user) {
@@ -457,6 +465,34 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, [currentCoproId]);
 
+  // Sondages — subscription live
+  useEffect(() => {
+    if (!currentCoproId) { setPolls([]); return; }
+    const role = roleMap[currentCoproId];
+    // Les prestataires ne voient pas les sondages
+    if (role === "prestataire") { setPolls([]); return; }
+
+    const unsub = onSnapshot(
+      query(collection(db, "copros", currentCoproId, "polls"), orderBy("createdAt", "desc")),
+      (snap) => {
+        const uid = user?.uid ?? "";
+        const mapped = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Poll))
+          .filter((p) => {
+            // Visibilité : le créateur voit toujours son sondage
+            if (p.createdBy === uid) return true;
+            if (p.target === "tous") return true;
+            if (p.target === "conseil") return role === "conseil";
+            if (p.target === "propriétaires") return role === "conseil" || role === "propriétaire";
+            return false;
+          });
+        setPolls(mapped);
+      },
+      () => setPolls([])
+    );
+    return unsub;
+  }, [currentCoproId, roleMap, user?.uid]);
+
   useEffect(() => {
     const role = currentCoproId ? roleMap[currentCoproId] : null;
     if (!currentCoproId || !role) {
@@ -737,7 +773,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
       if (coProData.status !== "active" && coProData.adminId !== user.uid) {
         throw new Error(
-          "Cette copropriété n'est pas encore activée. Contactez votre syndic."
+          "Cette copropriété n'est pas encore activée. Contactez votre admin."
         );
       }
 
@@ -844,7 +880,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         categoryFilter: payload.categoryFilter,
         joinedAt: new Date().toISOString(),
         invitedBy: user.uid,
-        invitedByName: user.displayName ?? user.email ?? "Syndic",
+        invitedByName: user.displayName ?? user.email ?? "Admin",
         accountStatus: "invited",
         inviteCode,
         createdAtServer: serverTimestamp(),
@@ -1085,7 +1121,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         message: message.trim(),
         type,
         createdBy: user.uid,
-        createdByName: user.displayName ?? user.email ?? "Syndic",
+        createdByName: user.displayName ?? user.email ?? "Admin",
         createdAt: serverTimestamp(),
         ...(expiresAt ? { expiresAt } : {}),
       });
@@ -1098,7 +1134,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           message: message.trim(),
           type,
           coProName: currentCopro.name,
-          senderName: user.displayName ?? user.email ?? "Le syndic",
+          senderName: user.displayName ?? user.email ?? "L'admin",
         });
       } catch (e) {
         console.warn("Announcement email notification failed:", e);
@@ -1111,6 +1147,69 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       if (!currentCopro) return;
       await deleteDoc(doc(db, "copros", currentCopro.id, "announcements", id));
+    },
+    [currentCopro]
+  );
+
+  // ── Sondages ────────────────────────────────────────────────────────────────
+
+  const addPoll = useCallback(
+    async (title: string, options: string[], target: PollTarget) => {
+      if (!currentCopro || !user) return;
+      const data = {
+        coProId: currentCopro.id,
+        title: title.trim(),
+        options,
+        target,
+        createdBy: user.uid,
+        createdByName: user.displayName ?? user.email ?? "Admin",
+        createdAt: new Date().toISOString(),
+        votes: {},
+        status: "open",
+      };
+      await addDoc(collection(db, "copros", currentCopro.id, "polls"), data);
+      // Notification email aux membres ciblés
+      try {
+        await apiRequest("/api/notify-poll", "POST", {
+          coProId: currentCopro.id,
+          coProName: currentCopro.name,
+          title: title.trim(),
+          options,
+          target,
+          createdByName: data.createdByName,
+        });
+      } catch (e) {
+        console.warn("Poll email notification failed:", e);
+      }
+    },
+    [user, currentCopro]
+  );
+
+  const castPollVote = useCallback(
+    async (pollId: string, optionIndex: number) => {
+      if (!currentCopro || !user) return;
+      await updateDoc(doc(db, "copros", currentCopro.id, "polls", pollId), {
+        [`votes.${user.uid}`]: optionIndex,
+      });
+    },
+    [currentCopro, user]
+  );
+
+  const closePoll = useCallback(
+    async (pollId: string) => {
+      if (!currentCopro) return;
+      await updateDoc(doc(db, "copros", currentCopro.id, "polls", pollId), {
+        status: "closed",
+        closedAt: new Date().toISOString(),
+      });
+    },
+    [currentCopro]
+  );
+
+  const deletePoll = useCallback(
+    async (pollId: string) => {
+      if (!currentCopro) return;
+      await deleteDoc(doc(db, "copros", currentCopro.id, "polls", pollId));
     },
     [currentCopro]
   );
@@ -1148,6 +1247,11 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       toggleAnnouncementEmail,
       addAnnouncement,
       deleteAnnouncement,
+      polls,
+      addPoll,
+      castPollVote,
+      closePoll,
+      deletePoll,
     }),
     [
       copros,
@@ -1157,6 +1261,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       members,
       signalements,
       announcements,
+      polls,
       isLoading,
       loadError,
       userSubscription,
@@ -1181,6 +1286,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       toggleAnnouncementEmail,
       addAnnouncement,
       deleteAnnouncement,
+      addPoll,
+      castPollVote,
+      closePoll,
+      deletePoll,
     ]
   );
 

@@ -116,6 +116,25 @@ service cloud.firestore {
         allow create: if isSignedIn() && isCoProAdmin(coProId);
         allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
       }
+
+      match /polls/{pollId} {
+        // Visible à tous les membres (filtrage de visibilité assuré côté client)
+        allow read: if isSignedIn() && isMember(coProId);
+        // Tout membre non-prestataire peut créer un sondage
+        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role != 'prestataire';
+        // Vote : le créateur ou l'admin peut clôturer/modifier ; n'importe quel membre peut voter (update votes seulement)
+        allow update: if isSignedIn() && isMember(coProId) && (
+          isCoProAdmin(coProId) ||
+          resource.data.createdBy == request.auth.uid ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+        );
+        // Suppression : créateur ou admin seulement
+        allow delete: if isSignedIn() && (
+          isCoProAdmin(coProId) ||
+          resource.data.createdBy == request.auth.uid ||
+          isSuperAdmin()
+        );
+      }
     }
 
     match /{path=**}/members/{memberId} {

@@ -2,9 +2,10 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator, Alert, Modal, Platform, Pressable,
+  ActivityIndicator, Modal, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -303,10 +304,10 @@ export default function ConseilFinancesScreen() {
   const handleSaveExpense = useCallback(async () => {
     if (!currentCopro?.id || !user) return;
     const amount = parseFloat(form.amount.replace(",", "."));
-    if (!form.label.trim()) { Alert.alert("Erreur", "Libellé requis."); return; }
-    if (isNaN(amount) || amount <= 0) { Alert.alert("Erreur", "Montant invalide."); return; }
+    if (!form.label.trim()) { wa("Erreur", "Libellé requis."); return; }
+    if (isNaN(amount) || amount <= 0) { wa("Erreur", "Montant invalide."); return; }
     const isoDate = displayToIso(dateDisplay) || form.date;
-    if (!isoDate.match(/^\d{4}-\d{2}-\d{2}$/)) { Alert.alert("Erreur", "Date invalide (JJ/MM/AAAA)."); return; }
+    if (!isoDate.match(/^\d{4}-\d{2}-\d{2}$/)) { wa("Erreur", "Date invalide (JJ/MM/AAAA)."); return; }
     setSaving(true);
     try {
       const linkedInterventionId = (editingExpense as any)?.interventionId as string | undefined;
@@ -324,18 +325,20 @@ export default function ConseilFinancesScreen() {
       }
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setExpenseModal(false);
-    } catch { Alert.alert("Erreur", "Impossible d'enregistrer la dépense."); }
+    } catch { wa("Erreur", "Impossible d'enregistrer la dépense."); }
     finally { setSaving(false); }
   }, [form, dateDisplay, editingExpense, currentCopro?.id, user]);
 
   const handleDeleteExpense = (e: Expense) => {
-    Alert.alert("Supprimer cette dépense ?", `${e.label} — ${formatAmount(e.amount)}`, [
-      { text: "Annuler", style: "cancel" },
-      { text: "Supprimer", style: "destructive", onPress: async () => {
+    wConfirm(
+      "Supprimer cette dépense ?",
+      `${e.label} — ${formatAmount(e.amount)}`,
+      async () => {
         try { await deleteDoc(doc(db, "copros", currentCopro!.id, "expenses", e.id)); }
-        catch { Alert.alert("Erreur", "Impossible de supprimer."); }
-      }},
-    ]);
+        catch { wa("Erreur", "Impossible de supprimer."); }
+      },
+      "Supprimer",
+    );
   };
 
   const openBudgetModal = () => {
@@ -377,7 +380,7 @@ export default function ConseilFinancesScreen() {
       });
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setBudgetModal(false);
-    } catch { Alert.alert("Erreur", "Impossible d'enregistrer le budget."); }
+    } catch { wa("Erreur", "Impossible d'enregistrer le budget."); }
     finally { setSavingBudget(false); }
   }, [budgetLines, budget, currentCopro?.id, selectedYear, user]);
 

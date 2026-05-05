@@ -2,9 +2,10 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useMemo, useState } from "react";
 import {
-  ActivityIndicator, Alert, FlatList, Image, Modal, Platform, Pressable,
+  ActivityIndicator, FlatList, Image, Modal, Platform, Pressable,
   ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
+import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AlertCard from "@/components/AlertCard";
@@ -13,7 +14,8 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import {
-  Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS, Signalement,
+  Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS,
+  Poll, PollTarget, POLL_TARGET_LABELS, Signalement,
 } from "@/shared/types";
 
 const MAX_SIGNAL_PHOTOS = 3;
@@ -100,21 +102,21 @@ function SignalementModal({
     if (photoUris.length >= MAX_SIGNAL_PHOTOS) return;
     if (Platform.OS !== "web") {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { Alert.alert("Permission requise", "Autorisez l'accès à la galerie dans les réglages."); return; }
+      if (!perm.granted) { wa("Permission requise", "Autorisez l'accès à la galerie dans les réglages."); return; }
     }
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.7 });
       if (!result.canceled && result.assets.length > 0) {
         setPhotoUris((prev) => [...prev, result.assets[0].uri].slice(0, MAX_SIGNAL_PHOTOS));
       }
-    } catch { Alert.alert("Erreur", "Impossible d'ouvrir la galerie."); }
+    } catch { wa("Erreur", "Impossible d'ouvrir la galerie."); }
   };
 
   const handleTakePhoto = async () => {
     if (Platform.OS === "web") { handlePickPhoto(); return; }
     if (photoUris.length >= MAX_SIGNAL_PHOTOS) return;
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) { Alert.alert("Permission requise", "Autorisez l'accès à l'appareil photo dans les réglages."); return; }
+    if (!perm.granted) { wa("Permission requise", "Autorisez l'accès à l'appareil photo dans les réglages."); return; }
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
@@ -126,7 +128,7 @@ function SignalementModal({
         setPhotoUris((prev) => [...prev, result.assets[0].uri].slice(0, MAX_SIGNAL_PHOTOS));
       }
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message ?? "Impossible d'ouvrir l'appareil photo.");
+      wa("Erreur", e?.message ?? "Impossible d'ouvrir l'appareil photo.");
     }
   };
 
@@ -143,7 +145,7 @@ function SignalementModal({
       resetForm(); onClose();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message ?? "Impossible d'envoyer le signalement.");
+      wa("Erreur", e.message ?? "Impossible d'envoyer le signalement.");
     } finally {
       setSending(false);
     }
@@ -301,7 +303,7 @@ function CreateAnnouncementModal({
       reset(); onClose();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message ?? "Impossible de publier l'annonce.");
+      wa("Erreur", e.message ?? "Impossible de publier l'annonce.");
     } finally {
       setSaving(false);
     }
@@ -392,21 +394,31 @@ export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const {
-    currentCopro, currentRole, members, signalements, announcements,
+    currentCopro, currentRole, members, signalements, announcements, polls,
     acknowledgeSignalement, deleteSignalement, markSignalementRead,
     addSignalement, toggleAlertEmail, toggleAnnouncementEmail,
     addAnnouncement, deleteAnnouncement,
+    addPoll, castPollVote, closePoll, deletePoll,
   } = useCoPro();
 
   const isAdmin        = currentRole === "admin";
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
 
-  const [activeTab, setActiveTab] = useState<"alertes" | "annonces">("alertes");
+  const [activeTab, setActiveTab] = useState<"alertes" | "annonces" | "sondages">("alertes");
   const [signalModalVisible, setSignalModalVisible] = useState(false);
   const [annoModalVisible, setAnnoModalVisible] = useState(false);
   const [togglingEmail, setTogglingEmail] = useState(false);
   const [togglingAnnoEmail, setTogglingAnnoEmail] = useState(false);
+
+  // Sondages
+  const [pollModalVisible, setPollModalVisible] = useState(false);
+  const [pollTitle, setPollTitle] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollTarget, setPollTarget] = useState<PollTarget>("propriétaires");
+  const [pollSaving, setPollSaving] = useState(false);
+
+  const isConseil = currentRole === "conseil";
 
   const myMember = members.find((m) => m.uid === user?.uid);
   const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
@@ -422,12 +434,14 @@ export default function AlertsScreen() {
     try { await acknowledgeSignalement(id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
   };
   const handleDeleteSignal = (id: string) => {
-    Alert.alert("Supprimer ce signalement", "Cette action est irréversible.", [
-      { text: "Annuler", style: "cancel" },
-      { text: "Supprimer", style: "destructive", onPress: async () => {
+    wConfirm(
+      "Supprimer ce signalement",
+      "Cette action est irréversible.",
+      async () => {
         try { await deleteSignalement(id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
-      }},
-    ]);
+      },
+      "Supprimer",
+    );
   };
   const handleRead = async (id: string) => { try { await markSignalementRead(id); } catch {} };
   const handleToggleEmail = async () => {
@@ -443,13 +457,247 @@ export default function AlertsScreen() {
     await addSignalement(message, senderName, apartmentNumber, photoUris);
   };
   const handleDeleteAnnouncement = (id: string) => {
-    Alert.alert("Supprimer l'annonce", "Cette action est irréversible.", [
-      { text: "Annuler", style: "cancel" },
-      { text: "Supprimer", style: "destructive", onPress: async () => {
+    wConfirm(
+      "Supprimer l'annonce",
+      "Cette action est irréversible.",
+      async () => {
         try { await deleteAnnouncement(id); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); } catch {}
-      }},
-    ]);
+      },
+      "Supprimer",
+    );
   };
+
+  const handleCreatePoll = async () => {
+    const validOptions = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!pollTitle.trim()) { wa("Erreur", "Saisissez un titre."); return; }
+    if (validOptions.length < 2) { wa("Erreur", "Au moins 2 options requises."); return; }
+    setPollSaving(true);
+    try {
+      await addPoll(pollTitle.trim(), validOptions, pollTarget);
+      setPollModalVisible(false);
+      setPollTitle("");
+      setPollOptions(["", ""]);
+      setPollTarget("propriétaires");
+    } catch (e: any) { wa("Erreur", e.message ?? "Impossible de créer le sondage."); }
+    finally { setPollSaving(false); }
+  };
+
+  const handleVotePoll = (poll: Poll, optIdx: number) => {
+    if (poll.status === "closed") return;
+    if (poll.votes[user?.uid ?? ""] !== undefined) return;
+    wConfirm(
+      "Voter",
+      `Confirmer votre vote : "${poll.options[optIdx]}" ?`,
+      async () => {
+        try { await castPollVote(poll.id, optIdx); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); }
+        catch (e: any) { wa("Erreur", e.message); }
+      },
+      "Voter",
+      false,
+    );
+  };
+
+  const handleClosePoll = (poll: Poll) => {
+    wConfirm(
+      "Clôturer le sondage ?",
+      "Plus aucun vote ne sera accepté.",
+      async () => { try { await closePoll(poll.id); } catch {} },
+      "Clôturer",
+    );
+  };
+
+  const handleDeletePoll = (poll: Poll) => {
+    wConfirm(
+      "Supprimer ce sondage ?",
+      "Action irréversible.",
+      async () => { try { await deletePoll(poll.id); } catch {} },
+      "Supprimer",
+    );
+  };
+
+  const pollsContent = (
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}>
+      {polls.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="bar-chart-outline" size={42} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>Aucun sondage</Text>
+          <Text style={styles.emptyDesc}>Créez un sondage pour consulter les copropriétaires.</Text>
+          {!isPrestataire && (
+            <Pressable style={[styles.signalBtn, { marginTop: 16 }]} onPress={() => setPollModalVisible(true)}>
+              <Ionicons name="add-outline" size={18} color="#fff" />
+              <Text style={styles.signalBtnText}>Créer un sondage</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 12 }}>
+          {polls.map((poll) => {
+            const totalVotes = Object.keys(poll.votes).length;
+            const myVoteIdx = poll.votes[user?.uid ?? ""];
+            const hasVoted = myVoteIdx !== undefined;
+            const canManage = poll.createdBy === user?.uid || isAdmin;
+            return (
+              <View key={poll.id} style={styles.pollCard}>
+                <View style={styles.pollCardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pollTitle}>{poll.title}</Text>
+                    <Text style={styles.pollMeta}>
+                      {poll.createdByName} · {new Date(poll.createdAt).toLocaleDateString("fr-FR")}
+                      {" · "}{POLL_TARGET_LABELS[poll.target]}
+                    </Text>
+                  </View>
+                  {poll.status === "closed" && (
+                    <View style={styles.pollClosedBadge}><Text style={styles.pollClosedText}>Clôturé</Text></View>
+                  )}
+                </View>
+
+                {poll.options.map((opt, idx) => {
+                  const voteCount = Object.values(poll.votes).filter(v => v === idx).length;
+                  const pct = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
+                  const isMyVote = myVoteIdx === idx;
+                  return (
+                    <Pressable
+                      key={idx}
+                      style={[styles.pollOption, isMyVote && styles.pollOptionMine]}
+                      onPress={() => handleVotePoll(poll, idx)}
+                      disabled={hasVoted || poll.status === "closed"}
+                    >
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <Text style={[styles.pollOptionText, isMyVote && { color: COLORS.primary, fontFamily: "Inter_600SemiBold" }]}>
+                          {isMyVote && "✓ "}{opt}
+                        </Text>
+                        {(hasVoted || poll.status === "closed") && (
+                          <Text style={styles.pollPct}>{pct}% ({voteCount})</Text>
+                        )}
+                      </View>
+                      {(hasVoted || poll.status === "closed") && (
+                        <View style={styles.pollBar}>
+                          <View style={[styles.pollBarFill, { width: `${pct}%` as any, backgroundColor: isMyVote ? COLORS.primary : "#CBD5E1" }]} />
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+
+                <View style={styles.pollFooter}>
+                  <Text style={styles.pollVoteCount}>{totalVotes} vote{totalVotes !== 1 ? "s" : ""}</Text>
+                  {canManage && poll.status === "open" && (
+                    <Pressable onPress={() => handleClosePoll(poll)} style={styles.pollActionBtn}>
+                      <Text style={styles.pollActionBtnText}>Clôturer</Text>
+                    </Pressable>
+                  )}
+                  {canManage && (
+                    <Pressable onPress={() => handleDeletePoll(poll)} style={[styles.pollActionBtn, { backgroundColor: "#FEE2E2" }]}>
+                      <Text style={[styles.pollActionBtnText, { color: COLORS.danger }]}>Supprimer</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </ScrollView>
+  );
+
+  const pollModal = (
+    <Modal visible={pollModalVisible} transparent animationType="slide" onRequestClose={() => setPollModalVisible(false)}>
+      <Pressable style={styles.modalOverlay} onPress={() => setPollModalVisible(false)} />
+      <ScrollView
+        style={{ flex: 0 }}
+        contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: bottom + 16 }]}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.modalHandle} />
+        <View style={styles.signalHeader}>
+          <View style={[styles.signalIconWrap, { backgroundColor: "rgba(139,92,246,0.1)" }]}>
+            <Ionicons name="bar-chart-outline" size={20} color="#8B5CF6" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modalTitle}>Nouveau sondage</Text>
+            <Text style={styles.signalSub}>Consultez les copropriétaires sur un sujet</Text>
+          </View>
+        </View>
+
+        <Text style={styles.signalFieldLabel}>Question / Titre</Text>
+        <TextInput
+          style={[styles.signalInputSmall, { marginBottom: 10 }]}
+          placeholder="Ex : Quel jour pour l'AG ?"
+          placeholderTextColor={COLORS.textMuted}
+          value={pollTitle}
+          onChangeText={setPollTitle}
+        />
+
+        <Text style={styles.signalFieldLabel}>Options</Text>
+        {pollOptions.map((opt, idx) => (
+          <View key={idx} style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+            <TextInput
+              style={[styles.signalInputSmall, { flex: 1 }]}
+              placeholder={`Option ${idx + 1}`}
+              placeholderTextColor={COLORS.textMuted}
+              value={opt}
+              onChangeText={(v) => setPollOptions((prev) => prev.map((o, i) => (i === idx ? v : o)))}
+            />
+            {pollOptions.length > 2 && (
+              <Pressable
+                onPress={() => setPollOptions((prev) => prev.filter((_, i) => i !== idx))}
+                style={{ justifyContent: "center", padding: 8 }}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={COLORS.danger} />
+              </Pressable>
+            )}
+          </View>
+        ))}
+        {pollOptions.length < 6 && (
+          <Pressable
+            onPress={() => setPollOptions((prev) => [...prev, ""])}
+            style={[styles.signalPhotoBtn, { alignSelf: "flex-start", marginBottom: 12 }]}
+          >
+            <Ionicons name="add-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.signalPhotoBtnText}>Ajouter une option</Text>
+          </Pressable>
+        )}
+
+        <Text style={styles.signalFieldLabel}>Destinataires</Text>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          {(["conseil", "propriétaires", "tous"] as PollTarget[]).map((t) => {
+            const selected = t === pollTarget;
+            return (
+              <Pressable
+                key={t}
+                onPress={() => setPollTarget(t)}
+                style={[
+                  styles.typeChip,
+                  selected
+                    ? { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }
+                    : { borderColor: "#8B5CF650" }
+                ]}
+              >
+                <Text style={[styles.typeChipText, { color: selected ? "#fff" : "#8B5CF6" }]}>
+                  {POLL_TARGET_LABELS[t]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.signalSendBtn, { backgroundColor: "#8B5CF6" },
+            (!pollTitle.trim() || pollSaving) && styles.signalSendBtnDisabled,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={handleCreatePoll}
+          disabled={!pollTitle.trim() || pollSaving}
+        >
+          {pollSaving
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <><Ionicons name="bar-chart-outline" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Lancer le sondage</Text></>
+          }
+        </Pressable>
+      </ScrollView>
+    </Modal>
+  );
 
   const tabSwitcher = (
     <View style={styles.tabSwitcher}>
@@ -479,6 +727,21 @@ export default function AlertsScreen() {
           </View>
         )}
       </Pressable>
+      {!isPrestataire && (
+        <Pressable
+          style={[styles.tabBtn, activeTab === "sondages" && styles.tabBtnActive]}
+          onPress={() => setActiveTab("sondages")}
+        >
+          <Text style={[styles.tabBtnText, activeTab === "sondages" && styles.tabBtnTextActive]}>
+            Sondages
+          </Text>
+          {polls.length > 0 && (
+            <View style={[styles.tabBadge, { backgroundColor: "#8B5CF6" }]}>
+              <Text style={styles.tabBadgeText}>{polls.length}</Text>
+            </View>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 
@@ -538,6 +801,11 @@ export default function AlertsScreen() {
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
+      {!isPrestataire && activeTab === "sondages" && (
+        <Pressable style={[styles.addBtn, { backgroundColor: "#8B5CF6" }]} onPress={() => setPollModalVisible(true)}>
+          <Ionicons name="add" size={22} color="#fff" />
+        </Pressable>
+      )}
     </View>
   );
 
@@ -553,7 +821,7 @@ export default function AlertsScreen() {
           <Text style={styles.emptyDesc}>
             {isAdmin
               ? "Publiez une annonce pour informer les résidents (coupures, travaux…)"
-              : "Le syndic n'a pas encore publié d'annonce"}
+              : "L'admin n'a pas encore publié d'annonce"}
           </Text>
           {isAdmin && (
             <Pressable
@@ -599,7 +867,7 @@ export default function AlertsScreen() {
               <Text style={styles.signalBtnText}>Signaler un problème</Text>
             </Pressable>
             <Text style={styles.prestataireSub}>
-              Vos signalements seront transmis au syndic de cette copropriété.
+              Vos signalements seront transmis à l'admin de cette copropriété.
             </Text>
           </ScrollView>
         ) : announcementsContent}
@@ -611,7 +879,7 @@ export default function AlertsScreen() {
         />
       </View>
     );
-  }
+  }  // Note: prestataires have no "Sondages" tab so activeTab never reaches "sondages" for them
 
   if (isAdmin) {
     return (
@@ -648,13 +916,14 @@ export default function AlertsScreen() {
             contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
             showsVerticalScrollIndicator={false}
           />
-        ) : announcementsContent}
+        ) : activeTab === "annonces" ? announcementsContent : pollsContent}
         <CreateAnnouncementModal
           visible={annoModalVisible}
           onClose={() => setAnnoModalVisible(false)}
           onSave={addAnnouncement}
           insetBottom={bottom}
         />
+        {pollModal}
       </View>
     );
   }
@@ -704,13 +973,14 @@ export default function AlertsScreen() {
             </View>
           )}
         </ScrollView>
-      ) : announcementsContent}
+      ) : activeTab === "annonces" ? announcementsContent : pollsContent}
       <SignalementModal
         visible={signalModalVisible}
         onClose={() => setSignalModalVisible(false)}
         onSend={handleSend}
         insetBottom={bottom}
       />
+      {pollModal}
     </View>
   );
 }
@@ -868,6 +1138,35 @@ const styles = StyleSheet.create({
     borderWidth: 1, backgroundColor: "transparent",
   },
   typeChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+
+  pollCard: {
+    backgroundColor: COLORS.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 14, gap: 6,
+  },
+  pollCardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
+  pollTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
+  pollMeta: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  pollClosedBadge: {
+    backgroundColor: "#F1F5F9", borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  pollClosedText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  pollOption: {
+    backgroundColor: COLORS.background, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border,
+    padding: 10, marginBottom: 6,
+  },
+  pollOptionMine: { borderColor: COLORS.primary, backgroundColor: "rgba(37,99,235,0.05)" },
+  pollOptionText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text },
+  pollPct: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  pollBar: { height: 4, backgroundColor: "#F1F5F9", borderRadius: 2, overflow: "hidden" },
+  pollBarFill: { height: 4, borderRadius: 2 },
+  pollFooter: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  pollVoteCount: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, flex: 1 },
+  pollActionBtn: {
+    backgroundColor: "#F0FDF4", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+  },
+  pollActionBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.success },
 
   tabSwitcher: {
     flexDirection: "row",

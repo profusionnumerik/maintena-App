@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
@@ -22,11 +23,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "@/constants/colors";
 import { CategoryBadge } from "@/components/CategoryBadge";
 import { StatusBadge } from "@/components/StatusBadge";
-import { StarRating } from "@/components/StarRating";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { uploadPhoto } from "@/lib/storage";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
+import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl } from "@/lib/query-client";
 
 function formatFrenchPhone(value?: string): string {
@@ -218,13 +219,6 @@ function formatDateFull(dateStr: string): string {
   });
 }
 
-function wa(title: string, message?: string) {
-  if (Platform.OS === "web") {
-    window.alert(message ? `${title}\n\n${message}` : title);
-  } else {
-    Alert.alert(title, message);
-  }
-}
 
 export default function InterventionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -241,7 +235,6 @@ export default function InterventionDetailScreen() {
   const isAdmin = currentRole === "admin";
   const isPrestataire = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
-  const canRate = isProprietaire;
   const canDelete = isAdmin;
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -249,8 +242,8 @@ export default function InterventionDetailScreen() {
 
   const intervention = getIntervention(id ?? "");
 
-  const [rating, setRating] = useState(intervention?.rating);
   const [isSaving, setIsSaving] = useState(false);
+  const [locationWarning, setLocationWarning] = useState<string | null>(null);
   const [amountInput, setAmountInput] = useState(intervention?.amount !== undefined ? String(intervention.amount) : "");
   const [amountEditing, setAmountEditing] = useState(false);
   const [amountSaving, setAmountSaving] = useState(false);
@@ -352,18 +345,6 @@ export default function InterventionDetailScreen() {
     providerStatus !== "accepted" &&
     providerStatus !== "refused";
 
-  const handleRate = async (newRating: number) => {
-    setRating(newRating);
-    setIsSaving(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-    try {
-      await rateIntervention(intervention.id, newRating);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const uploadAndSavePhotos = async (): Promise<string[]> => {
     if (localCompletionPhotos.length === 0) return [];
 
@@ -421,58 +402,73 @@ export default function InterventionDetailScreen() {
     }
   };
 
-  const pickCompletionPhoto = async () => {
-    if (remainingSlots <= 0) return;
-
-    if (Platform.OS !== "web") {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert(
-          "Permission refusée",
-          "L'accès aux photos est nécessaire pour ajouter une preuve."
-        );
-        return;
-      }
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: false,
-      allowsEditing: false,
-      quality: 1,
-    });
-
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setLocalCompletionPhotos((prev) =>
-        [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos)
-      );
-    }
+  // Haversine distance in metres between two GPS points
+  const haversineDistance = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6_371_000;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+    const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
+  // Capture GPS and validate proximity to copro, then open camera
   const takeCompletionPhoto = async () => {
     if (remainingSlots <= 0) return;
 
     if (Platform.OS === "web") {
-      await pickCompletionPhoto();
+      // Web: fall back to gallery (no camera API)
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        wa("Permission refusée", "L'accès aux photos est nécessaire.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"] as any,
+        allowsMultipleSelection: false,
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setLocalCompletionPhotos((prev) => [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos));
+      }
       return;
     }
 
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission refusée", "L'accès à la caméra est nécessaire.");
+    // Step 1 — GPS check
+    setLocationWarning(null);
+    try {
+      const locPerm = await Location.requestForegroundPermissionsAsync();
+      if (locPerm.granted && currentCopro?.latitude && currentCopro?.longitude) {
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const dist = haversineDistance(
+          pos.coords.latitude, pos.coords.longitude,
+          currentCopro.latitude, currentCopro.longitude,
+        );
+        const threshold = currentCopro.locationRadius ?? 500;
+        if (dist > threshold) {
+          const distStr = dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+          setLocationWarning(`Photo prise à ${distStr} du bien (seuil : ${threshold} m) — vérification requise`);
+        }
+      }
+    } catch { /* GPS non disponible — on continue quand même */ }
+
+    // Step 2 — Camera
+    const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!camPerm.granted) {
+      wa("Permission refusée", "L'accès à la caméra est nécessaire pour les photos de preuve sur site.");
       return;
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"] as any,
       allowsEditing: false,
-      quality: 1,
+      quality: 0.85,
+      exif: false,
     });
 
     if (!result.canceled && result.assets?.[0]?.uri) {
-      setLocalCompletionPhotos((prev) =>
-        [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos)
-      );
+      setLocalCompletionPhotos((prev) => [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos));
     }
   };
 
@@ -541,14 +537,11 @@ export default function InterventionDetailScreen() {
       } as any);
       const msg =
         status === "accepted"
-          ? "Vous avez accepté cette intervention. Le syndic en est informé."
-          : "Vous avez refusé cette intervention. Le syndic pourra la réattribuer.";
-      if (Platform.OS === "web") { window.alert(msg); } else {
-        Alert.alert(status === "accepted" ? "Intervention acceptée" : "Intervention refusée", msg);
-      }
+          ? "Vous avez accepté cette intervention. L'admin en est informé."
+          : "Vous avez refusé cette intervention. L'admin pourra la réattribuer.";
+      wa(status === "accepted" ? "Intervention acceptée" : "Intervention refusée", msg);
     } catch {
-      const errMsg = "Impossible d'enregistrer votre réponse.";
-      if (Platform.OS === "web") { window.alert(errMsg); } else { Alert.alert("Erreur", errMsg); }
+      wa("Erreur", "Impossible d'enregistrer votre réponse.");
     } finally {
       setIsRespondingProvider(false);
     }
@@ -557,8 +550,7 @@ export default function InterventionDetailScreen() {
   const handleSaveAmount = async () => {
     const v = parseFloat(amountInput.replace(",", "."));
     if (isNaN(v) || v <= 0) {
-      if (Platform.OS === "web") window.alert("Montant invalide.");
-      else Alert.alert("Montant invalide", "Entrez un nombre positif.");
+      wa("Montant invalide", "Entrez un nombre positif.");
       return;
     }
     setAmountSaving(true);
@@ -574,9 +566,7 @@ export default function InterventionDetailScreen() {
 
   const handleDelete = () => {
     if (intervention.amount !== undefined) {
-      const msg = "Cette intervention a un montant enregistré (trace financière). La suppression est bloquée.";
-      if (Platform.OS === "web") { window.alert(msg); return; }
-      Alert.alert("Suppression impossible", msg);
+      wa("Suppression impossible", "Cette intervention a un montant enregistré (trace financière). La suppression est bloquée.");
       return;
     }
     const hasGroup = !!intervention.recurrenceGroupId;
@@ -595,38 +585,30 @@ export default function InterventionDetailScreen() {
         const msg = code.includes("permission-denied")
           ? "Vous n'avez pas les droits pour supprimer cette intervention."
           : e?.message ?? "Une erreur est survenue lors de la suppression.";
-        if (Platform.OS === "web") { window.alert(msg); } else { Alert.alert("Erreur", msg); }
+        wa("Erreur", msg);
       }
     };
 
-    if (Platform.OS === "web") {
-      if (hasGroup) {
+    if (hasGroup) {
+      if (Platform.OS === "web") {
         if (!window.confirm("Supprimer cette intervention ?")) return;
         const deleteAll = window.confirm(
           "Supprimer toute la série récurrente ?\n\nOK → toute la série\nAnnuler → uniquement celle-ci"
         );
         doDelete(deleteAll);
       } else {
-        if (window.confirm("Supprimer cette intervention définitivement ?")) doDelete(false);
+        Alert.alert(
+          "Supprimer",
+          "Cette intervention fait partie d'une série récurrente. Que souhaitez-vous supprimer ?",
+          [
+            { text: "Annuler", style: "cancel" },
+            { text: "Celle-ci uniquement", onPress: () => doDelete(false) },
+            { text: "Toute la série", style: "destructive", onPress: () => doDelete(true) },
+          ]
+        );
       }
-      return;
-    }
-
-    if (hasGroup) {
-      Alert.alert(
-        "Supprimer",
-        "Cette intervention fait partie d'une série récurrente. Que souhaitez-vous supprimer ?",
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Celle-ci uniquement", onPress: () => doDelete(false) },
-          { text: "Toute la série", style: "destructive", onPress: () => doDelete(true) },
-        ]
-      );
     } else {
-      Alert.alert("Supprimer", "Voulez-vous supprimer cette intervention ?", [
-        { text: "Annuler", style: "cancel" },
-        { text: "Supprimer", style: "destructive", onPress: () => doDelete(false) },
-      ]);
+      wConfirm("Supprimer", "Voulez-vous supprimer cette intervention ?", () => doDelete(false), "Supprimer");
     }
   };
 
@@ -649,11 +631,7 @@ export default function InterventionDetailScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur serveur");
-      if (Platform.OS === "web") {
-        window.alert("Mail renvoyé avec succès à " + invitedProvider.email);
-      } else {
-        Alert.alert("Mail envoyé", `L’invitation a été renvoyée à ${invitedProvider.email}.`);
-      }
+      wa("Mail envoyé", `L’invitation a été renvoyée à ${invitedProvider.email}.`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       wa("Erreur", e.message || "Le mail n’a pas pu être envoyé.");
@@ -848,20 +826,18 @@ export default function InterventionDetailScreen() {
           {isPrestataire && intervention.status !== "termine" && remainingSlots > 0 && (
             <View style={styles.completionActions}>
               <Pressable
-                style={({ pressed }) => [styles.completionBtn, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [styles.completionBtn, { flex: 1 }, pressed && { opacity: 0.8 }]}
                 onPress={takeCompletionPhoto}
               >
                 <Ionicons name="camera-outline" size={18} color={COLORS.primary} />
-                <Text style={styles.completionBtnText}>Caméra</Text>
+                <Text style={styles.completionBtnText}>Prendre une photo sur site</Text>
               </Pressable>
-
-              <Pressable
-                style={({ pressed }) => [styles.completionBtn, pressed && { opacity: 0.8 }]}
-                onPress={pickCompletionPhoto}
-              >
-                <Ionicons name="images-outline" size={18} color={COLORS.primary} />
-                <Text style={styles.completionBtnText}>Galerie</Text>
-              </Pressable>
+            </View>
+          )}
+          {locationWarning && (
+            <View style={styles.locationWarning}>
+              <Ionicons name="location-outline" size={14} color="#D97706" />
+              <Text style={styles.locationWarningText}>{locationWarning}</Text>
             </View>
           )}
 
@@ -1033,7 +1009,7 @@ export default function InterventionDetailScreen() {
               <Text style={styles.respondCardTitle}>Confirmer votre intervention</Text>
             </View>
             <Text style={styles.respondCardText}>
-              Pouvez-vous intervenir pour cette mission ? Votre réponse sera transmise au syndic.
+              Pouvez-vous intervenir pour cette mission ? Votre réponse sera transmise à l'admin.
             </Text>
             <View style={styles.respondBtns}>
               <Pressable
@@ -1214,30 +1190,13 @@ export default function InterventionDetailScreen() {
         <View style={styles.ratingCard}>
           {intervention.status === "termine" ? (
             <>
-              <Text style={styles.ratingTitle}>Évaluation de l'intervention</Text>
-              <View style={styles.starsRow}>
-                <StarRating
-                  value={rating}
-                  onChange={canRate ? handleRate : undefined}
-                  size={40}
-                  readonly={!canRate || isSaving}
-                />
+              <View style={styles.doneStatusRow}>
+                <Ionicons name="checkmark-circle" size={22} color={COLORS.success} />
+                <Text style={styles.doneStatusText}>Intervention terminée</Text>
               </View>
-
-              {rating ? (
-                <Text style={styles.ratingFeedback}>
-                  {rating === 1 && "Insuffisant — à améliorer"}
-                  {rating === 2 && "Passable — peut mieux faire"}
-                  {rating === 3 && "Bien réalisé"}
-                  {rating === 4 && "Excellent — très bien fait !"}
-                </Text>
-              ) : canRate ? (
-                <Text style={styles.ratingHint}>
-                  Appuyez sur une étoile pour noter
-                </Text>
-              ) : (
-                <Text style={styles.ratingHint}>Pas encore noté</Text>
-              )}
+              {intervention.completionComment ? (
+                <Text style={styles.completionCommentDisplay}>{intervention.completionComment}</Text>
+              ) : null}
             </>
           ) : intervention.status === "planifie" && isPrestataire ? (
             <>
@@ -1329,7 +1288,7 @@ export default function InterventionDetailScreen() {
             <>
               <Text style={styles.ratingTitle}>En attente de validation</Text>
               <Text style={styles.ratingHint}>
-                Vous avez transmis votre rapport. Le syndic va vérifier et valider
+                Vous avez transmis votre rapport. L'admin va vérifier et valider
                 le travail.
               </Text>
             </>
@@ -1375,7 +1334,7 @@ export default function InterventionDetailScreen() {
               </Text>
             ) : (
               <Text style={styles.amountPlaceholder}>
-                {isAdmin ? "Aucun montant saisi — appuyez sur Saisir" : "Montant non encore renseigné par le syndic"}
+                {isAdmin ? "Aucun montant saisi — appuyez sur Saisir" : "Montant non encore renseigné par l'admin"}
               </Text>
             )}
 
@@ -1946,21 +1905,47 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 
-  starsRow: {
-    paddingVertical: 8,
-  },
-
-  ratingFeedback: {
-    fontSize: 14,
-    fontFamily: "Inter_500Medium",
-    color: COLORS.textSecondary,
-  },
-
   ratingHint: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
     color: COLORS.textMuted,
     textAlign: "center",
+  },
+
+  doneStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  doneStatusText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.success,
+  },
+  completionCommentDisplay: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+
+  locationWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    padding: 10,
+    marginTop: 8,
+  },
+  locationWarningText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#B45309",
   },
 
   doneBtn: {

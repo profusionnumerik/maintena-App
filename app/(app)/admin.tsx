@@ -4,9 +4,10 @@ import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Alert, Linking, Modal, Platform, Pressable,
+  ActivityIndicator, Linking, Modal, Platform, Pressable,
   ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
+import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
@@ -156,7 +157,7 @@ export default function AdminScreen() {
         } else if (inviteRole === "conseil") {
           code = await handleGenerateConseilCode();
         } else if (inviteRole === "propriétaire") {
-          Alert.alert("Code manquant", "Veuillez d'abord générer le code propriétaire dans la section Codes.");
+          wa("Code manquant", "Veuillez d'abord générer le code propriétaire dans la section Codes.");
           return;
         }
       }
@@ -177,7 +178,7 @@ export default function AdminScreen() {
         await Linking.openURL(`mailto:?subject=${subject}&body=${body}`);
       }
     } catch (e: any) {
-      Alert.alert("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
+      wa("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
     } finally {
       setInviteGenerating(false);
     }
@@ -186,64 +187,51 @@ export default function AdminScreen() {
   const handleChangeRole = (uid: string, currentMemberRole: string, name: string) => {
     // Propriétaire ↔ Conseil syndical — seuls ces deux rôles sont interchangeables
     if (currentMemberRole === "propriétaire") {
-      Alert.alert(
+      wConfirm(
         `Promouvoir ${name}`,
         "Voulez-vous lui donner accès au Contrôle des comptes (Conseil syndical) ?",
-        [
-          { text: "Annuler", style: "cancel" },
-          {
-            text: "Conseil syndical",
-            onPress: async () => {
-              try {
-                await changeMemberRole(uid, "conseil");
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              } catch (e: any) {
-                Alert.alert("Erreur", e.message ?? "Impossible de modifier le rôle.");
-              }
-            },
-          },
-        ]
+        async () => {
+          try {
+            await changeMemberRole(uid, "conseil");
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (e: any) {
+            wa("Erreur", e.message ?? "Impossible de modifier le rôle.");
+          }
+        },
+        "Conseil syndical",
+        false,
       );
     } else if (currentMemberRole === "conseil") {
-      Alert.alert(
+      wConfirm(
         `Modifier le rôle de ${name}`,
         "Retirer l'accès au Contrôle des comptes ?",
-        [
-          { text: "Annuler", style: "cancel" },
-          {
-            text: "Redevenir Propriétaire",
-            onPress: async () => {
-              try {
-                await changeMemberRole(uid, "propriétaire");
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              } catch (e: any) {
-                Alert.alert("Erreur", e.message ?? "Impossible de modifier le rôle.");
-              }
-            },
-          },
-        ]
+        async () => {
+          try {
+            await changeMemberRole(uid, "propriétaire");
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (e: any) {
+            wa("Erreur", e.message ?? "Impossible de modifier le rôle.");
+          }
+        },
+        "Redevenir Propriétaire",
+        false,
       );
     }
   };
 
   const handleRemoveMember = (uid: string, name: string) => {
-    Alert.alert(
+    wConfirm(
       "Retirer ce collaborateur",
       `Voulez-vous retirer ${name} de cette copropriété ?`,
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Retirer", style: "destructive",
-          onPress: async () => {
-            try {
-              await removeMember(uid);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            } catch (e: any) {
-              Alert.alert("Erreur", e.message ?? "Impossible de retirer ce collaborateur.");
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await removeMember(uid);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        } catch (e: any) {
+          wa("Erreur", e.message ?? "Impossible de retirer ce collaborateur.");
+        }
+      },
+      "Retirer",
     );
   };
 
@@ -256,7 +244,7 @@ export default function AdminScreen() {
       await refreshCoPros();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
     } finally {
       setSavingBuildingConfig(false);
     }
@@ -325,7 +313,7 @@ export default function AdminScreen() {
       await updateDoc(doc(db, "copros", currentCopro.id), { disabledCategories: newDisabled });
       await refreshCoPros();
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
     } finally {
       setSavingCategories(false);
     }
@@ -380,7 +368,7 @@ export default function AdminScreen() {
       await refreshCoPros();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
     }
   };
 
@@ -403,7 +391,7 @@ export default function AdminScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       return newCode;
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
       return null;
     }
   };
@@ -440,7 +428,7 @@ export default function AdminScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => setCopiedCatCode(null), 3000);
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
     } finally {
       setGeneratingCatCode(null);
     }
@@ -455,14 +443,14 @@ export default function AdminScreen() {
 
   const handleSetLocation = async () => {
     if (Platform.OS === "web") {
-      Alert.alert("Non disponible", "Définissez la position depuis l'application mobile.");
+      wa("Non disponible", "Définissez la position depuis l'application mobile.");
       return;
     }
     setSettingLocation(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission refusée", "L'accès à la localisation est nécessaire.");
+        wa("Permission refusée", "L'accès à la localisation est nécessaire.");
         return;
       }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
@@ -472,49 +460,33 @@ export default function AdminScreen() {
         locationRadius: 300,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert(
+      wa(
         "Position enregistrée",
         `Bâtiment localisé.\nRayon d'autorisation : 300m\n\nLes prestataires devront être à moins de 300m pour saisir une intervention.`
       );
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      wa("Erreur", e.message);
     } finally {
       setSettingLocation(false);
     }
   };
 
   const handleLogout = () => {
-    if (Platform.OS === "web") {
-      if (window.confirm("Souhaitez-vous vous déconnecter ?")) logout();
-      return;
-    }
-    Alert.alert(
-      "Déconnexion",
-      "Souhaitez-vous vous déconnecter ?",
-      [
-        { text: "Annuler", style: "cancel" },
-        { text: "Déconnexion", style: "destructive", onPress: logout },
-      ]
-    );
+    wConfirm("Déconnexion", "Souhaitez-vous vous déconnecter ?", logout, "Déconnexion");
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
+    wConfirm(
       "Supprimer mon compte",
       "Cette action est irréversible. Toutes vos données seront définitivement effacées. Vos copropriétés et leurs historiques d'interventions resteront accessibles si d'autres membres y sont inscrits.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer", style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteAccount();
-            } catch (e: any) {
-              Alert.alert("Erreur", e.message ?? "Impossible de supprimer le compte.");
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await deleteAccount();
+        } catch (e: any) {
+          wa("Erreur", e.message ?? "Impossible de supprimer le compte.");
+        }
+      },
+      "Supprimer",
     );
   };
 
@@ -572,7 +544,7 @@ export default function AdminScreen() {
           <Text style={styles.userEmail}>{user?.email}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {isAdmin ? "Syndic" : currentRole === "propriétaire" ? "Propriétaire" : currentRole === "conseil" ? "Conseil syndical" : currentRole === "prestataire" ? "Prestataire" : "Collaborateur"}
+              {isAdmin ? "Admin" : currentRole === "propriétaire" ? "Propriétaire" : currentRole === "conseil" ? "Conseil syndical" : currentRole === "prestataire" ? "Prestataire" : "Collaborateur"}
             </Text>
           </View>
         </View>
@@ -1059,7 +1031,7 @@ export default function AdminScreen() {
                     m.role === "conseil" && { color: "#0891B2" },
                     m.role === "prestataire" && { color: "#7C3AED" },
                   ]}>
-                    {m.role === "admin" ? "Syndic" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
+                    {m.role === "admin" ? "Admin" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
                   </Text>
                 </Pressable>
                 {m.role === "prestataire" && (

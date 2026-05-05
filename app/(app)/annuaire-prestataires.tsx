@@ -2,9 +2,10 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Modal, Platform, Pressable,
+  ActivityIndicator, Modal, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -147,29 +148,24 @@ export default function AnnuairePrestatairesScreen() {
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setModalVisible(false);
     } catch {
-      Alert.alert("Erreur", "Impossible d'enregistrer le contact.");
+      wa("Erreur", "Impossible d'enregistrer le contact.");
     } finally {
       setSaving(false);
     }
   }, [form, editing, currentCopro?.id]);
 
   const handleDelete = (c: ProviderContact) => {
-    Alert.alert(
+    wConfirm(
       "Supprimer ce contact ?",
       `${c.firstName} ${c.lastName} sera retiré de l'annuaire.`,
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer", style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, "copros", c.coProId, "providerContacts", c.id));
-            } catch {
-              Alert.alert("Erreur", "Impossible de supprimer ce contact.");
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await deleteDoc(doc(db, "copros", c.coProId, "providerContacts", c.id));
+        } catch {
+          wa("Erreur", "Impossible de supprimer ce contact.");
+        }
+      },
+      "Supprimer",
     );
   };
 

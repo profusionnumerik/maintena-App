@@ -3,13 +3,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
-  Alert,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -25,27 +25,18 @@ export default function ProfileScreen() {
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const handleLogout = async () => {
-    if (Platform.OS === "web") {
-      if (window.confirm("Voulez-vous vous déconnecter ?")) {
+  const handleLogout = () => {
+    wConfirm(
+      "Déconnexion",
+      "Voulez-vous vous déconnecter ?",
+      async () => {
         setIsLoggingOut(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         await logout();
-      }
-      return;
-    }
-    Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Se déconnecter",
-        style: "destructive",
-        onPress: async () => {
-          setIsLoggingOut(true);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-          await logout();
-          router.dismissAll();
-        },
+        router.dismissAll();
       },
-    ]);
+      "Se déconnecter",
+    );
   };
 
   const initials = user?.displayName

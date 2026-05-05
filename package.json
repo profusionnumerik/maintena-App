@@ -89,6 +89,7 @@
     "@types/node": "^22.13.10",
     "@types/nodemailer": "^7.0.11",
     "@types/react": "~19.1.10",
+    "@types/react-native": "^0.72.8",
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
     "drizzle-kit": "^0.31.4",
     "esbuild": "^0.27.7",

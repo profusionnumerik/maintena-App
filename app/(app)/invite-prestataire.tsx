@@ -4,7 +4,6 @@ import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -13,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { wa } from "@/shared/dialogs";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -58,32 +58,32 @@ export default function InvitePrestataireScreen() {
 
   const handleSubmit = async () => {
     if (!isAdmin) {
-      Alert.alert("Accès refusé", "Seul le syndic peut inviter un prestataire.");
+      wa("Accès refusé", "Seul l'admin peut inviter un prestataire.");
       return;
     }
 
     if (!firstName.trim()) {
-      Alert.alert("Champ requis", "Veuillez saisir le prénom.");
+      wa("Champ requis", "Veuillez saisir le prénom.");
       return;
     }
 
     if (!lastName.trim()) {
-      Alert.alert("Champ requis", "Veuillez saisir le nom.");
+      wa("Champ requis", "Veuillez saisir le nom.");
       return;
     }
 
     if (!email.trim() || !isValidEmail(email)) {
-      Alert.alert("Email invalide", "Veuillez saisir une adresse email valide.");
+      wa("Email invalide", "Veuillez saisir une adresse email valide.");
       return;
     }
 
     if (!phone.trim() || !isValidPhone(phone)) {
-      Alert.alert("Téléphone invalide", "Veuillez saisir un numéro de téléphone valide.");
+      wa("Téléphone invalide", "Veuillez saisir un numéro de téléphone valide.");
       return;
     }
 
     if (!category) {
-      Alert.alert("Catégorie requise", "Veuillez sélectionner une catégorie.");
+      wa("Catégorie requise", "Veuillez sélectionner une catégorie.");
       return;
     }
 
@@ -104,10 +104,7 @@ export default function InvitePrestataireScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
-      Alert.alert(
-        "Erreur",
-        "Impossible de créer l'invitation du prestataire."
-      );
+      wa("Erreur", "Impossible de créer l'invitation du prestataire.");
     } finally {
       setIsSubmitting(false);
     }
@@ -117,7 +114,7 @@ export default function InvitePrestataireScreen() {
     if (!generatedCode) return;
     await Clipboard.setStringAsync(generatedCode);
     Haptics.selectionAsync();
-    Alert.alert("Code copié", "Le code d'invitation a été copié.");
+    wa("Code copié", "Le code d'invitation a été copié.");
   };
 
   const resetForm = () => {

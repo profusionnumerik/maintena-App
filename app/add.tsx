@@ -5,7 +5,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Platform,
   Pressable,
@@ -23,6 +22,7 @@ import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { uploadPhotoPending } from "@/lib/storage";
 import PhotoViewer from "@/components/PhotoViewer";
+import { wa, wConfirm } from "@/shared/dialogs";
 import {
   ALL_CATEGORIES,
   Category,
@@ -33,6 +33,9 @@ import {
   generateCleaningAreas,
   buildDefaultChecklist,
   RecurrenceType,
+  RECURRENCE_LABELS,
+  RECURRENCE_ICONS,
+  RECURRENCE_DEFAULTS,
   Status,
   STATUS_LABELS,
 } from "@/shared/types";
@@ -132,24 +135,46 @@ function generateRecurringDates(
 ): Date[] {
   const result: Date[] = [];
 
-  if (type === "monthly") {
+  if (type === "daily") {
     for (let i = 0; i < occurrences; i++) {
       const d = new Date(startDate);
-      d.setMonth(d.getMonth() + i);
+      d.setDate(d.getDate() + i);
       result.push(d);
     }
   } else if (type === "weekly" && days.length > 0) {
     const current = new Date(startDate);
     current.setHours(12, 0, 0, 0);
-
     const limit = new Date(startDate);
-    limit.setFullYear(limit.getFullYear() + 2);
-
+    limit.setFullYear(limit.getFullYear() + 3);
     while (result.length < occurrences && current < limit) {
       if (days.includes(current.getDay())) {
         result.push(new Date(current));
       }
       current.setDate(current.getDate() + 1);
+    }
+  } else if (type === "monthly") {
+    for (let i = 0; i < occurrences; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i);
+      result.push(d);
+    }
+  } else if (type === "quarterly") {
+    for (let i = 0; i < occurrences; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i * 3);
+      result.push(d);
+    }
+  } else if (type === "biannual") {
+    for (let i = 0; i < occurrences; i++) {
+      const d = new Date(startDate);
+      d.setMonth(d.getMonth() + i * 6);
+      result.push(d);
+    }
+  } else if (type === "annual") {
+    for (let i = 0; i < occurrences; i++) {
+      const d = new Date(startDate);
+      d.setFullYear(d.getFullYear() + i);
+      result.push(d);
     }
   }
 
@@ -177,13 +202,6 @@ function fullProviderName(data: NewProviderForm): string {
   return [data.firstName, data.lastName].filter(Boolean).join(" ").trim();
 }
 
-function wa(title: string, message?: string) {
-  if (Platform.OS === "web") {
-    window.alert(message ? `${title}\n\n${message}` : title);
-  } else {
-    Alert.alert(title, message);
-  }
-}
 
 function safeHapticSelection() {
   if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -274,6 +292,33 @@ async function createGuestAccess(params: {
     appLink: string;
     emailSent?: boolean;
   };
+}
+
+async function notifyMaintenanceCreated(params: {
+  coProId: string;
+  interventionId: string;
+  providerEmail: string;
+  providerName: string;
+  coProName: string;
+  title: string;
+  frequency: string;
+  totalOccurrences: number;
+  startDate: string;
+}) {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+  const idToken = await currentUser.getIdToken();
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) return;
+  try {
+    await fetch(`${apiBaseUrl}/api/notify-maintenance-created`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify(params),
+    });
+  } catch (e) {
+    console.warn("[MAINTENA] notify-maintenance-created failed:", e);
+  }
 }
 
 function buildGuestShareMessage(params: {
@@ -646,7 +691,7 @@ export default function AddInterventionScreen() {
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
-        Alert.alert("Permission refusée", "L'accès à la caméra est nécessaire.");
+        wa("Permission refusée", "L'accès à la caméra est nécessaire.");
         return;
       }
 
@@ -666,10 +711,7 @@ export default function AddInterventionScreen() {
         }
       }
     } catch {
-      Alert.alert(
-        "Caméra indisponible",
-        "La caméra n'est pas disponible sur ce simulateur. Utilisez la galerie ou testez sur un vrai téléphone."
-      );
+      wa("Caméra indisponible", "La caméra n'est pas disponible sur ce simulateur. Utilisez la galerie ou testez sur un vrai téléphone.");
     }
   };
 
@@ -779,21 +821,13 @@ export default function AddInterventionScreen() {
 
     if (!isAdmin && locationStatus === "far") {
       const radius = currentCopro.locationRadius ?? RADIUS_DEFAULT;
-      if (Platform.OS === "web") {
-        const retry = window.confirm(
-          `Trop loin du bâtiment\n\nVous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m.\n\nCliquez OK pour revérifier votre position.`
-        );
-        if (retry) checkLocation();
-      } else {
-        Alert.alert(
-          "Trop loin du bâtiment",
-          `Vous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m pour déclarer une intervention.\n\nApprochez-vous du bâtiment et réessayez.`,
-          [
-            { text: "Annuler", style: "cancel" },
-            { text: "Revérifier ma position", onPress: checkLocation },
-          ]
-        );
-      }
+      wConfirm(
+        "Trop loin du bâtiment",
+        `Vous êtes à ${locationDistance}m de la copropriété. Vous devez être à moins de ${radius}m.\n\nRévérifier votre position ?`,
+        checkLocation,
+        "Revérifier",
+        false,
+      );
       return;
     }
 
@@ -994,25 +1028,30 @@ export default function AddInterventionScreen() {
               category: category || "",
               categoryInviteCode: categoryInviteCode || undefined,
             });
+            // Email de notification de contrat de maintenance
+            const providerFullName = providerMode === "new"
+              ? `${newProvider.firstName.trim()} ${newProvider.lastName.trim()}`.trim()
+              : (selectedMemberMulti
+                  ? `${selectedMemberMulti.firstName ?? ""} ${selectedMemberMulti.lastName ?? ""}`.trim()
+                  : (assignedToName ?? ""));
+            await notifyMaintenanceCreated({
+              coProId: currentCopro.id,
+              interventionId: firstCreatedInterventionId,
+              providerEmail: guestEmailMulti,
+              providerName: providerFullName || "Prestataire",
+              coProName: currentCopro.name,
+              title: title.trim(),
+              frequency: RECURRENCE_LABELS[recurrenceType],
+              totalOccurrences: dates.length,
+              startDate: dates[0].toISOString(),
+            });
           } catch (e) {
             console.error("Guest access create failed:", e);
           }
           router.replace(`/intervention/${firstCreatedInterventionId}` as any);
         } else {
-          if (Platform.OS === "web") {
-            window.alert(
-              `Planification créée\n\n${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${dates.length > 1 ? "s" : ""} avec succès.`
-            );
-            router.back();
-          } else {
-            Alert.alert(
-              "Planification créée",
-              `${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${
-                dates.length > 1 ? "s" : ""
-              } avec succès.`,
-              [{ text: "OK", onPress: () => router.back() }]
-            );
-          }
+          wa("Planification créée", `${dates.length} intervention${dates.length > 1 ? "s" : ""} programmée${dates.length > 1 ? "s" : ""} avec succès.`);
+          router.back();
         }
       } else {
         let photoUrls: string[] = [];
@@ -1121,14 +1160,7 @@ export default function AddInterventionScreen() {
                 ? `L’intervention a été créée mais l’email n’a pas pu être envoyé à ${guestEmail}. Partagez le lien manuellement.`
                 : `Un email de confirmation a été envoyé à ${guestEmail}.`;
 
-              if (Platform.OS === "web") {
-                window.alert(`Intervention créée. ${emailMsg}`);
-              } else {
-                Alert.alert("Intervention créée", emailMsg, [{
-                  text: "Ouvrir la fiche",
-                  onPress: () => router.replace(`/intervention/${createdInterventionId}` as any),
-                }]);
-              }
+              wa("Intervention créée", emailMsg);
               router.replace(`/intervention/${createdInterventionId}` as any);
             } catch (e) {
               console.error("Guest access create failed:", e);
@@ -1265,8 +1297,8 @@ export default function AddInterventionScreen() {
               color={COLORS.primary}
             />
             <Text style={[styles.locPillText, { color: COLORS.primary }]}>
-              Syndic
-            </Text>
+              Admin
+</Text>
           </View>
         )}
       </View>
@@ -1525,59 +1557,48 @@ export default function AddInterventionScreen() {
 
             {recurrenceEnabled && (
               <View style={styles.recurrenceBox}>
-                <View style={styles.recurrenceTypeRow}>
-                  {(["weekly", "monthly"] as RecurrenceType[]).map((t) => (
-                    <Pressable
-                      key={t}
-                      onPress={() => {
-                        safeHapticSelection();
-                        setRecurrenceType(t);
-                        setRecurrenceDays([]);
-                      }}
-                      style={[
-                        styles.recurrenceTypeBtn,
-                        recurrenceType === t && styles.recurrenceTypeBtnActive,
-                      ]}
-                    >
-                      <Ionicons
-                        name={t === "weekly" ? "calendar" : "repeat"}
-                        size={14}
-                        color={recurrenceType === t ? "#fff" : COLORS.textMuted}
-                      />
-                      <Text
-                        style={[
-                          styles.recurrenceTypeTxt,
-                          recurrenceType === t && { color: "#fff" },
-                        ]}
-                      >
-                        {t === "weekly" ? "Hebdomadaire" : "Mensuelle"}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                {/* Fréquence — 6 options */}
+                <Text style={styles.recurrenceSubLabel}>Fréquence</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
+                    {(["daily", "weekly", "monthly", "quarterly", "biannual", "annual"] as RecurrenceType[]).map((t) => {
+                      const isActive = recurrenceType === t;
+                      const iconName = (RECURRENCE_ICONS[t] ?? "repeat") as any;
+                      return (
+                        <Pressable
+                          key={t}
+                          onPress={() => {
+                            safeHapticSelection();
+                            setRecurrenceType(t);
+                            setRecurrenceDays([]);
+                            setRecurrenceOccurrences(RECURRENCE_DEFAULTS[t].default);
+                          }}
+                          style={[styles.recurrenceTypeBtn, isActive && styles.recurrenceTypeBtnActive]}
+                        >
+                          <Ionicons name={iconName} size={14} color={isActive ? "#fff" : COLORS.textMuted} />
+                          <Text style={[styles.recurrenceTypeTxt, isActive && { color: "#fff" }]}>
+                            {RECURRENCE_LABELS[t]}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </ScrollView>
 
+                {/* Sélecteur de jours (hebdomadaire uniquement) */}
                 {recurrenceType === "weekly" && (
                   <View style={styles.dayPickerSection}>
-                    <Text style={styles.recurrenceSubLabel}>
-                      Jours de la semaine *
-                    </Text>
-
+                    <Text style={styles.recurrenceSubLabel}>Jours de la semaine *</Text>
                     <View style={styles.dayPicker}>
                       {WEEK_DAYS.map((d) => {
                         const active = recurrenceDays.includes(d.value);
-
                         return (
                           <Pressable
                             key={d.value}
                             onPress={() => toggleDay(d.value)}
                             style={[styles.dayBtn, active && styles.dayBtnActive]}
                           >
-                            <Text
-                              style={[
-                                styles.dayBtnText,
-                                active && styles.dayBtnTextActive,
-                              ]}
-                            >
+                            <Text style={[styles.dayBtnText, active && styles.dayBtnTextActive]}>
                               {d.label}
                             </Text>
                           </Pressable>
@@ -1587,11 +1608,9 @@ export default function AddInterventionScreen() {
                   </View>
                 )}
 
+                {/* Compteur d'occurrences */}
                 <View style={styles.occurrenceRow}>
-                  <Text style={styles.recurrenceSubLabel}>
-                    Nombre d'occurrences
-                  </Text>
-
+                  <Text style={styles.recurrenceSubLabel}>Nombre d'occurrences</Text>
                   <View style={styles.occurrenceCounter}>
                     <Pressable
                       onPress={() => {
@@ -1602,15 +1621,11 @@ export default function AddInterventionScreen() {
                     >
                       <Ionicons name="remove" size={18} color={COLORS.primary} />
                     </Pressable>
-
-                    <Text style={styles.occurrenceValue}>
-                      {recurrenceOccurrences}
-                    </Text>
-
+                    <Text style={styles.occurrenceValue}>{recurrenceOccurrences}</Text>
                     <Pressable
                       onPress={() => {
                         safeHapticSelection();
-                        setRecurrenceOccurrences((n) => Math.min(52, n + 1));
+                        setRecurrenceOccurrences((n) => Math.min(RECURRENCE_DEFAULTS[recurrenceType].max, n + 1));
                       }}
                       style={styles.occurrenceBtn}
                     >
@@ -1619,33 +1634,17 @@ export default function AddInterventionScreen() {
                   </View>
                 </View>
 
-                {recurrenceType === "weekly" && recurrenceDays.length > 0 && (
-                  <View style={styles.recurrencePreview}>
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={14}
-                      color={COLORS.primary}
-                    />
-                    <Text style={styles.recurrencePreviewText}>
-                      {recurrenceOccurrences} interventions seront créées sur les
-                      jours sélectionnés
-                    </Text>
-                  </View>
-                )}
-
-                {recurrenceType === "monthly" && (
-                  <View style={styles.recurrencePreview}>
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={14}
-                      color={COLORS.primary}
-                    />
-                    <Text style={styles.recurrencePreviewText}>
-                      {recurrenceOccurrences} interventions mensuelles à partir de
-                      la date de début
-                    </Text>
-                  </View>
-                )}
+                {/* Aperçu */}
+                <View style={styles.recurrencePreview}>
+                  <Ionicons name="information-circle-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.recurrencePreviewText}>
+                    {recurrenceType === "weekly" && recurrenceDays.length > 0
+                      ? `${recurrenceOccurrences} passage${recurrenceOccurrences > 1 ? "s" : ""} sur les jours sélectionnés`
+                      : recurrenceType === "weekly"
+                      ? "Sélectionnez au moins un jour"
+                      : `${recurrenceOccurrences} intervention${recurrenceOccurrences > 1 ? "s" : ""} ${RECURRENCE_LABELS[recurrenceType].toLowerCase()}${recurrenceOccurrences > 1 ? "s" : ""} à partir de la date de début`}
+                  </Text>
+                </View>
               </View>
             )}
           </View>
@@ -2191,7 +2190,7 @@ function LocationBanner({
       <View style={[styles.locBanner, styles.locBannerWarn]}>
         <Ionicons name="warning-outline" size={16} color={COLORS.warning} />
         <Text style={[styles.locText, { color: COLORS.warning }]}>
-          Position du bâtiment non définie — contactez votre syndic
+          Position du bâtiment non définie — contactez votre admin
         </Text>
       </View>
     );

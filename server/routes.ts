@@ -2101,6 +2101,360 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/notify-poll", async (req: Request, res: Response) => {
+    const { coProId, coProName, title, options, target, createdByName } = req.body as {
+      coProId?: string; coProName?: string; title?: string;
+      options?: string[]; target?: string; createdByName?: string;
+    };
+    if (!coProId || !title || !options || !target) {
+      return res.status(400).json({ error: "coProId, title, options et target requis" });
+    }
+
+    const db = getAdminDb();
+    if (!db) return res.json({ sent: 0, reason: "firebase_unavailable" });
+
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
+    const allMembers = membersSnap.docs.map((d) => d.data());
+
+    // Filtrer selon la cible du sondage (même logique que le client)
+    const targetEmails: string[] = allMembers
+      .filter((m) => {
+        if (m.role === "prestataire") return false;
+        if (m.receiveAnnouncementEmails === false) return false;
+        if (!m.email) return false;
+        if (target === "tous") return true;
+        if (target === "conseil") return m.role === "conseil";
+        if (target === "propriétaires") return m.role === "conseil" || m.role === "propriétaire";
+        return false;
+      })
+      .map((m) => m.email as string);
+
+    if (targetEmails.length === 0) return res.json({ sent: 0, reason: "no_recipients" });
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try { resendClient = await getUncachableResendClient(); }
+    catch { return res.json({ sent: 0, reason: "resend_unavailable" }); }
+
+    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const optionsHtml = (options as string[]).map((opt, i) =>
+      `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:8px;background:#F8FAFF;border-radius:10px;border:1px solid #E2E8F0;">
+        <div style="width:22px;height:22px;border-radius:50%;border:2px solid #2563EB;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#2563EB;">${i + 1}</div>
+        <span style="font-size:14px;color:#1E293B;">${escapeHtml(opt)}</span>
+      </div>`
+    ).join("");
+
+    try {
+      await resendClient.client.emails.send({
+        from: fromAddress,
+        to: targetEmails,
+        subject: `Sondage · ${coProName ?? "Votre copropriété"}`,
+        html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#7C3AED18;color:#7C3AED;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;margin-bottom:20px;">Sondage</div>
+      <h2 style="font-size:22px;font-weight:700;color:#0B1628;margin:0 0 6px;">${escapeHtml(title)}</h2>
+      <p style="font-size:13px;color:#64748B;margin:0 0 20px;">${escapeHtml(coProName ?? "")} · ${escapeHtml(createdByName ?? "Un membre")}</p>
+      <div style="margin-bottom:24px;">${optionsHtml}</div>
+      <p style="font-size:13px;color:#64748B;">Ouvrez l'application Maintena pour voter.</p>
+    </div>
+    <div style="background:#F8FAFF;padding:20px 32px;border-top:1px solid #E2E8F0;">
+      <div style="font-size:12px;color:#94A3B8;text-align:center;">Maintena · Gestion de copropriété professionnelle</div>
+    </div>
+  </div>
+</body></html>`,
+      });
+      return res.json({ sent: targetEmails.length });
+    } catch (e: any) {
+      console.error("notify-poll error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ─── Notification de contrat de maintenance ────────────────────────────────
+
+  app.post("/api/notify-maintenance-created", async (req: Request, res: Response) => {
+    const {
+      coProId, interventionId, providerEmail, providerName,
+      coProName, title, frequency, totalOccurrences, startDate,
+    } = req.body as {
+      coProId?: string; interventionId?: string; providerEmail?: string; providerName?: string;
+      coProName?: string; title?: string; frequency?: string;
+      totalOccurrences?: number; startDate?: string;
+    };
+
+    if (!providerEmail || !coProName || !title) {
+      return res.status(400).json({ error: "Paramètres manquants." });
+    }
+
+    const db = getAdminDb();
+    let webLink = "";
+    if (db && coProId && interventionId) {
+      try {
+        const token = generateGuestToken();
+        const tokenHash = sha256(token);
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000); // 90 jours
+        const baseUrl = getBaseUrl(req);
+        webLink = `${baseUrl}/guest-intervention/${token}`;
+        await db.collection("guestInterventionInvites").add({
+          tokenHash, tokenPreview: `${token.slice(0, 8)}…`,
+          coProId, interventionId,
+          providerEmail: providerEmail.toLowerCase(),
+          providerName: providerName ?? "",
+          categoryInviteCode: null,
+          activationCode: "", activationCodeUsed: false,
+          status: "sent",
+          createdAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        });
+      } catch (e) {
+        console.warn("[MAINTENA] guest invite for maintenance notification failed:", e);
+      }
+    }
+
+    const startDateStr = startDate
+      ? new Date(startDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+      : "";
+
+    const htmlBody = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#DBEAFE;color:#1D4ED8;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
+        Engagement de maintenance
+      </div>
+
+      <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">
+        Bonjour ${escapeHtml(providerName ?? "")},
+      </h1>
+
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
+        Vous avez été sollicité pour assurer la maintenance de la résidence
+        <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>,
+        conformément à votre contrat de prestation de services.
+      </p>
+
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:20px;margin-bottom:24px;">
+        <div style="font-size:12px;color:#64748B;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">Détail de l'engagement</div>
+        <table style="width:100%;border-collapse:collapse;">
+          <tr>
+            <td style="font-size:13px;color:#64748B;padding:5px 0;width:45%;">Objet de la maintenance</td>
+            <td style="font-size:14px;color:#0F172A;font-weight:700;">${escapeHtml(title)}</td>
+          </tr>
+          <tr>
+            <td style="font-size:13px;color:#64748B;padding:5px 0;">Fréquence</td>
+            <td style="font-size:14px;color:#0F172A;font-weight:700;">${escapeHtml(frequency ?? "")}</td>
+          </tr>
+          <tr>
+            <td style="font-size:13px;color:#64748B;padding:5px 0;">Nombre d'interventions</td>
+            <td style="font-size:14px;color:#0F172A;font-weight:700;">${totalOccurrences} passage${(totalOccurrences ?? 1) > 1 ? "s" : ""}</td>
+          </tr>
+          ${startDateStr ? `<tr>
+            <td style="font-size:13px;color:#64748B;padding:5px 0;">Date de début</td>
+            <td style="font-size:14px;color:#0F172A;font-weight:700;">${escapeHtml(startDateStr)}</td>
+          </tr>` : ""}
+        </table>
+      </div>
+
+      <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#9A3412;font-weight:700;margin-bottom:10px;">📋 Vos obligations contractuelles</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#C2410C;font-size:13px;line-height:1.8;">
+          <li>Réaliser chaque intervention <strong>dans les délais convenus</strong></li>
+          <li>Se rendre <strong>obligatoirement sur site</strong> pour chaque passage</li>
+          <li>Prendre une <strong>photo de preuve sur site</strong> (obligatoire)</li>
+          <li>Compléter <strong>intégralement</strong> la fiche d'intervention correspondante</li>
+          <li>Transmettre votre rapport après chaque réalisation</li>
+        </ul>
+      </div>
+
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 24px;">
+        Nous comptons sur votre professionnalisme pour garantir la qualité des prestations
+        attendues par les copropriétaires de la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.
+      </p>
+
+      ${webLink ? `<div style="text-align:center;margin:28px 0;">
+        <a href="${webLink}" style="display:inline-block;background:#2563EB;color:#fff;text-decoration:none;padding:16px 32px;border-radius:14px;font-size:15px;font-weight:700;letter-spacing:0.02em;">
+          Accéder à la première fiche d'intervention →
+        </a>
+      </div>
+      <p style="font-size:13px;color:#94A3B8;text-align:center;margin:0 0 8px;">
+        Sans création de compte requise · Accès direct et sécurisé
+      </p>` : ""}
+
+      <p style="font-size:13px;color:#94A3B8;line-height:1.6;margin-top:20px;">
+        Pour toute question, contactez directement le gestionnaire de la copropriété.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try { resendClient = await getUncachableResendClient(); }
+    catch { return res.json({ sent: false, reason: "resend_unavailable" }); }
+
+    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+
+    try {
+      await resendClient.client.emails.send({
+        from: fromAddress,
+        to: providerEmail,
+        subject: `Engagement de maintenance – ${coProName}`,
+        html: htmlBody,
+      });
+      return res.json({ sent: true });
+    } catch (e: any) {
+      console.error("notify-maintenance-created error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ─── Rappel de maintenance ──────────────────────────────────────────────────
+
+  app.post("/api/remind-maintenance", async (req: Request, res: Response) => {
+    const {
+      coProId, interventionId, providerEmail, providerName,
+      coProName, title, nextDate, category,
+    } = req.body as {
+      coProId?: string; interventionId?: string; providerEmail?: string; providerName?: string;
+      coProName?: string; title?: string; nextDate?: string; category?: string;
+    };
+
+    if (!providerEmail || !coProName || !title) {
+      return res.status(400).json({ error: "Paramètres manquants." });
+    }
+
+    const db = getAdminDb();
+    let webLink = "";
+    if (db && coProId && interventionId) {
+      try {
+        const token = generateGuestToken();
+        const tokenHash = sha256(token);
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const baseUrl = getBaseUrl(req);
+        webLink = `${baseUrl}/guest-intervention/${token}`;
+        await db.collection("guestInterventionInvites").add({
+          tokenHash, tokenPreview: `${token.slice(0, 8)}…`,
+          coProId, interventionId,
+          providerEmail: providerEmail.toLowerCase(),
+          providerName: providerName ?? "",
+          categoryInviteCode: null,
+          activationCode: "", activationCodeUsed: false,
+          status: "reminder",
+          createdAt: now.toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        });
+      } catch (e) {
+        console.warn("[MAINTENA] guest invite for reminder failed:", e);
+      }
+    }
+
+    const nextDateStr = nextDate
+      ? new Date(nextDate).toLocaleDateString("fr-FR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
+      : "";
+
+    const htmlBody = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#FEF3C7;color:#D97706;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
+        ⏰ Rappel d'intervention
+      </div>
+
+      <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">
+        Bonjour ${escapeHtml(providerName ?? "")},
+      </h1>
+
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
+        Votre prochaine intervention de maintenance pour
+        <strong style="color:#0F172A;">${escapeHtml(title)}</strong>
+        à la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>
+        approche.
+      </p>
+
+      ${nextDateStr ? `<div style="background:#FFFBEB;border:2px solid #F59E0B;border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
+        <div style="font-size:12px;color:#92400E;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention prévue</div>
+        <div style="font-size:22px;font-weight:800;color:#D97706;">${escapeHtml(nextDateStr)}</div>
+      </div>` : ""}
+
+      <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#9F1239;font-weight:700;margin-bottom:12px;">⚠️ Rappel de vos obligations</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#BE123C;font-size:13px;line-height:2;">
+          <li>Votre <strong>présence sur site est impérative</strong> — aucune prestation à distance n'est acceptée</li>
+          <li>Une <strong>photo de preuve prise sur site est obligatoire</strong> pour valider l'intervention</li>
+          <li>La fiche d'intervention doit être <strong>intégralement complétée</strong> après chaque passage</li>
+          <li>Tout manquement peut engager <strong>votre responsabilité contractuelle</strong></li>
+        </ul>
+      </div>
+
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 8px;">
+        Cette mission fait partie de votre <strong>engagement contractuel</strong> envers la résidence
+        ${escapeHtml(coProName)}. Les copropriétaires comptent sur la qualité et la régularité de vos prestations.
+      </p>
+
+      <p style="font-size:14px;color:#64748B;line-height:1.7;margin:0 0 28px;">
+        Merci de prendre toutes les dispositions nécessaires pour réaliser cette maintenance
+        <strong>dans les délais convenus</strong> et renseigner dûment la fiche ci-jointe.
+      </p>
+
+      ${webLink ? `<div style="text-align:center;margin:28px 0;">
+        <a href="${webLink}" style="display:inline-block;background:#D97706;color:#fff;text-decoration:none;padding:16px 32px;border-radius:14px;font-size:15px;font-weight:700;letter-spacing:0.02em;">
+          Ouvrir et compléter la fiche d'intervention →
+        </a>
+      </div>
+      <p style="font-size:13px;color:#94A3B8;text-align:center;margin:0 0 8px;">
+        Accès direct · sans connexion requise
+      </p>` : ""}
+
+      <p style="font-size:13px;color:#94A3B8;line-height:1.6;margin-top:20px;">
+        Pour toute question, contactez directement le gestionnaire de la copropriété.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+
+    let resendClient2: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try { resendClient2 = await getUncachableResendClient(); }
+    catch { return res.json({ sent: false, reason: "resend_unavailable" }); }
+
+    const fromAddress2 = resendClient2.fromEmail ?? "Maintena <onboarding@resend.dev>";
+
+    try {
+      await resendClient2.client.emails.send({
+        from: fromAddress2,
+        to: providerEmail,
+        subject: `⏰ Rappel – Maintenance à venir · ${escapeHtml(title)} · ${coProName}`,
+        html: htmlBody,
+      });
+      return res.json({ sent: true });
+    } catch (e: any) {
+      console.error("remind-maintenance error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.post("/api/guest-access/create", async (req: Request, res: Response) => {
     const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body as {
       coProId?: string;
