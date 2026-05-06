@@ -20,7 +20,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
-import { uploadPhotoPending } from "@/lib/storage";
+import { uploadPhoto, uploadPhotoPending } from "@/lib/storage";
 import PhotoViewer from "@/components/PhotoViewer";
 import { wa, wConfirm } from "@/shared/dialogs";
 import {
@@ -887,7 +887,7 @@ export default function AddInterventionScreen() {
           try {
             for (const uri of localPhotos) {
               if (!uri || typeof uri !== "string") continue;
-              const url = await uploadPhotoPending(currentCopro.id, uri);
+              const url = await uploadPhoto(currentCopro.id, editId, uri);
               newPhotoUrls.push(url);
             }
           } catch (e) {
