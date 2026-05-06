@@ -49,6 +49,7 @@ export default function BlockedScreen() {
 
   const isAdmin = currentRole === "admin";
   const isExpired = userSubscription?.status === "expired";
+  const isTrialExpired = isExpired && !!userSubscription?.trialEndsAt;
 
   const handlePayment = async () => {
     if (!currentCopro || !user) {
@@ -247,18 +248,19 @@ export default function BlockedScreen() {
               <View style={styles.card}>
                 <View style={styles.cardHeader}>
                   <Ionicons
-                    name="refresh-circle-outline"
+                    name={isTrialExpired ? "hourglass-outline" : "refresh-circle-outline"}
                     size={22}
                     color={COLORS.danger}
                   />
-                  <Text style={styles.cardTitle}>Renouveler l'abonnement</Text>
+                  <Text style={styles.cardTitle}>
+                    {isTrialExpired ? "Votre essai gratuit est terminé" : "Renouveler l'abonnement"}
+                  </Text>
                 </View>
 
                 <Text style={styles.cardDesc}>
-                  Votre abonnement{" "}
-                  {expiryDate ? `a expiré le ${expiryDate}` : "est expiré"}.
-                  Renouvelez-le pour retrouver l'accès à toutes vos
-                  copropriétés.
+                  {isTrialExpired
+                    ? "Vos 30 jours d'essai sont écoulés. Choisissez un abonnement pour continuer à gérer vos copropriétés sans interruption."
+                    : `Votre abonnement ${expiryDate ? `a expiré le ${expiryDate}` : "est expiré"}. Renouvelez-le pour retrouver l'accès à toutes vos copropriétés.`}
                 </Text>
 
                 <View style={styles.offerBox}>
@@ -346,7 +348,7 @@ export default function BlockedScreen() {
                 </View>
 
                 <Text style={styles.cardDesc}>
-                  Payez une seule fois pour activer votre compte syndic. Vous
+                  Payez une seule fois pour activer votre compte admin. Vous
                   pourrez ensuite créer autant de copropriétés que vous
                   souhaitez et partager les codes d'invitation à vos
                   prestataires.
@@ -450,7 +452,7 @@ export default function BlockedScreen() {
                 style={[styles.statusDot, { backgroundColor: COLORS.teal }]}
               />
               <Text style={[styles.statusText, { color: COLORS.teal }]}>
-                En attente du syndic
+                En attente de l'admin
               </Text>
             </View>
 
@@ -466,7 +468,7 @@ export default function BlockedScreen() {
 
               <Text style={styles.cardDesc}>
                 Votre copropriété n'est pas encore activée. Contactez votre
-                syndic pour finaliser l'activation.
+                admin pour finaliser l'activation.
               </Text>
 
               <Pressable

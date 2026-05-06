@@ -1024,6 +1024,128 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Inscription essai gratuit 30 jours (sans carte) ──────────────────────────
+  app.post("/api/web-signup-trial", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase Admin non configuré." });
+
+    const { firstName, lastName, email, phone, password, coProName, address, postalCode, city } = req.body ?? {};
+
+    if (!firstName || !lastName || !email || !password || !coProName || !address || !postalCode || !city) {
+      return res.status(400).json({ error: "Champs obligatoires manquants." });
+    }
+    if (String(password).trim().length < 6) {
+      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
+    }
+
+    try {
+      const { getAuth } = await import("firebase-admin/auth");
+      const adminAuth = getAuth();
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const displayName = `${String(firstName).trim()} ${String(lastName).trim()}`.trim();
+
+      let userRecord;
+      try {
+        userRecord = await adminAuth.getUserByEmail(normalizedEmail);
+        return res.status(409).json({ error: "Un compte existe déjà avec cet email. Connectez-vous directement dans l'application." });
+      } catch {
+        userRecord = await adminAuth.createUser({
+          email: normalizedEmail,
+          password: String(password).trim(),
+          displayName,
+        });
+      }
+
+      const userId = userRecord.uid;
+      const inviteCode = await createUniqueInviteCode(db);
+      const coProRef = db.collection("copros").doc();
+      const now = new Date().toISOString();
+      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      await db.collection("users").doc(userId).set({
+        uid: userId,
+        email: normalizedEmail,
+        displayName,
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        phone: String(phone ?? "").trim(),
+        role: "admin",
+        subscriptionStatus: "trialing",
+        trialEndsAt,
+        createdAt: now,
+        managedCoproIds: [coProRef.id],
+      }, { merge: true });
+
+      await coProRef.set({
+        name: String(coProName).trim(),
+        address: String(address).trim(),
+        postalCode: String(postalCode).trim(),
+        city: String(city).trim(),
+        adminId: userId,
+        adminEmail: normalizedEmail,
+        inviteCode,
+        status: "pending",
+        stripePaid: false,
+        createdAt: now,
+      });
+
+      await db.collection("copros").doc(coProRef.id).collection("members").doc(userId).set({
+        uid: userId,
+        email: normalizedEmail,
+        displayName,
+        role: "admin",
+        joinedAt: now,
+      });
+
+      await db.collection("inviteCodes").doc(inviteCode).set({
+        coProId: coProRef.id,
+        coProName: String(coProName).trim(),
+        role: "prestataire",
+        createdAt: now,
+      });
+
+      const baseUrl = getBaseUrl(req);
+      return res.json({ ok: true, redirectUrl: `${baseUrl}/trial-success`, userId, coProId: coProRef.id });
+    } catch (e: any) {
+      console.error("web-signup-trial error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  app.get("/trial-success", (_req: Request, res: Response) => {
+    res.send(pageShell("Essai gratuit démarré — Maintena", `
+  <div class="m-container" style="max-width:560px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#059669,#10b981);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:32px;">✓</div>
+      <h1 style="font-size:1.6rem;margin-bottom:10px;">Votre essai gratuit commence !</h1>
+      <p class="subtitle">30 jours pour découvrir Maintena. Aucun paiement ne sera prélevé pendant cette période.</p>
+
+      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin:24px 0;text-align:left;">
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6ee7b7;margin-bottom:12px;">Prochaines étapes</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:0.9rem;color:rgba(255,255,255,0.8);">
+          <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">1</span> Téléchargez l'application Maintena</div>
+          <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">2</span> Connectez-vous avec votre email et mot de passe</div>
+          <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">3</span> Invitez vos prestataires et résidents</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:10px;background:#000;color:#fff;padding:14px 20px;border-radius:12px;font-weight:600;font-size:0.9rem;text-decoration:none;border:1px solid rgba(255,255,255,0.12);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.77a2.5 2.5 0 0 1-.74-1.82V2.05A2.5 2.5 0 0 1 3.18.23l.1-.08L13.5 10.5v.1L3.18 23.77zm14.04-8.62-2.86-2.85-1.46 1.46 2.86 2.85 1.46-1.46zm2.43-5.42-2.86 2.86-2.86-2.86-.1.07-3.3 3.3 3.3 3.3.1.07 9.27-5.35a1.5 1.5 0 0 0 0-2.6l-3.55-2.05zM3.28.3l10.22 10.2-1.46 1.46L1.82 1.74A2.5 2.5 0 0 1 3.28.3z"/></svg>
+          Télécharger sur Google Play
+        </a>
+        <a href="/web" style="display:block;background:var(--blue);color:#fff;padding:14px 20px;border-radius:12px;font-weight:700;font-size:0.9rem;text-decoration:none;">
+          Accéder à la version web →
+        </a>
+      </div>
+
+      <p style="margin-top:20px;font-size:0.78rem;color:rgba(255,255,255,0.35);">
+        Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a>
+      </p>
+    </div>
+  </div>`));
+  });
+
   app.post("/api/stripe-webhook", async (req: Request, res: Response) => {
     const stripe = getStripe();
     if (!stripe) return res.status(503).send("Stripe not configured");
@@ -1525,114 +1647,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/inscription", (req: Request, res: Response) => {
-    const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
-    const initialPlan = ["pro", "business"].includes(queryPlan) ? queryPlan : "starter";
-    const html = pageShell("Créer mon espace syndic", `
-  <style>
-    .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
-    .plan-btn {
-      flex:1; padding:14px 12px; background:transparent; color:var(--muted);
-      border:none; cursor:pointer; font-size:14px; font-weight:600; font-family:inherit;
-      transition:background 0.15s, color 0.15s; text-align:center; line-height:1.3;
-    }
-    .plan-btn.active { background:var(--blue); color:#fff; }
-    .plan-btn:not(.active):hover { background:rgba(255,255,255,0.06); color:var(--text); }
-    .plan-btn small { display:block; font-size:11px; font-weight:400; opacity:0.8; margin-top:2px; }
-    .plan-btn.active small { opacity:0.85; }
-  </style>
-
+  app.get("/inscription", (_req: Request, res: Response) => {
+    const html = pageShell("Créer mon espace syndic — Essai gratuit 30 jours", `
   <div class="m-container">
     <div class="m-card">
-      <h1>Créer mon espace syndic</h1>
-      <p class="subtitle">Créez votre compte Maintena puis finalisez l’activation avec votre abonnement.</p>
-
-      <!-- Sélecteur de plan -->
-      <div class="plan-toggle" id="plan-toggle" role="group" aria-label="Choisir un plan">
-        <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">
-          Starter
-          <small>1 à 5 copros · 7,99 €/mois</small>
-        </button>
-        <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">
-          Pro
-          <small>4 à 15 copros · 14,99 €/mois</small>
-        </button>
-        <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">
-          Business
-          <small>16 à 30 copros · 19,99 €/mois</small>
-        </button>
+      <div style="display:flex;align-items:center;gap:8px;background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.25);border-radius:10px;padding:10px 14px;margin-bottom:20px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span style="font-size:0.88rem;font-weight:600;color:#6ee7b7;">30 jours gratuits · Sans engagement · Aucune carte bancaire</span>
       </div>
+
+      <h1>Créer mon espace syndic</h1>
+      <p class="subtitle">Renseignez vos informations pour démarrer votre essai gratuit. Votre compte est actif immédiatement.</p>
 
       <form id="signup-form">
         <div class="m-row">
           <div>
             <label class="m-label" for="firstName">Prénom</label>
-            <input class="m-input" id="firstName" placeholder="Jean" required />
+            <input class="m-input" id="firstName" placeholder="Jean" required autocomplete="given-name" />
           </div>
           <div>
             <label class="m-label" for="lastName">Nom</label>
-            <input class="m-input" id="lastName" placeholder="Dupont" required />
+            <input class="m-input" id="lastName" placeholder="Dupont" required autocomplete="family-name" />
           </div>
         </div>
 
         <label class="m-label" for="email">Email professionnel</label>
-        <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
+        <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required autocomplete="email" />
 
-        <label class="m-label" for="phone">Téléphone</label>
-        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" pattern="[0-9 ]{10,14}" />
+        <label class="m-label" for="phone">Téléphone <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
+        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" autocomplete="tel" />
 
         <label class="m-label" for="password">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 caractères)</span></label>
-        <input class="m-input" id="password" type="password" minlength="6" required />
+        <input class="m-input" id="password" type="password" minlength="6" required autocomplete="new-password" />
 
         <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;" />
-        <p style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Votre première copropriété</p>
+        <p style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Votre première copropriété</p>
 
         <label class="m-label" for="coProName">Nom de la copropriété</label>
         <input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
 
         <label class="m-label" for="address">Adresse</label>
-        <input class="m-input" id="address" placeholder="12 rue de la Paix" required />
+        <input class="m-input" id="address" placeholder="12 rue de la Paix" required autocomplete="street-address" />
 
         <div class="m-row">
           <div>
             <label class="m-label" for="postalCode">Code postal</label>
-            <input class="m-input" id="postalCode" placeholder="31000" required />
+            <input class="m-input" id="postalCode" placeholder="31000" required autocomplete="postal-code" />
           </div>
           <div>
             <label class="m-label" for="city">Ville</label>
-            <input class="m-input" id="city" placeholder="Toulouse" required />
+            <input class="m-input" id="city" placeholder="Toulouse" required autocomplete="address-level2" />
           </div>
         </div>
 
-        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "14,99 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "7,99 €/mois"}</button>
+        <button class="m-btn" type="submit" id="submit-btn" style="background:linear-gradient(135deg,#059669,#10b981);">
+          Démarrer l’essai gratuit →
+        </button>
         <div class="m-error" id="error"></div>
       </form>
 
-      <p style="text-align:center;margin-top:18px;font-size:13px;color:var(--muted);">
-        🔒 Paiement sécurisé via Stripe · Résiliation à tout moment
+      <p style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted);">
+        Après l’essai, à partir de 7,99 €/mois · Résiliable à tout moment<br/>
+        <a href="/inscription-paiement" style="color:var(--muted);text-decoration:underline;text-underline-offset:2px;">Payer directement sans essai</a>
       </p>
     </div>
   </div>
 
   <script>
-    var currentPlan = "${initialPlan}";
-    var planLabels = { starter: "Continuer → 7,99 €/mois", pro: "Continuer → 14,99 €/mois", business: "Continuer → 19,99 €/mois" };
-
     var form = document.getElementById("signup-form");
     var errorBox = document.getElementById("error");
     var btn = document.getElementById("submit-btn");
-    var toggleBtns = document.querySelectorAll("#plan-toggle .plan-btn");
 
-    // Plan toggle
-    toggleBtns.forEach(function (b) {
-      b.addEventListener("click", function () {
-        currentPlan = b.dataset.plan;
-        toggleBtns.forEach(function (x) { x.classList.toggle("active", x === b); });
-        btn.textContent = planLabels[currentPlan] || planLabels.starter;
-      });
-    });
-
-    // Format automatique téléphone : 06 12 34 56 78
     var phoneInput = document.getElementById("phone");
     phoneInput.addEventListener("input", function () {
       var digits = phoneInput.value.replace(/\\D/g, "").slice(0, 10);
@@ -1642,7 +1727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     form.addEventListener("submit", async function (e) {
       e.preventDefault();
       errorBox.style.display = "none";
-      btn.textContent = "Chargement…";
+      btn.textContent = "Création du compte…";
       btn.disabled = true;
 
       var body = {
@@ -1655,28 +1740,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
         address: document.getElementById("address").value.trim(),
         postalCode: document.getElementById("postalCode").value.trim(),
         city: document.getElementById("city").value.trim(),
-        plan: currentPlan
       };
 
       try {
-        var response = await fetch("/api/web-signup-checkout", {
+        var response = await fetch("/api/web-signup-trial", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         });
         var data = await response.json();
         if (!response.ok) throw new Error(data.error || "Erreur lors de l’inscription");
-        if (data.url) { window.location.href = data.url; return; }
-        throw new Error("Session Stripe introuvable");
+        if (data.redirectUrl) { window.location.href = data.redirectUrl; return; }
+        throw new Error("Réponse inattendue du serveur");
       } catch (err) {
         errorBox.textContent = err.message || "Erreur inconnue";
         errorBox.style.display = "block";
-        btn.textContent = planLabels[currentPlan] || planLabels.starter;
+        btn.textContent = "Démarrer l’essai gratuit →";
         btn.disabled = false;
       }
     });
   </script>`);
 
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.status(200).send(html);
+  });
+
+  // Ancienne inscription avec paiement direct (pour ceux qui veulent payer sans essai)
+  app.get("/inscription-paiement", (req: Request, res: Response) => {
+    const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
+    const initialPlan = ["pro", "business"].includes(queryPlan) ? queryPlan : "starter";
+    const html = pageShell("Créer mon espace syndic — Abonnement direct", `
+  <style>
+    .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
+    .plan-btn { flex:1; padding:14px 12px; background:transparent; color:var(--muted); border:none; cursor:pointer; font-size:14px; font-weight:600; font-family:inherit; transition:background 0.15s, color 0.15s; text-align:center; line-height:1.3; }
+    .plan-btn.active { background:var(--blue); color:#fff; }
+    .plan-btn:not(.active):hover { background:rgba(255,255,255,0.06); color:var(--text); }
+    .plan-btn small { display:block; font-size:11px; font-weight:400; opacity:0.8; margin-top:2px; }
+  </style>
+  <div class="m-container">
+    <div class="m-card">
+      <p style="text-align:center;margin-bottom:16px;"><a href="/inscription" style="color:var(--blue);font-size:0.88rem;">← Retour à l’essai gratuit</a></p>
+      <h1>Abonnement direct</h1>
+      <p class="subtitle">Créez votre compte et activez votre abonnement immédiatement via Stripe.</p>
+      <div class="plan-toggle" id="plan-toggle" role="group">
+        <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">Starter<small>1–5 copros · 7,99 €/mois</small></button>
+        <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">Pro<small>4–15 copros · 14,99 €/mois</small></button>
+        <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">Business<small>16–30 copros · 19,99 €/mois</small></button>
+      </div>
+      <form id="signup-form">
+        <div class="m-row"><div><label class="m-label">Prénom</label><input class="m-input" id="firstName" placeholder="Jean" required /></div><div><label class="m-label">Nom</label><input class="m-input" id="lastName" placeholder="Dupont" required /></div></div>
+        <label class="m-label">Email professionnel</label><input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
+        <label class="m-label">Téléphone</label><input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" />
+        <label class="m-label">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 car.)</span></label><input class="m-input" id="password" type="password" minlength="6" required />
+        <hr style="border:none;border-top:1px solid var(--border);margin:20px 0;" />
+        <label class="m-label">Nom de la copropriété</label><input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
+        <label class="m-label">Adresse</label><input class="m-input" id="address" placeholder="12 rue de la Paix" required />
+        <div class="m-row"><div><label class="m-label">Code postal</label><input class="m-input" id="postalCode" placeholder="31000" required /></div><div><label class="m-label">Ville</label><input class="m-input" id="city" placeholder="Toulouse" required /></div></div>
+        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "14,99 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "7,99 €/mois"}</button>
+        <div class="m-error" id="error"></div>
+      </form>
+      <p style="text-align:center;margin-top:14px;font-size:12px;color:var(--muted);">🔒 Paiement sécurisé via Stripe · Résiliation à tout moment</p>
+    </div>
+  </div>
+  <script>
+    var currentPlan = "${initialPlan}";
+    var planLabels = { starter: "Continuer → 7,99 €/mois", pro: "Continuer → 14,99 €/mois", business: "Continuer → 19,99 €/mois" };
+    var form = document.getElementById("signup-form");
+    var errorBox = document.getElementById("error");
+    var btn = document.getElementById("submit-btn");
+    document.querySelectorAll("#plan-toggle .plan-btn").forEach(function(b) {
+      b.addEventListener("click", function() { currentPlan = b.dataset.plan; document.querySelectorAll("#plan-toggle .plan-btn").forEach(function(x){x.classList.toggle("active",x===b);}); btn.textContent = planLabels[currentPlan]; });
+    });
+    var phoneInput = document.getElementById("phone");
+    phoneInput.addEventListener("input", function() { var d = phoneInput.value.replace(/\\D/g,"").slice(0,10); phoneInput.value = d.replace(/(\\d{2})(?=\\d)/g,"$1 ").trim(); });
+    form.addEventListener("submit", async function(e) {
+      e.preventDefault(); errorBox.style.display="none"; btn.textContent="Chargement…"; btn.disabled=true;
+      var body = { firstName:document.getElementById("firstName").value.trim(), lastName:document.getElementById("lastName").value.trim(), email:document.getElementById("email").value.trim().toLowerCase(), phone:document.getElementById("phone").value.replace(/\\s/g,"").trim(), password:document.getElementById("password").value, coProName:document.getElementById("coProName").value.trim(), address:document.getElementById("address").value.trim(), postalCode:document.getElementById("postalCode").value.trim(), city:document.getElementById("city").value.trim(), plan:currentPlan };
+      try { var r = await fetch("/api/web-signup-checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); var d = await r.json(); if(!r.ok) throw new Error(d.error||"Erreur"); if(d.url){window.location.href=d.url;return;} throw new Error("Session Stripe introuvable"); }
+      catch(err) { errorBox.textContent=err.message||"Erreur inconnue"; errorBox.style.display="block"; btn.textContent=planLabels[currentPlan]; btn.disabled=false; }
+    });
+  </script>`);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);
   });

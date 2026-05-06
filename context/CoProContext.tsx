@@ -140,6 +140,15 @@ function computeSubscriptionStatus(data: any): UserSubscription {
   if (!data?.subscriptionStatus || data.subscriptionStatus === "none") {
     return { status: "none" };
   }
+
+  if (data.subscriptionStatus === "trialing") {
+    const trialEndsAt = data.trialEndsAt as string | undefined;
+    if (trialEndsAt && new Date(trialEndsAt) < new Date()) {
+      return { status: "expired", trialEndsAt };
+    }
+    return { status: "trialing", trialEndsAt };
+  }
+
   const expiresAt = data.subscriptionExpiresAt as string | undefined;
   if (expiresAt && new Date(expiresAt) < new Date()) {
     return {
@@ -562,7 +571,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   }, [currentCoproId, roleMap]);
 
   const isSubscribed = useMemo(
-    () => isSuperAdmin || userSubscription?.status === "active",
+    () =>
+      isSuperAdmin ||
+      userSubscription?.status === "active" ||
+      userSubscription?.status === "trialing",
     [isSuperAdmin, userSubscription]
   );
 

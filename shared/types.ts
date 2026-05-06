@@ -13,10 +13,11 @@ export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: nu
 };
 
 export interface UserSubscription {
-  status: "none" | "active" | "expired";
+  status: "none" | "active" | "expired" | "trialing";
   plan?: SubscriptionPlan;
   activatedAt?: string;
   expiresAt?: string;
+  trialEndsAt?: string;
 }
 
 export type Category =
