@@ -1170,9 +1170,10 @@ export default function AddInterventionScreen() {
           router.back();
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      wa("Erreur", "Impossible d'enregistrer.");
+      const msg = e?.message ?? String(e) ?? "Erreur inconnue";
+      wa("Erreur", `Impossible d'enregistrer.\n\n${msg}`);
     } finally {
       setIsSubmitting(false);
     }
