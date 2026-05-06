@@ -27,16 +27,21 @@ export default function AppLayout() {
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textMuted,
         tabBarStyle: {
-          backgroundColor: COLORS.surface,
-          borderTopColor: COLORS.border,
-          borderTopWidth: 1,
+          backgroundColor: "#fff",
+          borderTopWidth: 0,
+          elevation: 0,
           height: Platform.OS === "web" ? 84 : 82,
           paddingBottom: Platform.OS === "web" ? 34 : 28,
           paddingTop: 8,
+          shadowColor: "#0B1628",
+          shadowOpacity: 0.10,
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: -4 },
         },
         tabBarLabelStyle: {
           fontSize: 10,
-          fontFamily: "Inter_500Medium",
+          fontFamily: "Inter_600SemiBold",
+          letterSpacing: 0.1,
         },
       }}
     >

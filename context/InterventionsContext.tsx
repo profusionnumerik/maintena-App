@@ -313,19 +313,18 @@ export function InterventionsProvider({
     const done = interventions.filter((i) => i.status === "termine").length;
     const inProgress = interventions.filter((i) => i.status === "en_cours").length;
     const planned = interventions.filter((i) => i.status === "planifie").length;
-    const rated = interventions.filter((i) => i.rating != null);
-    const avgRating =
-      rated.length > 0
-        ? rated.reduce((s, i) => s + (i.rating ?? 0), 0) / rated.length
-        : 0;
+    const recurringGroups = new Set(
+      interventions.filter((i) => !!i.recurrenceGroupId).map((i) => i.recurrenceGroupId)
+    ).size;
 
     return {
       total: interventions.length,
       done,
       inProgress,
       planned,
-      avgRating,
-      ratedCount: rated.length,
+      recurringGroups,
+      avgRating: 0,
+      ratedCount: 0,
     };
   }, [interventions]);
 

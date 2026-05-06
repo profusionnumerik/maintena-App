@@ -182,42 +182,48 @@ function InterventionCard({ item, onPress, compact }: { item: Intervention; onPr
   const colors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
   return (
     <Pressable
-      style={({ pressed }) => [styles.card, compact && styles.cardCompact, pressed && { opacity: 0.8 }]}
+      style={({ pressed }) => [
+        styles.card,
+        compact && styles.cardCompact,
+        { borderLeftColor: sc.dot },
+        pressed && { transform: [{ scale: 0.985 }] },
+      ]}
       onPress={onPress}
     >
-      <View style={styles.cardTop}>
-        <View style={styles.cardMeta}>
-          <View style={[styles.catBadge, { backgroundColor: colors.bg }]}>
-            <Ionicons name={iconName} size={11} color={colors.text} />
-            <Text style={[styles.catText, { color: colors.text }]}>{CATEGORY_LABELS[item.category]}</Text>
-          </View>
-          {!compact && (
-            <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-              <View style={[styles.statusDot, { backgroundColor: sc.dot }]} />
-              <Text style={[styles.statusText, { color: sc.text }]}>{STATUS_LABELS[item.status]}</Text>
-            </View>
-          )}
-        </View>
-        {item.photos && item.photos.length > 0 && (
-          <View style={styles.photoIndicator}>
-            <Ionicons name="image-outline" size={13} color={COLORS.textMuted} />
-            <Text style={styles.photoCount}>{item.photos.length}</Text>
+      <View style={styles.cardHeader}>
+        <Text style={[styles.cardTitle, compact && styles.cardTitleCompact]} numberOfLines={compact ? 1 : 2}>
+          {item.title}
+        </Text>
+        {!compact && (
+          <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
+            <View style={[styles.statusDot, { backgroundColor: sc.dot }]} />
+            <Text style={[styles.statusText, { color: sc.text }]}>{STATUS_LABELS[item.status]}</Text>
           </View>
         )}
       </View>
-      <Text style={[styles.cardTitle, compact && styles.cardTitleCompact]} numberOfLines={2}>{item.title}</Text>
-      {!compact && item.description ? (
-        <Text style={styles.cardDesc} numberOfLines={1}>{item.description}</Text>
-      ) : null}
-      <View style={styles.cardFooter}>
+
+      <View style={styles.cardMeta}>
+        <View style={[styles.catBadge, { backgroundColor: colors.bg }]}>
+          <Ionicons name={iconName} size={11} color={colors.text} />
+          <Text style={[styles.catText, { color: colors.text }]}>{CATEGORY_LABELS[item.category]}</Text>
+        </View>
+        <Text style={styles.metaSep}>·</Text>
         <Text style={styles.cardDate}>
           {new Date(item.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
         </Text>
         {item.technician ? (
-          <View style={styles.techRow}>
-            <Ionicons name="person-outline" size={12} color={COLORS.textMuted} />
-            <Text style={styles.techName}>{item.technician}</Text>
-          </View>
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            <Ionicons name="person-outline" size={11} color={COLORS.textMuted} />
+            <Text style={styles.techName} numberOfLines={1}>{item.technician}</Text>
+          </>
+        ) : null}
+        {item.photos && item.photos.length > 0 ? (
+          <>
+            <Text style={styles.metaSep}>·</Text>
+            <Ionicons name="image-outline" size={11} color={COLORS.textMuted} />
+            <Text style={styles.photoCount}>{item.photos.length}</Text>
+          </>
         ) : null}
       </View>
     </Pressable>
@@ -232,17 +238,17 @@ function StatusSectionHeader({
   const cfg = STATUS_CONFIG[status];
   return (
     <Pressable
-      style={[styles.sectionHeader, { borderLeftColor: cfg.dot }]}
+      style={[styles.sectionHeader, { borderLeftColor: cfg.dot, backgroundColor: cfg.bg }]}
       onPress={() => { Haptics.selectionAsync(); onToggle(); }}
     >
       <View style={styles.sectionHeaderLeft}>
         <View style={[styles.sectionDot, { backgroundColor: cfg.dot }]} />
         <Text style={[styles.sectionLabel, { color: cfg.text }]}>{STATUS_LABELS[status]}</Text>
-        <View style={[styles.sectionCount, { backgroundColor: cfg.bg }]}>
+        <View style={[styles.sectionCount, { backgroundColor: cfg.dot + "22" }]}>
           <Text style={[styles.sectionCountText, { color: cfg.text }]}>{total}</Text>
         </View>
       </View>
-      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textMuted} />
+      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={cfg.text} />
     </Pressable>
   );
 }
@@ -874,12 +880,14 @@ const styles = StyleSheet.create({
   // Intervention cards
   card: {
     backgroundColor: COLORS.surface, borderRadius: 14,
-    padding: 14, marginHorizontal: 16, marginTop: 6,
-    borderWidth: 1, borderColor: COLORS.border,
+    padding: 16, marginHorizontal: 16, marginTop: 8,
+    borderWidth: 1, borderLeftWidth: 4, borderColor: COLORS.border,
+    overflow: "hidden",
   },
   cardCompact: { marginHorizontal: 4, borderRadius: 10, padding: 11 },
-  cardTop: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  cardMeta: { flexDirection: "row", gap: 6, flexWrap: "wrap", flex: 1 },
+  cardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 10 },
+  cardMeta: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 5 },
+  metaSep: { fontSize: 11, color: COLORS.textMuted },
   catBadge: {
     flexDirection: "row", alignItems: "center", gap: 4,
     paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8,
@@ -891,29 +899,24 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 5, height: 5, borderRadius: 3 },
   statusText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
-  photoIndicator: { flexDirection: "row", alignItems: "center", gap: 3 },
   photoCount: { fontSize: 11, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
-  cardTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 3 },
-  cardTitleCompact: { fontSize: 13, marginBottom: 2 },
-  cardDesc: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 4 },
-  cardFooter: { flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  cardTitle: { flex: 1, fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text, lineHeight: 20 },
+  cardTitleCompact: { fontSize: 13 },
   cardDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
-  techRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  techName: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  techName: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, maxWidth: 110 },
 
   // Section headers
   sectionHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
-    paddingHorizontal: 14, paddingVertical: 10,
-    backgroundColor: COLORS.surface, borderRadius: 12,
-    borderLeftWidth: 3, borderWidth: 1, borderColor: COLORS.border,
+    marginHorizontal: 16, marginTop: 20, marginBottom: 4,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderRadius: 14, borderLeftWidth: 4, borderWidth: 1, borderColor: "transparent",
   },
   sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  sectionDot: { width: 8, height: 8, borderRadius: 4 },
-  sectionLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  sectionDot: { width: 9, height: 9, borderRadius: 5 },
+  sectionLabel: { fontSize: 14, fontFamily: "Inter_700Bold" },
   sectionCount: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
-  sectionCountText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  sectionCountText: { fontSize: 12, fontFamily: "Inter_700Bold" },
 
   groupHeader: {
     flexDirection: "row", alignItems: "center", gap: 12,

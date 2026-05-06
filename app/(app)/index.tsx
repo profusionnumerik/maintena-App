@@ -15,7 +15,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
-import { CoPro, CoProStatus, Intervention, Signalement, STATUS_LABELS, CATEGORY_LABELS } from "@/shared/types";
+import { CoPro, CoProStatus, Intervention, Signalement, STATUS_LABELS, CATEGORY_LABELS, CATEGORY_ICONS } from "@/shared/types";
 
 
 const STATUS_CHIP: Record<CoProStatus, { label: string; color: string; bg: string }> = {
@@ -86,11 +86,12 @@ function CoproCard({
       style={({ pressed }) => [
         styles.card,
         isActive && styles.cardActive,
-        pressed && { opacity: 0.85 },
+        pressed && { transform: [{ scale: 0.985 }] },
       ]}
       onPress={onPress}
       testID={`copro-card-${copro.id}`}
     >
+      <View style={[styles.cardAccent, { backgroundColor: isActive ? "rgba(255,255,255,0.35)" : COLORS.primary }]} />
       <View style={styles.cardHeader}>
         <View style={[styles.cardIcon, isActive && { backgroundColor: "rgba(255,255,255,0.2)" }]}>
           <Ionicons name="business" size={22} color={isActive ? "#fff" : COLORS.primary} />
@@ -122,8 +123,8 @@ function CoproCard({
       </View>
 
       <View style={styles.cardFooter}>
-        <Ionicons name="arrow-forward-circle" size={20} color={isActive ? "rgba(255,255,255,0.7)" : COLORS.textMuted} />
         <Text style={[styles.cardCta, isActive && styles.cardCtaActive]}>Voir les interventions</Text>
+        <Ionicons name="chevron-forward" size={16} color={isActive ? "rgba(255,255,255,0.6)" : COLORS.textMuted} />
       </View>
     </Pressable>
   );
@@ -135,9 +136,13 @@ function InterventionRow({ item, onPress }: { item: Intervention; onPress: () =>
     en_cours: COLORS.primary,
     termine: COLORS.success,
   };
+  const dotColor = statusColors[item.status] ?? COLORS.textMuted;
+  const catIcon = (CATEGORY_ICONS[item.category] ?? "construct") as any;
   return (
     <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]} onPress={onPress}>
-      <View style={[styles.rowDot, { backgroundColor: statusColors[item.status] ?? COLORS.textMuted }]} />
+      <View style={[styles.rowIconWrap, { backgroundColor: dotColor + "20" }]}>
+        <Ionicons name={catIcon} size={14} color={dotColor} />
+      </View>
       <View style={styles.rowContent}>
         <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
         <Text style={styles.rowMeta}>
@@ -312,6 +317,9 @@ export default function HomeScreen() {
     <View>
       <View style={[styles.header, { paddingTop: top + 16, paddingBottom: copros.length > 1 ? 12 : 20 }]}>
         <View style={{ flex: 1 }}>
+          {user?.displayName ? (
+            <Text style={styles.greeting}>Bonjour, {user.displayName.split(" ")[0]}</Text>
+          ) : null}
           <Text style={styles.coProName}>{currentCopro?.name ?? "—"}</Text>
           {currentCopro?.address ? (
             <Text style={styles.coProAddress}>{currentCopro.address}</Text>
@@ -378,12 +386,7 @@ export default function HomeScreen() {
         <StatCard label="Total" value={stats.total} icon="construct" color={COLORS.primary} />
         <StatCard label="Terminées" value={stats.done} icon="checkmark-circle" color={COLORS.success} />
         <StatCard label="En cours" value={stats.inProgress} icon="time" color={COLORS.warning} />
-        <StatCard
-          label="Note moy."
-          value={stats.ratedCount > 0 ? `${stats.avgRating.toFixed(1)}/4` : "—"}
-          icon="star"
-          color="#F59E0B"
-        />
+        <StatCard label="Maintenances" value={(stats as any).recurringGroups ?? 0} icon="repeat" color="#8B5CF6" />
       </View>
 
       <View style={styles.sectionHeader}>
@@ -469,6 +472,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderRadius: 18, padding: 18,
     borderWidth: 1, borderColor: COLORS.border,
+    overflow: "hidden",
+  },
+  cardAccent: {
+    position: "absolute", left: 0, top: 0, bottom: 0, width: 5,
+    borderTopLeftRadius: 18, borderBottomLeftRadius: 18,
   },
   cardJoined: {
     borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
@@ -500,13 +508,14 @@ const styles = StyleSheet.create({
   statusChipText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
 
   cardFooter: {
-    flexDirection: "row", alignItems: "center", gap: 6,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     marginTop: 14, paddingTop: 14,
     borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.06)",
   },
   cardCta: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   cardCtaActive: { color: "rgba(255,255,255,0.75)" },
 
+  greeting: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.55)", marginBottom: 2 },
   coProName: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", letterSpacing: -0.5 },
   coProAddress: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)", marginTop: 2 },
 
@@ -539,10 +548,11 @@ const styles = StyleSheet.create({
   },
   joinBannerText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.primary },
 
-  statsGrid: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 16, gap: 10 },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, paddingTop: 16, gap: 10 },
   statCard: {
-    flex: 1, backgroundColor: COLORS.surface, borderRadius: 14,
-    padding: 12, alignItems: "center", gap: 4,
+    flexBasis: "47%", flexGrow: 1,
+    backgroundColor: COLORS.surface, borderRadius: 14,
+    padding: 14, alignItems: "center", gap: 4,
     borderTopWidth: 3, borderWidth: 1, borderColor: COLORS.border,
   },
   statValue: { fontSize: 20, fontFamily: "Inter_700Bold", color: COLORS.text },
@@ -561,7 +571,7 @@ const styles = StyleSheet.create({
     borderRadius: 14, padding: 14, marginBottom: 8,
     borderWidth: 1, borderColor: COLORS.border,
   },
-  rowDot: { width: 8, height: 8, borderRadius: 4 },
+  rowIconWrap: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   rowContent: { flex: 1 },
   rowTitle: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.text },
   rowMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },

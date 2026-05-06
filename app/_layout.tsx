@@ -17,12 +17,18 @@ function WebNavbar() {
   if (Platform.OS !== "web") return null;
   return (
     <View style={webNav.bar}>
-      <Image
-        source={require("../assets/images/icon.png")}
-        style={webNav.logo}
-        resizeMode="contain"
-      />
-      <Text style={webNav.brand}>Maintena</Text>
+      <View style={webNav.left}>
+        <Image
+          source={require("../assets/images/icon.png")}
+          style={webNav.logo}
+          resizeMode="contain"
+        />
+        <Text style={webNav.brand}>Maintena</Text>
+      </View>
+      <View style={webNav.pill}>
+        <View style={webNav.pillDot} />
+        <Text style={webNav.pillText}>En ligne</Text>
+      </View>
     </View>
   );
 }
@@ -36,24 +42,35 @@ const webNav = StyleSheet.create({
     height: 56,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    gap: 10,
-    backgroundColor: "#0B1628",
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    backgroundColor: "rgba(11,22,40,0.96)",
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.08)",
+    borderBottomColor: "rgba(255,255,255,0.07)",
     zIndex: 1000,
+    backdropFilter: "blur(12px)" as any,
   },
-  logo: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-  },
+  left: { flexDirection: "row", alignItems: "center", gap: 10 },
+  logo: { width: 30, height: 30, borderRadius: 8 },
   brand: {
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
     color: "#ffffff",
     letterSpacing: -0.3,
   },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(16,185,129,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.25)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  pillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#10b981" },
+  pillText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#6ee7b7" },
 });
 
 SplashScreen.preventAutoHideAsync();
