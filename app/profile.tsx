@@ -91,10 +91,10 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.heroStatDivider} />
           <View style={styles.heroStat}>
-            <Text style={[styles.heroStatVal, { color: "#F59E0B" }]}>
-              {stats.avgRating > 0 ? stats.avgRating.toFixed(1) : "—"}
+            <Text style={[styles.heroStatVal, { color: "#8B5CF6" }]}>
+              {(stats as any).recurringGroups ?? 0}
             </Text>
-            <Text style={styles.heroStatLabel}>Note moy.</Text>
+            <Text style={styles.heroStatLabel}>Récurrentes</Text>
           </View>
         </View>
       </LinearGradient>

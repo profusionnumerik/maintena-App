@@ -149,6 +149,10 @@ function computeSubscriptionStatus(data: any): UserSubscription {
     return { status: "trialing", trialEndsAt };
   }
 
+  if (data.subscriptionStatus === "canceled") {
+    return { status: "expired", activatedAt: data.subscriptionActivatedAt };
+  }
+
   const expiresAt = data.subscriptionExpiresAt as string | undefined;
   if (expiresAt && new Date(expiresAt) < new Date()) {
     return {
@@ -159,6 +163,7 @@ function computeSubscriptionStatus(data: any): UserSubscription {
   }
   return {
     status: data.subscriptionStatus as "active",
+    plan: data.subscriptionPlan,
     activatedAt: data.subscriptionActivatedAt,
     expiresAt,
   };
@@ -190,6 +195,20 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     loadUserCopros();
     loadUserSubscription(user.uid);
   }, [user]);
+
+  // Auto-expire trial in-session: schedule a state update at the exact trialEndsAt moment
+  useEffect(() => {
+    if (userSubscription?.status !== "trialing" || !userSubscription.trialEndsAt) return;
+    const msLeft = new Date(userSubscription.trialEndsAt).getTime() - Date.now();
+    if (msLeft <= 0) {
+      setUserSubscription({ status: "expired", trialEndsAt: userSubscription.trialEndsAt });
+      return;
+    }
+    const timer = setTimeout(() => {
+      setUserSubscription({ status: "expired", trialEndsAt: userSubscription.trialEndsAt });
+    }, msLeft);
+    return () => clearTimeout(timer);
+  }, [userSubscription]);
 
   const loadUserSubscription = async (uid: string) => {
     try {

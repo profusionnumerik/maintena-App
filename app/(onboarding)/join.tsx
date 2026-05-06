@@ -95,7 +95,7 @@ export default function JoinCoPro() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       const codeSnap = await getDoc(doc(db, "inviteCodes", trimmed.toUpperCase()));
-      if (!codeSnap.exists()) throw new Error("Code invalide. Vérifiez le code transmis par votre syndic.");
+      if (!codeSnap.exists()) throw new Error("Code invalide. Vérifiez le code transmis par votre admin.");
       const codeData = codeSnap.data() as { category?: Category; role?: string };
       if (selectedCategory && codeData.category && codeData.category !== selectedCategory) {
         throw new Error(
@@ -141,7 +141,7 @@ export default function JoinCoPro() {
           </View>
           <Text style={styles.pageTitle}>Rejoindre une copropriété</Text>
           <Text style={styles.pageSubtitle}>
-            Entrez le code d'invitation reçu de votre syndic
+            Entrez le code d'invitation reçu de votre admin
           </Text>
         </View>
 
@@ -188,7 +188,7 @@ export default function JoinCoPro() {
         <View style={styles.rolesInfo}>
           <Text style={styles.rolesInfoTitle}>Ce code fonctionne pour :</Text>
           {[
-            { icon: "settings-outline", label: "Syndic / Collaborateur", color: COLORS.primary },
+            { icon: "settings-outline", label: "Admin / Collaborateur", color: COLORS.primary },
             { icon: "shield-checkmark-outline", label: "Conseil syndical", color: "#0891B2" },
             { icon: "home-outline", label: "Propriétaire", color: COLORS.teal ?? "#0D9488" },
             { icon: "construct-outline", label: "Prestataire (code catégorie)", color: "#7C3AED" },
@@ -261,7 +261,7 @@ export default function JoinCoPro() {
               </View>
               <Text style={styles.modalTitle}>{CATEGORY_LABELS[selectedCategory]}</Text>
               <Text style={styles.modalSubtitle}>
-                Entrez le code de prestation fourni par votre syndic
+                Entrez le code de prestation fourni par votre admin
               </Text>
               <TextInput
                 style={styles.catCodeInput}

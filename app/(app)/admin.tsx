@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -57,8 +58,31 @@ export default function AdminScreen() {
   const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire" | "conseil">("collaborateur");
   const [inviteCategory, setInviteCategory] = useState<Category>("nettoyage");
   const [inviteGenerating, setInviteGenerating] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   const disabledCategories: Category[] = currentCopro?.disabledCategories ?? [];
+
+  const handleBillingPortal = async () => {
+    if (!user) return;
+    setOpeningPortal(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/billing-portal", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        Linking.openURL(data.url);
+      } else {
+        wa("Erreur", data.error ?? "Impossible d'ouvrir le portail.");
+      }
+    } catch {
+      wa("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
 
   const normalizeBuildingConfig = (cfg: BuildingConfig | undefined): BuildingConfig => {
     const base = cfg ?? DEFAULT_BUILDING_CONFIG;
@@ -579,18 +603,45 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {isAdmin && userSubscription?.expiresAt && (
+      {isAdmin && (userSubscription?.expiresAt || userSubscription?.trialEndsAt) && (
         <View style={[styles.section, { paddingVertical: 0 }]}>
-          <View style={styles.subscriptionBadge}>
-            <Ionicons name="shield-checkmark" size={14} color={COLORS.success} />
-            <Text style={styles.subscriptionText}>
-              Abonnement actif jusqu'au{" "}
-              {new Date(userSubscription.expiresAt).toLocaleDateString("fr-FR", {
-                day: "numeric", month: "long", year: "numeric",
-              })}
-            </Text>
-          </View>
+          {userSubscription?.status === "trialing" && userSubscription.trialEndsAt ? (
+            <View style={[styles.subscriptionBadge, styles.subscriptionBadgeTrial]}>
+              <Ionicons name="gift-outline" size={14} color="#7C3AED" />
+              <Text style={[styles.subscriptionText, { color: "#4C1D95" }]}>
+                Essai gratuit · expire le{" "}
+                {new Date(userSubscription.trialEndsAt).toLocaleDateString("fr-FR", {
+                  day: "numeric", month: "long", year: "numeric",
+                })}
+              </Text>
+            </View>
+          ) : userSubscription?.expiresAt ? (
+            <View style={styles.subscriptionBadge}>
+              <Ionicons name="shield-checkmark" size={14} color={COLORS.success} />
+              <Text style={styles.subscriptionText}>
+                Abonnement actif jusqu'au{" "}
+                {new Date(userSubscription.expiresAt).toLocaleDateString("fr-FR", {
+                  day: "numeric", month: "long", year: "numeric",
+                })}
+              </Text>
+            </View>
+          ) : null}
         </View>
+      )}
+
+      {isAdmin && userSubscription?.status === "active" && (
+        <Pressable
+          style={({ pressed }) => [styles.portalBtn, pressed && { opacity: 0.82 }]}
+          onPress={handleBillingPortal}
+          disabled={openingPortal}
+        >
+          {openingPortal
+            ? <ActivityIndicator size="small" color={COLORS.primary} />
+            : <Ionicons name="card-outline" size={16} color={COLORS.primary} />
+          }
+          <Text style={styles.portalBtnText}>Gérer mon abonnement</Text>
+          <Ionicons name="open-outline" size={14} color={COLORS.textMuted} />
+        </Pressable>
       )}
 
       {isAdmin && currentCopro && (
@@ -1299,7 +1350,7 @@ const styles = StyleSheet.create({
     padding: 16, borderWidth: 1, borderColor: COLORS.border, gap: 12,
   },
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  sectionTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
   sectionDesc: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 18 },
   coProInfo: { gap: 8 },
   coProRow: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1313,6 +1364,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#A7F3D0",
   },
   subscriptionText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#065F46", flex: 1 },
+  subscriptionBadgeTrial: {
+    backgroundColor: "rgba(124,58,237,0.08)", borderColor: "rgba(124,58,237,0.25)",
+  },
+  portalBtn: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: COLORS.surface, borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: COLORS.border,
+  },
+  portalBtnText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.primary },
   codeRoleLabel: {
     flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
     backgroundColor: "rgba(37,99,235,0.08)", borderRadius: 8,

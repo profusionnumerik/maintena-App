@@ -42,8 +42,24 @@ export default function OnboardingIndex() {
           />
           <Text style={styles.title}>Bienvenue sur Maintena</Text>
           <Text style={styles.subtitle}>
-            Gérez votre copropriété en équipe.{"\n"}Commencez par créer ou rejoindre une copropriété.
+            Gérez vos interventions, prestataires et alertes{"\n"}depuis une seule application.
           </Text>
+          <View style={styles.featureRow}>
+            <View style={styles.featureItem}>
+              <Ionicons name="construct-outline" size={15} color="rgba(255,255,255,0.6)" />
+              <Text style={styles.featureLabel}>Interventions</Text>
+            </View>
+            <View style={styles.featureDot} />
+            <View style={styles.featureItem}>
+              <Ionicons name="people-outline" size={15} color="rgba(255,255,255,0.6)" />
+              <Text style={styles.featureLabel}>Prestataires</Text>
+            </View>
+            <View style={styles.featureDot} />
+            <View style={styles.featureItem}>
+              <Ionicons name="notifications-outline" size={15} color="rgba(255,255,255,0.6)" />
+              <Text style={styles.featureLabel}>Alertes</Text>
+            </View>
+          </View>
         </View>
 
         {loadError && (
@@ -67,7 +83,7 @@ export default function OnboardingIndex() {
             <View style={styles.cardText}>
               <Text style={styles.cardTitle}>Créer une copropriété</Text>
               <Text style={styles.cardDesc}>
-                Je suis syndic ou gestionnaire et je veux configurer ma copropriété
+                Je suis admin ou gestionnaire et je veux configurer ma copropriété
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
@@ -84,7 +100,7 @@ export default function OnboardingIndex() {
               <Text style={styles.cardTitle}>Rejoindre avec un code</Text>
               <Text style={styles.cardDesc}>
                 {loadError
-                  ? "Syndic : entrez votre code prestataire pour récupérer l'accès admin"
+                  ? "Admin : entrez votre code prestataire pour récupérer l'accès admin"
                   : "J'ai un code d'invitation pour rejoindre une copropriété existante"}
               </Text>
             </View>
@@ -135,6 +151,28 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 14, fontFamily: "Inter_400Regular",
     color: "rgba(255,255,255,0.5)", textAlign: "center", lineHeight: 20,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 6,
+  },
+  featureItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  featureLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.45)",
+  },
+  featureDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
   },
   errorBanner: {
     flexDirection: "row", alignItems: "center", gap: 10,

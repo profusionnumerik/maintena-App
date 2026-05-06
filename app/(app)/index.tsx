@@ -73,13 +73,17 @@ function CoproCard({
   isActive,
   onPress,
   alertCount,
+  trialDaysLeft,
 }: {
   copro: CoPro;
   isActive: boolean;
   onPress: () => void;
   alertCount: number;
+  trialDaysLeft?: number;
 }) {
-  const chip = STATUS_CHIP[copro.status];
+  const chip = trialDaysLeft !== undefined
+    ? { label: `Essai · ${trialDaysLeft}j`, color: "#7C3AED", bg: "rgba(124,58,237,0.1)" }
+    : STATUS_CHIP[copro.status];
 
   return (
     <Pressable
@@ -215,6 +219,10 @@ export default function HomeScreen() {
       ? new Date(userSubscription.expiresAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
       : null;
 
+    const trialDaysLeft = userSubscription?.status === "trialing" && userSubscription.trialEndsAt
+      ? Math.max(0, Math.ceil((new Date(userSubscription.trialEndsAt).getTime() - Date.now()) / 86_400_000))
+      : undefined;
+
     const totalUnread = Object.values(allSignalements).reduce((sum, arr) => sum + arr.length, 0);
 
     const adminHeader = (
@@ -285,6 +293,7 @@ export default function HomeScreen() {
               isActive={item.id === currentCopro?.id}
               onPress={() => handleCoproPress(item)}
               alertCount={allSignalements[item.id]?.length ?? 0}
+              trialDaysLeft={item.status === "pending" ? trialDaysLeft : undefined}
             />
           )}
           ListHeaderComponent={adminHeader}

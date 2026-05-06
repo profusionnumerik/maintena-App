@@ -1042,7 +1042,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { getAuth } = await import("firebase-admin/auth");
       const adminAuth = getAuth();
       const normalizedEmail = String(email).trim().toLowerCase();
+      const normalizedPhone = String(phone ?? "").trim();
       const displayName = `${String(firstName).trim()} ${String(lastName).trim()}`.trim();
+
+      if (normalizedPhone) {
+        const phoneSnap = await db.collection("users").where("phone", "==", normalizedPhone).limit(1).get();
+        if (!phoneSnap.empty) {
+          return res.status(409).json({ error: "Un compte existe déjà avec ce numéro de téléphone." });
+        }
+      }
 
       let userRecord;
       try {
@@ -1060,7 +1068,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inviteCode = await createUniqueInviteCode(db);
       const coProRef = db.collection("copros").doc();
       const now = new Date().toISOString();
-      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const trialEndsAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // TEST: 15min
 
       await db.collection("users").doc(userId).set({
         uid: userId,
@@ -1120,9 +1128,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <h1 style="font-size:1.6rem;margin-bottom:10px;">Votre essai gratuit commence !</h1>
       <p class="subtitle">30 jours pour découvrir Maintena. Aucun paiement ne sera prélevé pendant cette période.</p>
 
-      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:14px;padding:16px;margin:24px 0;text-align:left;">
-        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6ee7b7;margin-bottom:12px;">Prochaines étapes</div>
-        <div style="display:flex;flex-direction:column;gap:10px;font-size:0.9rem;color:rgba(255,255,255,0.8);">
+      <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:14px;padding:16px;margin:24px 0;text-align:left;">
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#065F46;margin-bottom:12px;">Prochaines étapes</div>
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:0.9rem;color:#1a3c34;">
           <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">1</span> Téléchargez l'application Maintena</div>
           <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">2</span> Connectez-vous avec votre email et mot de passe</div>
           <div style="display:flex;align-items:center;gap:10px;"><span style="width:22px;height:22px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:800;color:#fff;flex-shrink:0;">3</span> Invitez vos prestataires et résidents</div>
@@ -1309,6 +1317,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e: any) {
       console.error("stripe-webhook error:", e);
       return res.status(500).send(e.message ?? "Webhook error");
+    }
+  });
+
+  app.post("/api/start-trial", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) return res.status(401).json({ error: "Non authentifié." });
+
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+
+      const userSnap = await db.collection("users").doc(uid).get();
+      const userData = userSnap.data() ?? {};
+
+      if (userData.subscriptionStatus === "trialing" || userData.trialEndsAt) {
+        return res.status(409).json({ error: "Un essai gratuit a déjà été utilisé sur ce compte." });
+      }
+      if (userData.subscriptionStatus === "active") {
+        return res.status(409).json({ error: "Votre abonnement est déjà actif." });
+      }
+
+      const trialEndsAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // TEST: 15min
+      await db.collection("users").doc(uid).set(
+        { subscriptionStatus: "trialing", trialEndsAt },
+        { merge: true }
+      );
+
+      return res.json({ ok: true, trialEndsAt });
+    } catch (e: any) {
+      console.error("start-trial error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/billing-portal", async (req: Request, res: Response) => {
+    const stripe = getStripe();
+    if (!stripe) return res.status(503).json({ error: "Stripe non configuré." });
+
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) return res.status(401).json({ error: "Non authentifié." });
+
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const userSnap = await db.collection("users").doc(uid).get();
+      const stripeCustomerId = userSnap.data()?.stripeCustomerId as string | undefined;
+      if (!stripeCustomerId) {
+        return res.status(400).json({ error: "Aucun abonnement Stripe associé à ce compte." });
+      }
+
+      const baseUrl = req.headers.origin ?? (process.env.BASE_URL ?? "https://maintena.app");
+      const session = await stripe.billingPortal.sessions.create({
+        customer: stripeCustomerId,
+        return_url: `${baseUrl}/`,
+      });
+
+      return res.json({ url: session.url });
+    } catch (e: any) {
+      console.error("billing-portal error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur portail." });
     }
   });
 

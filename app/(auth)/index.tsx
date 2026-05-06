@@ -273,6 +273,13 @@ export default function AuthScreen() {
               </Text>
 
               {mode === "register" && (
+                <View style={styles.trialPill}>
+                  <Ionicons name="gift-outline" size={13} color="#059669" />
+                  <Text style={styles.trialPillText}>30 jours gratuits · Sans carte bancaire</Text>
+                </View>
+              )}
+
+              {mode === "register" && (
                 <>
                   <View style={styles.inputWrap}>
                     <View style={styles.inputIcon}>
@@ -733,5 +740,22 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     color: "rgba(255,255,255,0.7)",
     textDecorationLine: "underline",
+  },
+  trialPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignSelf: "flex-start",
+  },
+  trialPillText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "#065F46",
   },
 });

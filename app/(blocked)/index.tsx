@@ -20,7 +20,6 @@ import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { PLAN_PRICES, PLAN_COPRO_LIMITS, SubscriptionPlan } from "@/shared/types";
 
-const LAUNCH_OFFER_LIMIT = 25;
 
 const PLAN_LIMIT_LABELS: Record<SubscriptionPlan, string> = {
   starter:  "1 à 5 copropriétés",
@@ -43,6 +42,8 @@ export default function BlockedScreen() {
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan>("starter");
+  const [trialLoading, setTrialLoading] = useState(false);
+  const [trialStarted, setTrialStarted] = useState(false);
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
@@ -130,6 +131,32 @@ export default function BlockedScreen() {
     }
   };
 
+  const handleStartTrial = async () => {
+    if (!user) return;
+    setTrialLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/start-trial", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setTrialStarted(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await refreshSubscription();
+        await refreshCoPros();
+      } else {
+        Alert.alert("Erreur", data.error ?? "Impossible de démarrer l'essai.");
+      }
+    } catch {
+      Alert.alert("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setTrialLoading(false);
+    }
+  };
+
   const handleShareCode = async () => {
     if (!currentCopro) return;
 
@@ -138,8 +165,7 @@ export default function BlockedScreen() {
     try {
       await crossShare(
         `Rejoignez ma copropriété "${currentCopro.name}" sur Maintena.\n` +
-        `Code d'invitation : ${currentCopro.inviteCode}\n\n` +
-        `Offre de lancement : 169 € / an — Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers.`
+        `Code d'invitation : ${currentCopro.inviteCode}`
       );
     } catch {}
   };
@@ -263,17 +289,6 @@ export default function BlockedScreen() {
                     : `Votre abonnement ${expiryDate ? `a expiré le ${expiryDate}` : "est expiré"}. Renouvelez-le pour retrouver l'accès à toutes vos copropriétés.`}
                 </Text>
 
-                <View style={styles.offerBox}>
-                  <View style={styles.offerBadge}>
-                    <Ionicons name="gift-outline" size={14} color={COLORS.primary} />
-                    <Text style={styles.offerBadgeText}>Offre de lancement</Text>
-                  </View>
-                  <Text style={styles.offerTitle}>{`Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers`}</Text>
-                  <Text style={styles.offerText}>
-                    Application prête à l'emploi, solution clé en main pour les syndics.
-                  </Text>
-                </View>
-
                 {/* Sélecteur de plan */}
                 <View style={styles.planSelector}>
                   {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
@@ -342,76 +357,83 @@ export default function BlockedScreen() {
               </View>
 
               <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Ionicons name="card" size={22} color={COLORS.primary} />
-                  <Text style={styles.cardTitle}>Activer votre abonnement</Text>
-                </View>
-
-                <Text style={styles.cardDesc}>
-                  Payez une seule fois pour activer votre compte admin. Vous
-                  pourrez ensuite créer autant de copropriétés que vous
-                  souhaitez et partager les codes d'invitation à vos
-                  prestataires.
-                </Text>
-
-                <View style={styles.offerBox}>
-                  <View style={styles.offerBadge}>
-                    <Ionicons name="rocket-outline" size={14} color={COLORS.primary} />
-                    <Text style={styles.offerBadgeText}>Lancement Maintena</Text>
+                {trialStarted ? (
+                  <View style={styles.trialSuccessBox}>
+                    <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
+                    <Text style={styles.trialSuccessText}>Essai gratuit démarré ! Rechargez l'application.</Text>
                   </View>
-                  <Text style={styles.offerTitle}>{`Tablette offerte pour les ${LAUNCH_OFFER_LIMIT} premiers`}</Text>
-                  <Text style={styles.offerText}>
-                    Pour les {LAUNCH_OFFER_LIMIT} premières copropriétés : tablette incluse, application installée, prête à l'emploi.
-                  </Text>
-                </View>
+                ) : (
+                  <>
+                    <View style={styles.cardHeader}>
+                      <Ionicons name="gift-outline" size={22} color="#059669" />
+                      <Text style={styles.cardTitle}>Essai gratuit 30 jours</Text>
+                    </View>
+                    <Text style={styles.cardDesc}>
+                      Accédez à toutes les fonctionnalités sans engagement. Aucune carte bancaire requise.
+                    </Text>
+                    <Pressable
+                      style={({ pressed }) => [styles.trialBtn, pressed && { opacity: 0.88 }]}
+                      onPress={handleStartTrial}
+                      disabled={trialLoading}
+                    >
+                      {trialLoading ? <ActivityIndicator color="#fff" /> : (
+                        <>
+                          <Ionicons name="gift-outline" size={18} color="#fff" />
+                          <Text style={styles.payBtnText}>Démarrer l'essai gratuit</Text>
+                        </>
+                      )}
+                    </Pressable>
 
-                {/* Sélecteur de plan */}
-                <View style={styles.planSelector}>
-                  {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
-                    const isActive = selectedPlan === key;
-                    const isLast = idx === 2;
-                    return (
-                      <Pressable
-                        key={key}
-                        style={[styles.planRow, isActive && styles.planRowActive, isLast && { borderBottomWidth: 0 }]}
-                        onPress={() => setSelectedPlan(key)}
-                      >
-                        <View style={styles.planRowLeft}>
-                          <View style={[styles.planRadio, isActive && styles.planRadioActive]}>
-                            {isActive && <View style={styles.planRadioDot} />}
-                          </View>
-                          <View>
-                            <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
-                            <Text style={[styles.planRowLimit, isActive && styles.planRowLimitActive]}>{PLAN_LIMIT_LABELS[key]}</Text>
-                          </View>
-                        </View>
-                        <Text style={[styles.planRowPrice, isActive && styles.planRowPriceActive]}>
-                          {`${PLAN_PRICES[key].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
+                    <View style={styles.divider} />
 
-                <Pressable
-                  style={({ pressed }) => [styles.payBtn, pressed && { opacity: 0.88 }]}
-                  onPress={handlePayment}
-                  disabled={loading}
-                >
-                  {loading ? <ActivityIndicator color="#fff" /> : (
-                    <>
-                      <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>{`Payer et activer — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
-                    </>
-                  )}
-                </Pressable>
+                    <Text style={[styles.cardDesc, { textAlign: "center" }]}>Ou abonnez-vous directement</Text>
 
-                <Text style={styles.secureNote}>
-                  <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
-                  Paiement sécurisé par Stripe
-                </Text>
+                    <View style={styles.planSelector}>
+                      {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
+                        const isActive = selectedPlan === key;
+                        const isLast = idx === 2;
+                        return (
+                          <Pressable
+                            key={key}
+                            style={[styles.planRow, isActive && styles.planRowActive, isLast && { borderBottomWidth: 0 }]}
+                            onPress={() => setSelectedPlan(key)}
+                          >
+                            <View style={styles.planRowLeft}>
+                              <View style={[styles.planRadio, isActive && styles.planRadioActive]}>
+                                {isActive && <View style={styles.planRadioDot} />}
+                              </View>
+                              <View>
+                                <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
+                                <Text style={[styles.planRowLimit, isActive && styles.planRowLimitActive]}>{PLAN_LIMIT_LABELS[key]}</Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.planRowPrice, isActive && styles.planRowPriceActive]}>
+                              {`${PLAN_PRICES[key].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
 
-                <View style={styles.divider} />
+                    <Pressable
+                      style={({ pressed }) => [styles.payBtn, pressed && { opacity: 0.88 }]}
+                      onPress={handlePayment}
+                      disabled={loading}
+                    >
+                      {loading ? <ActivityIndicator color="#fff" /> : (
+                        <>
+                          <Ionicons name="card-outline" size={18} color="#fff" />
+                          <Text style={styles.payBtnText}>{`Payer — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
+                        </>
+                      )}
+                    </Pressable>
+
+                    <Text style={styles.secureNote}>
+                      <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
+                      Paiement sécurisé par Stripe
+                    </Text>
+                  </>
+                )}
               </View>
             </>
           )
@@ -794,6 +816,37 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: "#E2E8F0",
+  },
+  trialBtn: {
+    backgroundColor: "#059669",
+    borderRadius: 14,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    shadowColor: "#059669",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  trialSuccessBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#ECFDF5",
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  trialSuccessText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: "#065F46",
+    lineHeight: 20,
   },
 
   emailBtn: {
