@@ -103,12 +103,13 @@ export function InterventionsProvider({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
-  const { currentCopro, currentRole, categoryFilter } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, isSubscribed } = useCoPro();
   const [allInterventions, setAllInterventions] = useState<Intervention[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentCopro || currentCopro.status !== "active") {
+    const canLoad = currentCopro && (currentCopro.status === "active" || isSubscribed);
+    if (!canLoad) {
       setAllInterventions([]);
       setIsLoading(false);
       return;
@@ -134,7 +135,7 @@ export function InterventionsProvider({
     );
 
     return unsub;
-  }, [currentCopro?.id, currentCopro?.status]);
+  }, [currentCopro?.id, currentCopro?.status, isSubscribed]);
 
   const interventions = useMemo(() => {
     if (currentRole === "prestataire" && user) {
