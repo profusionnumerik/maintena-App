@@ -1447,47 +1447,48 @@ export default function AddInterventionScreen() {
         {!isEditMode && (
           <View
             style={[
-              styles.field,
+              styles.statusInfoBanner,
               {
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                paddingVertical: 4,
+                borderColor: isAdmin
+                  ? "rgba(37,99,235,0.25)"
+                  : "rgba(16,185,129,0.25)",
+                backgroundColor: isAdmin
+                  ? "rgba(37,99,235,0.06)"
+                  : "rgba(16,185,129,0.06)",
               },
             ]}
           >
             <View
               style={[
-                styles.statusChip,
+                styles.statusInfoIconWrap,
                 {
                   backgroundColor: isAdmin
                     ? "rgba(37,99,235,0.12)"
                     : "rgba(16,185,129,0.12)",
-                  borderColor: isAdmin ? COLORS.primary : COLORS.success,
-                  flex: 0,
-                  flexShrink: 0,
-                  alignSelf: "center",
                 },
               ]}
             >
+              <Ionicons
+                name={isAdmin ? "calendar-outline" : "checkmark-circle-outline"}
+                size={16}
+                color={isAdmin ? COLORS.primary : COLORS.success}
+              />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text
                 style={[
-                  styles.chipText,
-                  {
-                    color: isAdmin ? COLORS.primary : COLORS.success,
-                    fontFamily: "Inter_600SemiBold",
-                  },
+                  styles.statusInfoTitle,
+                  { color: isAdmin ? COLORS.primary : COLORS.success },
                 ]}
               >
                 {isAdmin ? "Sera planifiée" : "Rapport d'intervention"}
               </Text>
+              <Text style={styles.statusInfoDesc}>
+                {isAdmin
+                  ? "Le prestataire devra marquer l'intervention comme réalisée"
+                  : "Intervention déjà réalisée"}
+              </Text>
             </View>
-
-            <Text style={styles.fieldHint}>
-              {isAdmin
-                ? "Le prestataire devra marquer l'intervention comme réalisée"
-                : "Intervention déjà réalisée"}
-            </Text>
           </View>
         )}
 
@@ -2480,6 +2481,37 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: COLORS.border,
     borderRadius: 10,
+  },
+
+  statusInfoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+
+  statusInfoIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  statusInfoTitle: {
+    fontSize: 13,
+    fontFamily: "Inter_600SemiBold",
+  },
+
+  statusInfoDesc: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    marginTop: 2,
   },
 
   dateInputWrap: {
