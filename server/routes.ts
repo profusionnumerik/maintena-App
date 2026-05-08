@@ -525,6 +525,7 @@ async function buildGuestInterventionPayload(token: string) {
         ? intervention.cleaningChecklist as Record<string, boolean>
         : {} as Record<string, boolean>,
       guestUpdatedAt: intervention.guestUpdatedAt ?? null,
+      recurrenceGroupId: intervention.recurrenceGroupId ?? null,
     },
     copro: {
       id: invite.data.coProId,
@@ -535,6 +536,7 @@ async function buildGuestInterventionPayload(token: string) {
           .filter(Boolean)
           .join(", "),
       buildingConfig: (copro?.buildingConfig ?? null) as BuildingConfigServer | null,
+      adminEmail: copro?.adminEmail ?? null,
     },
     provider: {
       firstName: invite.data.providerFirstName ?? "",
@@ -3163,6 +3165,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (payload.status !== 200) {
       return res.status(payload.status).json({ error: payload.error });
     }
+
+    // Un prestataire qui a refusé ne peut plus changer d'avis
+    if (payload.intervention.providerStatus === "refused") {
+      return res.status(403).json({ error: "Vous avez refusé cette intervention. Contactez l'administrateur pour être réaffecté." });
+    }
+
     const { action } = req.body as { action?: "accepted" | "refused" };
     if (action !== "accepted" && action !== "refused") {
       return res.status(400).json({ error: "action doit être 'accepted' ou 'refused'." });
@@ -3176,6 +3184,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         { merge: true }
       );
+
+      // Notifier l'admin par email si le prestataire refuse
+      if (action === "refused" && payload.copro.adminEmail) {
+        try {
+          const resendClient = await getUncachableResendClient();
+          const fromAddr = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+          await resendClient.client.emails.send({
+            from: fromAddr,
+            to: payload.copro.adminEmail,
+            subject: `⚠️ Mission refusée — ${payload.intervention.title}`,
+            html: `
+              <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+                <h2 style="color:#991b1b;">Mission refusée par le prestataire</h2>
+                <p>Le prestataire <strong>${payload.provider.name}</strong> a refusé l'intervention suivante :</p>
+                <div style="background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0;">
+                  <div style="font-weight:700;font-size:16px;color:#0f172a;">${payload.intervention.title}</div>
+                  <div style="color:#64748b;margin-top:4px;">${payload.copro.name}</div>
+                </div>
+                <p>Vous pouvez réattribuer cette intervention à un autre prestataire depuis l'application.</p>
+              </div>
+            `,
+          });
+        } catch (mailErr) {
+          console.warn("Notification refus — email admin failed:", mailErr);
+        }
+      }
+
       return res.json({ success: true, providerStatus: action });
     } catch (e: any) {
       console.error("guest respond error:", e);
@@ -3187,6 +3222,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const payload = await buildGuestInterventionPayload(String(req.params.token));
     if (payload.status !== 200) {
       return res.status(payload.status).json({ error: payload.error });
+    }
+
+    if (payload.intervention.providerStatus === "refused") {
+      return res.status(403).json({ error: "Vous avez refusé cette intervention. Aucun compte-rendu ne peut être soumis." });
     }
 
     if (payload.intervention.guestUpdatedAt) {
@@ -3305,8 +3344,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `<option value="${value}" ${payload.intervention.status === value ? "selected" : ""}>${label}</option>`
     ).join("");
 
-    // Bloc de confirmation (visible seulement si "pending")
-    const confirmBlock = pStatus === "pending" ? `
+    const isRecurring = !!payload.intervention.recurrenceGroupId;
+
+    // Bloc de confirmation — uniquement pour les missions non-récurrentes en attente
+    const confirmBlock = (pStatus === "pending" && !isRecurring) ? `
       <div id="confirm-block" style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:2px solid #e2e8f0;">
         <div style="font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Confirmation requise</div>
         <p style="font-size:16px;color:#0f172a;margin:0 0 20px;">Pouvez-vous confirmer votre disponibilité pour cette intervention ?</p>
@@ -3325,7 +3366,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const statusBanner = pStatus === "accepted"
       ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">✅</span><div><div style="font-weight:700;color:#065f46;">Intervention acceptée</div><div style="font-size:13px;color:#047857;">Remplissez le compte-rendu ci-dessous après votre intervention.</div></div></div>`
       : pStatus === "refused"
-      ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">❌</span><div><div style="font-weight:700;color:#991b1b;">Intervention refusée</div><div style="font-size:13px;color:#b91c1c;">Le syndic a été notifié. <button onclick="respond('accepted')" style="background:none;border:none;color:#2563eb;cursor:pointer;font-size:13px;text-decoration:underline;">Changer d'avis →</button></div></div></div>`
+      ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:18px;padding:22px 24px;margin-bottom:20px;display:flex;align-items:flex-start;gap:14px;"><span style="font-size:24px;flex-shrink:0;">❌</span><div><div style="font-weight:800;color:#991b1b;font-size:16px;margin-bottom:4px;">Vous avez refusé cette mission</div><div style="font-size:14px;color:#b91c1c;">L'administrateur a été notifié. Il peut vous réaffecter à une autre intervention.</div></div></div>`
       : "";
 
     const body = `
@@ -3360,8 +3401,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   ${cleaningZonesHtml}
 
-  <!-- Compte-rendu -->
-  <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
+  <!-- Compte-rendu — masqué si l'intervention est refusée -->
+  ${pStatus !== "refused" ? `<div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
     <div style="font-size:18px;font-weight:800;color:#0f172a;margin-bottom:18px;">Compte-rendu d'intervention</div>
 
     ${reportLocked ? `
@@ -3406,7 +3447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div class="m-error" id="error"></div>
     </form>
     `}
-  </div>
+  </div>` : ""}
 
   <!-- Créer son compte -->
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">

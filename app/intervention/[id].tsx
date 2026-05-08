@@ -946,27 +946,37 @@ export default function InterventionDetailScreen() {
               </View>
             </View>
 
-            {/* Statut de confirmation du prestataire — uniquement si répondu */}
-            {(providerStatus === "accepted" || providerStatus === "refused") && (
-              <View style={[
-                styles.providerStatusBadge,
-                providerStatus === "accepted" && styles.providerStatusAccepted,
-                providerStatus === "refused" && styles.providerStatusRefused,
+            {/* Statut de confirmation du prestataire */}
+            <View style={[
+              styles.providerStatusBadge,
+              providerStatus === "accepted" && styles.providerStatusAccepted,
+              providerStatus === "refused" && styles.providerStatusRefused,
+              (!providerStatus || providerStatus === "pending") && styles.providerStatusPending,
+            ]}>
+              <Ionicons
+                name={
+                  providerStatus === "accepted" ? "checkmark-circle" :
+                  providerStatus === "refused" ? "close-circle" :
+                  "time-outline"
+                }
+                size={16}
+                color={
+                  providerStatus === "accepted" ? COLORS.success :
+                  providerStatus === "refused" ? COLORS.danger :
+                  COLORS.warning
+                }
+              />
+              <Text style={[
+                styles.providerStatusText,
+                providerStatus === "accepted" && { color: COLORS.success },
+                providerStatus === "refused" && { color: COLORS.danger },
+                (!providerStatus || providerStatus === "pending") && { color: COLORS.warning },
               ]}>
-                <Ionicons
-                  name={providerStatus === "accepted" ? "checkmark-circle" : "close-circle"}
-                  size={16}
-                  color={providerStatus === "accepted" ? COLORS.success : COLORS.danger}
-                />
-                <Text style={[
-                  styles.providerStatusText,
-                  providerStatus === "accepted" && { color: COLORS.success },
-                  providerStatus === "refused" && { color: COLORS.danger },
-                ]}>
-                  {providerStatus === "accepted" ? "Prestataire a accepté" : "Prestataire a refusé"}
-                </Text>
-              </View>
-            )}
+                {providerStatus === "accepted" ? "Prestataire a accepté" :
+                 providerStatus === "refused" ? "Prestataire a refusé" :
+                 "En attente de confirmation"}
+              </Text>
+            </View>
 
             {/* Réattribuer si refusé */}
             {providerStatus === "refused" && (
