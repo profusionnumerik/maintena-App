@@ -3458,12 +3458,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const TOKEN = '${token}';
 
   async function respond(action) {
-    const btnAccept = document.getElementById('btn-accept');
     const btnRefuse = document.getElementById('btn-refuse');
     const msg = document.getElementById('respond-msg');
 
-    if (btnAccept) btnAccept.disabled = true;
-    if (btnRefuse) btnRefuse.disabled = true;
+    if (btnRefuse) {
+      btnRefuse.disabled = true;
+      btnRefuse.textContent = 'Envoi en cours…';
+    }
 
     try {
       const res = await fetch('/api/public/intervention/' + TOKEN + '/respond', {
@@ -3471,20 +3472,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
 
-      // Recharger la page pour refléter le nouveau statut
+      let data;
+      try { data = await res.json(); } catch { data = {}; }
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur (' + res.status + ')');
+
       window.location.reload();
     } catch (e) {
+      const errMsg = (e && e.message) ? e.message : 'Erreur réseau — vérifiez votre connexion.';
       if (msg) {
-        msg.textContent = e.message || 'Erreur réseau';
+        msg.textContent = errMsg;
         msg.style.display = 'block';
         msg.style.background = '#fee2e2';
         msg.style.color = '#991b1b';
+      } else {
+        alert('Erreur : ' + errMsg);
       }
-      if (btnAccept) btnAccept.disabled = false;
-      if (btnRefuse) btnRefuse.disabled = false;
+      if (btnRefuse) {
+        btnRefuse.disabled = false;
+        btnRefuse.textContent = '✗ Refuser la mission';
+      }
     }
   }
 
