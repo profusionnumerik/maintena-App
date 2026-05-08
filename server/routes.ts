@@ -3346,34 +3346,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const isRecurring = !!payload.intervention.recurrenceGroupId;
 
-    // Bloc de confirmation — uniquement pour les missions non-récurrentes en attente
-    const confirmBlock = (pStatus === "pending" && !isRecurring) ? `
-      <div id="confirm-block" style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:2px solid #e2e8f0;">
-        <div style="font-size:13px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px;">Confirmation requise</div>
-        <p style="font-size:16px;color:#0f172a;margin:0 0 20px;">Pouvez-vous confirmer votre disponibilité pour cette intervention ?</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-          <button id="btn-accept" onclick="respond('accepted')" style="flex:1;min-width:140px;background:#10b981;color:#fff;border:none;border-radius:12px;padding:14px 20px;font-weight:700;font-size:15px;cursor:pointer;">
-            ✓ Accepter l'intervention
-          </button>
-          <button id="btn-refuse" onclick="respond('refused')" style="flex:1;min-width:140px;background:#fff;color:#ef4444;border:2px solid #ef4444;border-radius:12px;padding:14px 20px;font-weight:700;font-size:15px;cursor:pointer;">
-            ✗ Refuser l'intervention
-          </button>
-        </div>
-        <div id="respond-msg" style="display:none;margin-top:14px;padding:12px;border-radius:10px;font-size:14px;"></div>
+    // Bouton refus — uniquement pour missions non-récurrentes non-refusées
+    const refuseBlock = (pStatus !== "refused" && !isRecurring && !reportLocked) ? `
+      <div id="confirm-block" style="background:#fff;border-radius:18px;padding:22px 28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:1.5px solid #fee2e2;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+        <p style="font-size:15px;color:#64748b;margin:0;">Vous ne pouvez pas intervenir sur cette mission ?</p>
+        <button id="btn-refuse" onclick="respond('refused')" style="background:#fff;color:#ef4444;border:2px solid #ef4444;border-radius:12px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">
+          ✗ Refuser la mission
+        </button>
+        <div id="respond-msg" style="display:none;width:100%;padding:10px 12px;border-radius:10px;font-size:14px;"></div>
       </div>` : "";
 
-    // Bannière statut si déjà répondu
-    const statusBanner = pStatus === "accepted"
-      ? `<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:10px;"><span style="font-size:20px;">✅</span><div><div style="font-weight:700;color:#065f46;">Intervention acceptée</div><div style="font-size:13px;color:#047857;">Remplissez le compte-rendu ci-dessous après votre intervention.</div></div></div>`
-      : pStatus === "refused"
-      ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:18px;padding:22px 24px;margin-bottom:20px;display:flex;align-items:flex-start;gap:14px;"><span style="font-size:24px;flex-shrink:0;">❌</span><div><div style="font-weight:800;color:#991b1b;font-size:16px;margin-bottom:4px;">Vous avez refusé cette mission</div><div style="font-size:14px;color:#b91c1c;">L'administrateur a été notifié. Il peut vous réaffecter à une autre intervention.</div></div></div>`
+    // Bannière si déjà refusée
+    const statusBanner = pStatus === "refused"
+      ? `<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:18px;padding:22px 24px;margin-bottom:20px;display:flex;align-items:flex-start;gap:14px;"><span style="font-size:24px;flex-shrink:0;">❌</span><div><div style="font-weight:800;color:#991b1b;font-size:16px;margin-bottom:4px;">Vous avez refusé cette mission</div><div style="font-size:14px;color:#b91c1c;">L'administrateur a été notifié. Cette page n'est plus accessible.</div></div></div>`
       : "";
 
     const body = `
 <div class="m-container">
 
-  ${confirmBlock}
   ${statusBanner}
+  ${refuseBlock}
 
   <!-- Fiche intervention -->
   <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">

@@ -946,37 +946,15 @@ export default function InterventionDetailScreen() {
               </View>
             </View>
 
-            {/* Statut de confirmation du prestataire */}
-            <View style={[
-              styles.providerStatusBadge,
-              providerStatus === "accepted" && styles.providerStatusAccepted,
-              providerStatus === "refused" && styles.providerStatusRefused,
-              (!providerStatus || providerStatus === "pending") && styles.providerStatusPending,
-            ]}>
-              <Ionicons
-                name={
-                  providerStatus === "accepted" ? "checkmark-circle" :
-                  providerStatus === "refused" ? "close-circle" :
-                  "time-outline"
-                }
-                size={16}
-                color={
-                  providerStatus === "accepted" ? COLORS.success :
-                  providerStatus === "refused" ? COLORS.danger :
-                  COLORS.warning
-                }
-              />
-              <Text style={[
-                styles.providerStatusText,
-                providerStatus === "accepted" && { color: COLORS.success },
-                providerStatus === "refused" && { color: COLORS.danger },
-                (!providerStatus || providerStatus === "pending") && { color: COLORS.warning },
-              ]}>
-                {providerStatus === "accepted" ? "Prestataire a accepté" :
-                 providerStatus === "refused" ? "Prestataire a refusé" :
-                 "En attente de confirmation"}
-              </Text>
-            </View>
+            {/* Badge refus uniquement — si refusé, alerte claire */}
+            {providerStatus === "refused" && (
+              <View style={[styles.providerStatusBadge, styles.providerStatusRefused]}>
+                <Ionicons name="close-circle" size={16} color={COLORS.danger} />
+                <Text style={[styles.providerStatusText, { color: COLORS.danger }]}>
+                  Mission refusée par le prestataire
+                </Text>
+              </View>
+            )}
 
             {/* Réattribuer si refusé */}
             {providerStatus === "refused" && (
