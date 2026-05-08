@@ -3163,6 +3163,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Refus via formulaire HTML natif (POST + redirect)
+  app.post("/api/public/intervention/:token/refuse", async (req: Request, res: Response) => {
+    const token = String(req.params.token);
+    const payload = await buildGuestInterventionPayload(token);
+    if (payload.status !== 200) {
+      return res.redirect(`/guest-intervention/${token}?error=lien_invalide`);
+    }
+    if (payload.intervention.providerStatus === "refused") {
+      return res.redirect(`/guest-intervention/${token}`);
+    }
+    try {
+      await payload.interventionRef.set(
+        { providerStatus: "refused", providerStatusAt: new Date().toISOString() },
+        { merge: true }
+      );
+      if (payload.copro.adminEmail) {
+        try {
+          const rc = await getUncachableResendClient();
+          await rc.client.emails.send({
+            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            to: payload.copro.adminEmail,
+            subject: `⚠️ Mission refusée — ${payload.intervention.title}`,
+            html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;"><h2 style="color:#991b1b;">Mission refusée par le prestataire</h2><p>Le prestataire <strong>${payload.provider.name}</strong> a refusé l'intervention <strong>${payload.intervention.title}</strong> (${payload.copro.name}).</p><p>Vous pouvez réattribuer cette intervention depuis l'application.</p></div>`,
+          });
+        } catch { /* mail non critique */ }
+      }
+      return res.redirect(`/guest-intervention/${token}`);
+    } catch (e: any) {
+      console.error("refuse error:", e);
+      return res.redirect(`/guest-intervention/${token}?error=serveur`);
+    }
+  });
+
   // Acceptation ou refus de l'intervention par le prestataire externe
   app.post("/api/public/intervention/:token/respond", async (req: Request, res: Response) => {
     const payload = await buildGuestInterventionPayload(String(req.params.token));
@@ -3350,14 +3383,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const isRecurring = !!payload.intervention.recurrenceGroupId;
 
-    // Bouton refus — uniquement pour missions non-récurrentes non-refusées
+    // Bouton refus — formulaire natif (pas d'AJAX, fonctionne sans JS)
     const refuseBlock = (pStatus !== "refused" && !isRecurring && !reportLocked) ? `
-      <div id="confirm-block" style="background:#fff;border-radius:18px;padding:22px 28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:1.5px solid #fee2e2;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div style="background:#fff;border-radius:18px;padding:22px 28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;border:1.5px solid #fee2e2;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
         <p style="font-size:15px;color:#64748b;margin:0;">Vous ne pouvez pas intervenir sur cette mission ?</p>
-        <button id="btn-refuse" onclick="respond('refused')" style="background:#fff;color:#ef4444;border:2px solid #ef4444;border-radius:12px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">
-          ✗ Refuser la mission
-        </button>
-        <div id="respond-msg" style="display:none;width:100%;padding:10px 12px;border-radius:10px;font-size:14px;"></div>
+        <form method="POST" action="/api/public/intervention/${token}/refuse" onsubmit="return confirm('Confirmer le refus de cette mission ?')" style="margin:0;">
+          <button type="submit" style="background:#fff;color:#ef4444;border:2px solid #ef4444;border-radius:12px;padding:12px 22px;font-weight:700;font-size:14px;cursor:pointer;white-space:nowrap;">
+            ✗ Refuser la mission
+          </button>
+        </form>
       </div>` : "";
 
     // Bannière si déjà refusée
