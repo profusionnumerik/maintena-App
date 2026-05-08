@@ -890,9 +890,10 @@ export default function AddInterventionScreen() {
               const url = await uploadPhoto(currentCopro.id, editId, uri);
               newPhotoUrls.push(url);
             }
-          } catch (e) {
-            console.warn("Photo upload failed:", e);
-            wa("Photos non envoyées", "Les nouvelles photos n'ont pas pu être ajoutées.");
+          } catch (e: any) {
+            console.error("Photo upload failed:", e);
+            const detail = e?.message ?? String(e);
+            wa("Photos non envoyées", `Les nouvelles photos n'ont pas pu être ajoutées.\n\n${detail}`);
           }
         }
 
@@ -1063,9 +1064,10 @@ export default function AddInterventionScreen() {
               const url = await uploadPhotoPending(currentCopro.id, uri);
               photoUrls.push(url);
             }
-          } catch (uploadErr) {
-            console.warn("Photo upload failed:", uploadErr);
-            wa("Photos non envoyées", "L'intervention sera enregistrée sans les photos. Vous pourrez les ajouter depuis le détail.");
+          } catch (uploadErr: any) {
+            console.error("Photo upload failed:", uploadErr);
+            const detail = uploadErr?.message ?? String(uploadErr);
+            wa("Photos non envoyées", `L'intervention sera enregistrée sans les photos.\n\n${detail}`);
             photoUrls = [];
           }
         }
