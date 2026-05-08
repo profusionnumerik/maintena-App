@@ -3,6 +3,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,17 +12,46 @@ import {
   View,
 } from "react-native";
 import { wConfirm } from "@/shared/dialogs";
+import { wa } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useInterventions } from "@/context/InterventionsContext";
+import { useCoPro } from "@/context/CoProContext";
+import { getApiUrl } from "@/lib/query-client";
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const { stats } = useInterventions();
+  const { userSubscription, currentRole } = useCoPro();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+
+  const isAdmin = currentRole === "admin";
+
+  const handleBillingPortal = async () => {
+    if (!user) return;
+    setOpeningPortal(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/billing-portal", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        Linking.openURL(data.url);
+      } else {
+        wa("Erreur", data.error ?? "Impossible d'ouvrir le portail.");
+      }
+    } catch {
+      wa("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setOpeningPortal(false);
+    }
+  };
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
@@ -156,6 +187,27 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
+
+        {isAdmin && userSubscription?.status === "active" && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Abonnement</Text>
+            <Pressable
+              onPress={handleBillingPortal}
+              disabled={openingPortal}
+              style={({ pressed }) => [styles.portalBtn, pressed && { opacity: 0.82 }]}
+            >
+              {openingPortal
+                ? <ActivityIndicator size="small" color={COLORS.primary} />
+                : <Ionicons name="card-outline" size={18} color={COLORS.primary} />
+              }
+              <View style={{ flex: 1 }}>
+                <Text style={styles.portalBtnTitle}>Gérer mon abonnement</Text>
+                <Text style={styles.portalBtnSub}>Modifier, résilier ou changer de forfait</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+            </Pressable>
+          </View>
+        )}
 
         <Pressable
           onPress={handleLogout}
@@ -316,6 +368,28 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.border,
     marginLeft: 62,
+  },
+  portalBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: COLORS.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  portalBtnTitle: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: COLORS.text,
+  },
+  portalBtnSub: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    marginTop: 1,
   },
   logoutBtn: {
     flexDirection: "row",

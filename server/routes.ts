@@ -2829,15 +2829,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const invitesSnap = await db.collection("guestInterventionInvites")
         .where("coProId", "==", coProId)
         .where("interventionId", "==", interventionId)
-        .orderBy("createdAt", "desc")
-        .limit(1)
         .get();
 
       if (invitesSnap.empty) {
         return res.status(404).json({ error: "Aucune invitation trouvée pour cette intervention." });
       }
 
-      const invite = invitesSnap.docs[0].data();
+      // Trier en mémoire pour éviter l'index composite Firestore
+      const sortedDocs = invitesSnap.docs.sort((a, b) => {
+        const aDate = a.data().createdAt ?? "";
+        const bDate = b.data().createdAt ?? "";
+        return bDate > aDate ? 1 : -1;
+      });
+      const invite = sortedDocs[0].data();
       const providerEmail = invite.providerEmail;
       if (!providerEmail) return res.status(400).json({ error: "Email prestataire manquant." });
 
