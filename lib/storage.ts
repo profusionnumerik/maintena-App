@@ -1,5 +1,6 @@
 import * as ImageManipulator from "expo-image-manipulator";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { Platform } from "react-native";
 import { storage } from "@/lib/firebase";
 
 const MAX_WIDTH = 1280;
@@ -9,7 +10,7 @@ function makeFileName() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.jpg`;
 }
 
-async function compressImage(uri: string) {
+async function compressImage(uri: string): Promise<string> {
   if (!uri || typeof uri !== "string") {
     throw new Error("URI image invalide.");
   }
@@ -27,11 +28,7 @@ async function compressImage(uri: string) {
     throw new Error("Impossible de compresser l'image.");
   }
 
-  return {
-    uri: result.uri,
-    width: result.width,
-    height: result.height,
-  };
+  return result.uri;
 }
 
 export async function uploadPhoto(
@@ -53,18 +50,21 @@ export async function uploadPhoto(
 
   console.log("UPLOAD INTERVENTION PHOTO =", localUri);
 
-  const compressed = await compressImage(localUri);
   const fileName = makeFileName();
-
   const path = `copros/${coProId}/interventions/${interventionId}/photos/${fileName}`;
   const storageRef = ref(storage, path);
 
-  const response = await fetch(compressed.uri);
-  const blob = await response.blob();
+  let blob: Blob;
+  if (Platform.OS === "web") {
+    const response = await fetch(localUri);
+    blob = await response.blob();
+  } else {
+    const compressedUri = await compressImage(localUri);
+    const response = await fetch(compressedUri);
+    blob = await response.blob();
+  }
 
-  await uploadBytes(storageRef, blob, {
-    contentType: "image/jpeg",
-  });
+  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
 
   return await getDownloadURL(storageRef);
 }
@@ -83,18 +83,21 @@ export async function uploadPhotoPending(
 
   console.log("UPLOAD PENDING PHOTO =", localUri);
 
-  const compressed = await compressImage(localUri);
   const fileName = makeFileName();
-
   const path = `copros/${coProId}/pending/${fileName}`;
   const storageRef = ref(storage, path);
 
-  const response = await fetch(compressed.uri);
-  const blob = await response.blob();
+  let blob: Blob;
+  if (Platform.OS === "web") {
+    const response = await fetch(localUri);
+    blob = await response.blob();
+  } else {
+    const compressedUri = await compressImage(localUri);
+    const response = await fetch(compressedUri);
+    blob = await response.blob();
+  }
 
-  await uploadBytes(storageRef, blob, {
-    contentType: "image/jpeg",
-  });
+  await uploadBytes(storageRef, blob, { contentType: "image/jpeg" });
 
   return await getDownloadURL(storageRef);
 }

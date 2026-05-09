@@ -350,8 +350,9 @@ export default function AddInterventionScreen() {
   const { addIntervention, updateIntervention, getIntervention } =
     useInterventions();
   const { currentCopro, currentRole, categoryFilter, members, preRegisterProvider } = useCoPro();
-  const { editId } = useLocalSearchParams<{ editId?: string }>();
+  const { editId, reassign } = useLocalSearchParams<{ editId?: string; reassign?: string }>();
   const isEditMode = !!editId;
+  const isReassign = reassign === "1";
 
   const isAdmin = currentRole === "admin";
 
@@ -438,27 +439,34 @@ export default function AddInterventionScreen() {
           setExistingPhotos(existing.photos);
         }
 
-        if ((existing as any).assignedToUid) {
-          setAssignedToUid((existing as any).assignedToUid);
+        if (!isReassign) {
+          if ((existing as any).assignedToUid) {
+            setAssignedToUid((existing as any).assignedToUid);
+          }
+
+          if ((existing as any).assignedToName) {
+            setAssignedToName((existing as any).assignedToName);
+          }
         }
 
-        if ((existing as any).assignedToName) {
-          setAssignedToName((existing as any).assignedToName);
-        }
+        if (isReassign) {
+          setProviderMode("new");
+          setNewProvider({ firstName: "", lastName: "", company: "", email: "", phone: "" });
+        } else {
+          if ((existing as any).providerMode) {
+            setProviderMode((existing as any).providerMode);
+          }
 
-        if ((existing as any).providerMode) {
-          setProviderMode((existing as any).providerMode);
-        }
-
-        if ((existing as any).invitedProvider) {
-          const invited = (existing as any).invitedProvider;
-          setNewProvider({
-            firstName: invited.firstName ?? "",
-            lastName: invited.lastName ?? "",
-            company: invited.company ?? "",
-            email: invited.email ?? "",
-            phone: formatFrenchPhone(invited.phone ?? ""),
-          });
+          if ((existing as any).invitedProvider) {
+            const invited = (existing as any).invitedProvider;
+            setNewProvider({
+              firstName: invited.firstName ?? "",
+              lastName: invited.lastName ?? "",
+              company: invited.company ?? "",
+              email: invited.email ?? "",
+              phone: formatFrenchPhone(invited.phone ?? ""),
+            });
+          }
         }
       }
     }
@@ -913,14 +921,52 @@ export default function AddInterventionScreen() {
             assignedToName: finalAssignedToName,
             providerMode: isAdmin ? providerMode : "existing",
             invitedProvider: invitedProviderPayload,
+            ...(isReassign ? { providerStatus: null, providerStatusAt: null } : {}),
             ...(newPhotoUrls.length > 0
               ? { photos: [...existingPhotos, ...newPhotoUrls] }
               : {}),
           } as any
         );
 
-        safeHapticSuccess();
-        router.back();
+        if (isReassign && invitedProviderPayload) {
+          try {
+            const access = await createGuestAccess({
+              coProId: currentCopro.id,
+              interventionId: editId,
+              invitedProvider: {
+                firstName: newProvider.firstName.trim(),
+                lastName: newProvider.lastName.trim(),
+                email: newProvider.email.trim().toLowerCase(),
+                phone: onlyPhoneDigits(newProvider.phone),
+                company: newProvider.company?.trim() || "",
+              },
+              category: category || "",
+              categoryInviteCode: categoryInviteCode || undefined,
+            });
+
+            await updateIntervention(editId, {
+              guestAccessToken: access.token,
+              guestWebUrl: access.guestWebUrl,
+              guestCompleteAccountUrl: access.completeAccountUrl,
+            } as any);
+
+            const emailMsg = access.emailSent === false
+              ? `La réattribution a été enregistrée mais l'email n'a pas pu être envoyé à ${newProvider.email.trim()}.`
+              : `Un email a été envoyé à ${newProvider.email.trim()}.`;
+
+            safeHapticSuccess();
+            wa("Réattribution réussie", emailMsg);
+            router.replace(`/intervention/${editId}` as any);
+          } catch (e) {
+            console.error("Reassign guest access failed:", e);
+            safeHapticSuccess();
+            wa("Réattribution enregistrée", "Les informations ont été mises à jour. Pensez à renvoyer le lien au nouveau prestataire.");
+            router.replace(`/intervention/${editId}` as any);
+          }
+        } else {
+          safeHapticSuccess();
+          router.back();
+        }
       } catch {
         wa("Erreur", "Impossible de modifier l'intervention.");
       } finally {
@@ -1199,7 +1245,7 @@ export default function AddInterventionScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
-            {isEditMode ? "Modifier" : isAdmin ? "Programmer" : "Déclarer"}
+            {isReassign ? "Réattribuer" : isEditMode ? "Modifier" : isAdmin ? "Programmer" : "Déclarer"}
           </Text>
 
           {!isEditMode && (
@@ -1243,7 +1289,9 @@ export default function AddInterventionScreen() {
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <Text style={styles.saveBtnText}>
-              {isEditMode
+              {isReassign
+                ? "Réattribuer"
+                : isEditMode
                 ? "Sauvegarder"
                 : recurrenceEnabled
                 ? "Planifier"

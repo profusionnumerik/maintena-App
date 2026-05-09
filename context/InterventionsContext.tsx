@@ -2,6 +2,7 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   onSnapshot,
   orderBy,
@@ -273,11 +274,11 @@ export function InterventionsProvider({
       }
 
       if (data.providerStatus !== undefined) {
-        payload.providerStatus = data.providerStatus;
+        payload.providerStatus = data.providerStatus === null ? deleteField() : data.providerStatus;
       }
 
       if (data.providerStatusAt !== undefined) {
-        payload.providerStatusAt = data.providerStatusAt;
+        payload.providerStatusAt = data.providerStatusAt === null ? deleteField() : data.providerStatusAt;
       }
 
       await updateDoc(docRef, payload);

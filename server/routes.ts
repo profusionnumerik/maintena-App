@@ -8,7 +8,7 @@ import Stripe from "stripe";
 import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import { getStorage, getDownloadURL } from "firebase-admin/storage";
+import { getStorage } from "firebase-admin/storage";
 
 // Inline depuis shared/types pour éviter les problèmes d'import dans le bundle esbuild
 interface BuildingDef { name: string; floors: number; }
@@ -171,6 +171,21 @@ function getAdminStorage() {
   } catch {
     return null;
   }
+}
+
+// Builds a Firebase Storage download URL without signed URLs (no extra IAM perms needed).
+// Requires saving the file with firebaseStorageDownloadTokens in custom metadata.
+function makeFirebaseStorageUrl(bucketName: string, storagePath: string, downloadToken: string): string {
+  const encodedPath = encodeURIComponent(storagePath);
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+}
+
+function generateDownloadToken(): string {
+  const b = randomBytes(16);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = b.toString("hex");
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
 }
 
 
@@ -3136,15 +3151,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${extension}`;
       const storagePath = `copros/${payload.copro.id}/interventions/${payload.intervention.id}/completion/${fileName}`;
       const file = bucket.file(storagePath);
+      const downloadToken = generateDownloadToken();
 
       const buffer = Buffer.from(base64, "base64");
 
       await file.save(buffer, {
-        metadata: { contentType: mimeType },
+        metadata: {
+          contentType: mimeType,
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
         resumable: false,
       });
 
-      const url = await getDownloadURL(file);
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      const url = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
       const updatedPhotos = [...payload.intervention.completionPhotos, url];
 
       await payload.interventionRef.set(

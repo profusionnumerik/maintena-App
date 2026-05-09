@@ -345,8 +345,8 @@ export default function InterventionDetailScreen() {
     providerStatus !== "accepted" &&
     providerStatus !== "refused";
 
-  const uploadAndSavePhotos = async (): Promise<string[]> => {
-    if (localCompletionPhotos.length === 0) return [];
+  const uploadAndSavePhotos = async (): Promise<{ urls: string[]; failed: number }> => {
+    if (localCompletionPhotos.length === 0) return { urls: [], failed: 0 };
 
     if (!currentCopro?.id) {
       throw new Error("Copropriété introuvable.");
@@ -355,14 +355,20 @@ export default function InterventionDetailScreen() {
     setIsUploadingCompletion(true);
 
     try {
-      const uploaded: string[] = [];
+      const urls: string[] = [];
+      let failed = 0;
 
       for (const uri of localCompletionPhotos) {
-        const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
-        uploaded.push(url);
+        try {
+          const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
+          urls.push(url);
+        } catch (e) {
+          console.error("Photo upload error:", e);
+          failed++;
+        }
       }
 
-      return uploaded;
+      return { urls, failed };
     } finally {
       setIsUploadingCompletion(false);
     }
@@ -380,20 +386,30 @@ export default function InterventionDetailScreen() {
       setIsUploadingCompletion(true);
 
       const uploaded: string[] = [];
+      let failed = 0;
 
       for (const uri of localCompletionPhotos) {
-        const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
-        uploaded.push(url);
+        try {
+          const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
+          uploaded.push(url);
+        } catch (e) {
+          console.error("Photo upload error:", e);
+          failed++;
+        }
       }
 
-      const existing = intervention.completionPhotos ?? [];
+      if (uploaded.length > 0) {
+        const existing = intervention.completionPhotos ?? [];
+        await updateIntervention(intervention.id, {
+          completionPhotos: [...existing, ...uploaded],
+        } as any);
+        setLocalCompletionPhotos([]);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
 
-      await updateIntervention(intervention.id, {
-        completionPhotos: [...existing, ...uploaded],
-      } as any);
-
-      setLocalCompletionPhotos([]);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (failed > 0) {
+        wa("Photos partielles", `${failed} photo${failed > 1 ? "s" : ""} n'ont pas pu être envoyée${failed > 1 ? "s" : ""}. Réessayez.`);
+      }
     } catch (e: any) {
       console.error("SAVE COMPLETION PHOTOS ERROR:", e);
       wa("Erreur", e?.message || "Impossible d'enregistrer les photos. Vérifiez votre connexion.");
@@ -479,7 +495,7 @@ export default function InterventionDetailScreen() {
     }
 
     try {
-      const uploaded = await uploadAndSavePhotos();
+      const { urls: uploaded, failed } = await uploadAndSavePhotos();
       const existing = intervention.completionPhotos ?? [];
 
       const updates: Record<string, any> = {
@@ -495,6 +511,11 @@ export default function InterventionDetailScreen() {
 
       setLocalCompletionPhotos([]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (failed > 0) {
+        wa("Rapport envoyé", `Le rapport a été enregistré mais ${failed} photo${failed > 1 ? "s" : ""} n’ont pas pu être envoyée${failed > 1 ? "s" : ""}. Vous pouvez les ajouter depuis la fiche.`);
+      }
+
       router.back();
     } catch {
       wa("Erreur", "Impossible de mettre à jour l’intervention. Vérifiez votre connexion.");
@@ -508,7 +529,7 @@ export default function InterventionDetailScreen() {
     }
 
     try {
-      const uploaded = await uploadAndSavePhotos();
+      const { urls: uploaded, failed } = await uploadAndSavePhotos();
       const existing = intervention.completionPhotos ?? [];
 
       const updates: Record<string, any> = {
@@ -522,6 +543,11 @@ export default function InterventionDetailScreen() {
 
       setLocalCompletionPhotos([]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (failed > 0) {
+        wa("Intervention validée", `Validée, mais ${failed} photo${failed > 1 ? "s" : ""} n’ont pas pu être envoyée${failed > 1 ? "s" : ""}. Vous pouvez les ajouter depuis la fiche.`);
+      }
+
       router.back();
     } catch {
       wa("Erreur", "Impossible de valider l’intervention. Vérifiez votre connexion.");
@@ -959,7 +985,7 @@ export default function InterventionDetailScreen() {
             {/* Réattribuer si refusé */}
             {providerStatus === "refused" && (
               <Pressable
-                onPress={() => router.push(`/add?editId=${intervention.id}` as any)}
+                onPress={() => router.push(`/add?editId=${intervention.id}&reassign=1` as any)}
                 style={({ pressed }) => [styles.reassignBtn, pressed && { opacity: 0.85 }]}
               >
                 <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
