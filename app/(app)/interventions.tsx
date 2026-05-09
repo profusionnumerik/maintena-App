@@ -194,12 +194,17 @@ function InterventionCard({ item, onPress, compact }: { item: Intervention; onPr
         <Text style={[styles.cardTitle, compact && styles.cardTitleCompact]} numberOfLines={compact ? 1 : 2}>
           {item.title}
         </Text>
-        {!compact && (
+        {(item as any).providerStatus === "refused" ? (
+          <View style={[styles.statusBadge, { backgroundColor: "#FEF2F2", flexDirection: "row", alignItems: "center", gap: 4 }]}>
+            <Ionicons name="close-circle" size={11} color="#DC2626" />
+            <Text style={[styles.statusText, { color: "#DC2626" }]}>Refusée</Text>
+          </View>
+        ) : !compact ? (
           <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
             <View style={[styles.statusDot, { backgroundColor: sc.dot }]} />
             <Text style={[styles.statusText, { color: sc.text }]}>{STATUS_LABELS[item.status]}</Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.cardMeta}>

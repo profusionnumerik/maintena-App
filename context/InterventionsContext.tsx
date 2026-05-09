@@ -94,6 +94,8 @@ function toIntervention(id: string, data: any, coProId: string): Intervention {
     interventionAccessCode: data.interventionAccessCode ?? undefined,
     providerMode: data.providerMode ?? undefined,
     invitedProvider: data.invitedProvider ?? undefined,
+    providerStatus: data.providerStatus ?? undefined,
+    providerStatusAt: data.providerStatusAt ?? undefined,
   };
 }
 
@@ -268,6 +270,14 @@ export function InterventionsProvider({
 
       if (data.invitedProvider !== undefined) {
         payload.invitedProvider = data.invitedProvider;
+      }
+
+      if (data.providerStatus !== undefined) {
+        payload.providerStatus = data.providerStatus;
+      }
+
+      if (data.providerStatusAt !== undefined) {
+        payload.providerStatusAt = data.providerStatusAt;
       }
 
       await updateDoc(docRef, payload);
