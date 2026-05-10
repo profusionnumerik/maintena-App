@@ -3276,48 +3276,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/public/intervention/:token/report", async (req: Request, res: Response) => {
-    const payload = await buildGuestInterventionPayload(String(req.params.token));
+    const token = String(req.params.token);
+    const isFormPost = req.is("application/x-www-form-urlencoded");
+    const payload = await buildGuestInterventionPayload(token);
+
     if (payload.status !== 200) {
+      if (isFormPost) return res.redirect(`/guest-intervention/${token}?error=lien_invalide`);
       return res.status(payload.status).json({ error: payload.error });
     }
 
     if (payload.intervention.providerStatus === "refused") {
+      if (isFormPost) return res.redirect(`/guest-intervention/${token}`);
       return res.status(403).json({ error: "Vous avez refusé cette intervention. Aucun compte-rendu ne peut être soumis." });
     }
 
     if (payload.intervention.guestUpdatedAt) {
+      if (isFormPost) return res.redirect(`/guest-intervention/${token}`);
       return res.status(403).json({ error: "Ce compte-rendu a déjà été transmis. Aucune modification n'est possible." });
     }
 
-    const {
-      status,
-      report,
-      completionComment,
-      interventionRemaining,
-      completionPhotos,
-      cleaningChecklist,
-    } = req.body as {
-      status?: "planifie" | "en_cours" | "termine";
-      report?: string;
-      completionComment?: string;
-      interventionRemaining?: string;
-      completionPhotos?: string[];
-      cleaningChecklist?: Record<string, boolean>;
-    };
+    const body = req.body as Record<string, any>;
+    const status = body.status as string | undefined;
+    const report = body.report as string | undefined;
+    const completionComment = (body.completionComment as string | undefined) ?? "";
+    const interventionRemaining = (body.interventionRemaining as string | undefined) ?? "";
+
+    // completionPhotos may come as a JSON string (native form) or already parsed (JSON API)
+    let completionPhotos: string[] = payload.intervention.completionPhotos;
+    try {
+      const raw = body.completionPhotos;
+      if (Array.isArray(raw)) {
+        completionPhotos = raw;
+      } else if (typeof raw === "string") {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) completionPhotos = parsed;
+      }
+    } catch { /* keep existing */ }
+
+    // cleaningChecklist may come as a JSON string (native form) or already parsed (JSON API)
+    let cleaningChecklist: Record<string, boolean> | null = null;
+    try {
+      const raw = body.cleaningChecklist;
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        cleaningChecklist = raw as Record<string, boolean>;
+      } else if (typeof raw === "string") {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") cleaningChecklist = parsed;
+      }
+    } catch { /* ignore */ }
 
     try {
       await payload.interventionRef.set(
         {
           status: status ?? "en_cours",
           interventionReport: report ?? "",
-          completionComment: completionComment ?? "",
-          interventionRemaining: interventionRemaining ?? "",
-          completionPhotos: Array.isArray(completionPhotos)
-            ? completionPhotos
-            : payload.intervention.completionPhotos,
-          ...(cleaningChecklist && typeof cleaningChecklist === "object" ? { cleaningChecklist } : {}),
+          completionComment,
+          interventionRemaining,
+          completionPhotos,
+          ...(cleaningChecklist ? { cleaningChecklist } : {}),
           guestUpdatedAt: new Date().toISOString(),
-          // Soumettre un rapport implique l'acceptation
           providerStatus: "accepted",
           ...(payload.intervention.providerStatus !== "accepted" ? { providerStatusAt: new Date().toISOString() } : {}),
         },
@@ -3332,9 +3349,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { merge: true }
       );
 
+      if (isFormPost) return res.redirect(`/guest-intervention/${token}`);
       return res.json({ success: true });
     } catch (e: any) {
       console.error("guest report error:", e);
+      if (isFormPost) return res.redirect(`/guest-intervention/${token}?error=erreur_serveur`);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
@@ -3476,7 +3495,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div>${existingPhotosHtml}</div>
     </div>
     ` : `
-    <form id="report-form">
+    <form id="report-form" method="POST" action="/api/public/intervention/${token}/report">
+      <input type="hidden" name="completionPhotos" id="completionPhotosInput" value="${escapeHtml(JSON.stringify(payload.intervention.completionPhotos || []))}" />
+      <input type="hidden" name="cleaningChecklist" id="cleaningChecklistInput" value="${escapeHtml(JSON.stringify(payload.intervention.cleaningChecklist || {}))}" />
+
       <label class="m-label" for="status">Statut</label>
       <select id="status" name="status" class="m-input">${statusOptions}</select>
 
@@ -3486,15 +3508,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
       <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
 
-      <label class="m-label" for="photoInput">📷 Photo de preuve *</label>
+      <label class="m-label" for="photoInput">📷 Photo de preuve</label>
       <input id="photoInput" type="file" accept="image/*" class="m-input" />
+      <div id="photoUploadStatus" style="font-size:13px;color:#64748b;margin:4px 0 8px;"></div>
 
       <div id="photosList" style="margin-top:10px;margin-bottom:4px;">${existingPhotosHtml}</div>
 
-      <button type="submit" id="submitBtn" class="m-btn" style="margin-top:14px;">✓ Enregistrer le compte-rendu</button>
+      <button type="button" id="submitBtn" class="m-btn" style="margin-top:14px;" onclick="submitReport()">✓ Enregistrer le compte-rendu</button>
 
-      <div class="m-success" id="success">Compte-rendu enregistré avec succès !</div>
-      <div class="m-error" id="error"></div>
+      <div class="m-error" id="error" style="display:none;"></div>
     </form>
     `}
   </div>` : ""}
@@ -3613,13 +3635,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
-  const reportForm = document.getElementById('report-form');
-  if (reportForm) reportForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const success = document.getElementById('success');
+  async function submitReport() {
     const error = document.getElementById('error');
     const submitBtn = document.getElementById('submitBtn');
-    success.style.display = 'none'; error.style.display = 'none';
+    const reportForm = document.getElementById('report-form');
+
+    error.style.display = 'none';
 
     const reportText = document.getElementById('report').value.trim();
     if (!reportText) {
@@ -3632,41 +3653,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     submitBtn.textContent = 'Envoi en cours...';
 
     try {
-      // 1. Upload la photo si une est sélectionnée
+      // 1. Upload la photo si une est sélectionnée (AJAX)
       await uploadPhotoIfSelected();
 
-      // 2. Soumettre le rapport avec tout
-      const body = {
-        status: document.getElementById('status').value,
-        report: reportText,
-        completionComment: '',
-        interventionRemaining: document.getElementById('interventionRemaining').value,
-        completionPhotos,
-        cleaningChecklist: Object.keys(cleaningChecklist).length > 0 ? cleaningChecklist : undefined,
-      };
-      const res = await fetch('/api/public/intervention/' + TOKEN + '/report', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
+      // 2. Mettre à jour les champs cachés avant soumission native
+      document.getElementById('completionPhotosInput').value = JSON.stringify(completionPhotos);
+      document.getElementById('cleaningChecklistInput').value = JSON.stringify(cleaningChecklist);
 
-      success.textContent = 'Compte-rendu enregistré avec succès !';
-      success.style.display = 'block';
-      // Verrouiller le formulaire
-      reportForm.querySelectorAll('input, textarea, select, button').forEach(el => {
-        el.disabled = true;
-        el.style.opacity = '0.6';
-        el.style.cursor = 'not-allowed';
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      // 3. Soumettre le formulaire nativement (POST)
+      reportForm.submit();
     } catch (e) {
-      error.textContent = e.message || 'Erreur';
+      error.textContent = (e && e.message) ? e.message : 'Erreur réseau — vérifiez votre connexion.';
       error.style.display = 'block';
       submitBtn.disabled = false;
       submitBtn.textContent = '✓ Enregistrer le compte-rendu';
     }
-  });
+  }
 </script>`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
