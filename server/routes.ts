@@ -3390,6 +3390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Email de confirmation au prestataire avec le récapitulatif du compte-rendu
       try {
+        console.log(`[Maintena] Envoi email confirmation prestataire à ${payload.provider.email}`);
         const rc = await getUncachableResendClient();
         const categoryLabel = CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category;
         const photosHtml = completionPhotos.length > 0
@@ -3633,8 +3634,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
 
       <label class="m-label" for="photoInput">📷 Photo de preuve</label>
-      <input id="photoInput" type="file" accept="image/*" class="m-input" />
-      <div id="photoUploadStatus" style="font-size:13px;color:#64748b;margin:4px 0 8px;"></div>
+      <input id="photoInput" type="file" accept="image/*" capture="environment" class="m-input" onchange="handlePhotoChange(this)" />
+      <div id="photoUploadStatus" style="font-size:13px;margin:4px 0 8px;"></div>
+      <div id="photoPreview" style="margin:8px 0;"></div>
 
       <div id="photosList" style="margin-top:10px;margin-bottom:4px;">${existingPhotosHtml}</div>
 
@@ -3733,34 +3735,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ).join('');
   }
 
-  async function uploadPhotoIfSelected() {
-    const input = document.getElementById('photoInput');
-    const file = input && input.files[0];
-    if (!file) return; // pas de photo sélectionnée → on passe
-    const reader = new FileReader();
-    return new Promise((resolve, reject) => {
-      reader.onerror = () => reject(new Error('Impossible de lire le fichier image.'));
-      reader.onload = async () => {
-        try {
-          const result = String(reader.result || '');
-          const base64 = result.includes(',') ? result.split(',')[1] : result;
-          const res = await fetch('/api/public/intervention/' + TOKEN + '/photo', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64, mimeType: file.type || 'image/jpeg' }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Erreur upload photo');
-          completionPhotos = data.completionPhotos || completionPhotos;
-          renderPhotos();
-          resolve();
-        } catch (e) { reject(e); }
-      };
-      reader.readAsDataURL(file);
-    });
+  var photoUploading = false;
+
+  function handlePhotoChange(input) {
+    var file = input && input.files && input.files[0];
+    if (!file) return;
+    var statusEl = document.getElementById('photoUploadStatus');
+    var previewEl = document.getElementById('photoPreview');
+    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Upload en cours…'; }
+    if (previewEl) previewEl.innerHTML = '';
+    photoUploading = true;
+
+    var reader = new FileReader();
+    reader.onerror = function() {
+      photoUploading = false;
+      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Impossible de lire le fichier.'; }
+    };
+    reader.onload = function() {
+      // Affiche le preview local immédiatement
+      if (previewEl) previewEl.innerHTML = '<img src="' + reader.result + '" alt="preview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;margin-top:4px;" />';
+
+      var result = String(reader.result || '');
+      var base64 = result.includes(',') ? result.split(',')[1] : result;
+      fetch('/api/public/intervention/' + TOKEN + '/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64: base64, mimeType: file.type || 'image/jpeg' }),
+      })
+      .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
+      .then(function(r) {
+        photoUploading = false;
+        if (!r.ok) throw new Error(r.data.error || 'Erreur upload');
+        completionPhotos = r.data.completionPhotos || completionPhotos;
+        renderPhotos();
+        var photosInput = document.getElementById('completionPhotosInput');
+        if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
+        if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée avec succès'; }
+      })
+      .catch(function(e) {
+        photoUploading = false;
+        if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (e.message || 'Erreur upload photo'); }
+        if (previewEl) previewEl.innerHTML = '';
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   function handleSubmit(event) {
     if (event) event.preventDefault();
+    if (photoUploading) {
+      var errorEl = document.getElementById('error');
+      if (errorEl) { errorEl.textContent = 'Photo en cours d\'envoi, veuillez patienter…'; errorEl.style.display = 'block'; }
+      return false;
+    }
     doSubmitReport();
     return false;
   }
@@ -3788,7 +3815,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      await uploadPhotoIfSelected();
       var photosInput = document.getElementById('completionPhotosInput');
       var checklistInput = document.getElementById('cleaningChecklistInput');
       if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
