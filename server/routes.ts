@@ -11,6 +11,26 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 
 // Inline depuis shared/types pour éviter les problèmes d'import dans le bundle esbuild
+const CATEGORY_LABELS_SERVER: Record<string, string> = {
+  nettoyage: "Nettoyage",
+  ascenseur: "Ascenseur (maintenance)",
+  portail: "Portail",
+  parking: "Parking",
+  vmc: "VMC",
+  plomberie: "Plomberie",
+  electricite: "Électricité",
+  espaces_verts: "Espaces verts",
+  chaufferie: "Chaufferie",
+  video_surveillance: "Vidéo-surveillance",
+  facade: "Façade",
+  toiture: "Toiture",
+  local_poubelle: "Local poubelles",
+  piscine: "Piscine",
+  interphone: "Interphone",
+  desinfection: "Désinfection",
+  divers: "Divers",
+};
+
 interface BuildingDef { name: string; floors: number; }
 interface BuildingConfigServer {
   buildings?: BuildingDef[];
@@ -662,6 +682,8 @@ async function sendGuestInviteEmail(params: {
   providerName: string;
   coproName: string;
   interventionTitle: string;
+  interventionCategory?: string;
+  interventionPhotos?: string[];
   webLink: string;
   completeAccountLink: string;
   activationCode?: string;
@@ -706,9 +728,19 @@ async function sendGuestInviteEmail(params: {
 
       <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:18px;margin-bottom:22px;">
         <div style="font-size:13px;color:#64748B;margin-bottom:6px;">Intervention</div>
-        <div style="font-size:16px;color:#0F172A;font-weight:700;">
+        <div style="font-size:16px;color:#0F172A;font-weight:700;margin-bottom:${params.interventionCategory ? "8px" : "0"};">
           ${escapeHtml(params.interventionTitle)}
         </div>
+        ${params.interventionCategory ? `<div style="display:inline-block;background:#DBEAFE;color:#1D4ED8;font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;">${escapeHtml(CATEGORY_LABELS_SERVER[params.interventionCategory] ?? params.interventionCategory)}</div>` : ""}
+        ${params.interventionPhotos && params.interventionPhotos.length > 0 ? `
+        <div style="margin-top:14px;">
+          <div style="font-size:12px;color:#64748B;margin-bottom:8px;">Photos jointes</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            ${params.interventionPhotos.map(url =>
+              `<a href="${url}" target="_blank" style="display:block;"><img src="${url}" alt="photo" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #E2E8F0;" /></a>`
+            ).join("")}
+          </div>
+        </div>` : ""}
       </div>
 
       <p style="margin:0 0 20px;">
@@ -2808,6 +2840,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           providerName,
           coproName,
           interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
+          interventionCategory: (interventionSnap.data() as any)?.category,
+          interventionPhotos: Array.isArray((interventionSnap.data() as any)?.photos) ? (interventionSnap.data() as any).photos : [],
           webLink: payload.webLink,
           completeAccountLink: payload.completeAccountLink,
           activationCode: payload.activationCode,
@@ -2906,6 +2940,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providerName,
         coproName,
         interventionTitle,
+        interventionCategory: (interventionSnap.data() as any)?.category,
+        interventionPhotos: Array.isArray((interventionSnap.data() as any)?.photos) ? (interventionSnap.data() as any).photos : [],
         webLink: invite.webLink ?? "",
         completeAccountLink: invite.completeAccountLink ?? "",
         activationCode,
@@ -2984,6 +3020,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         providerName: safeProviderName,
         coproName: (coproSnap.data() as any)?.name ?? "Copropriété",
         interventionTitle: (interventionSnap.data() as any)?.title ?? "Intervention",
+        interventionCategory: (interventionSnap.data() as any)?.category,
+        interventionPhotos: Array.isArray((interventionSnap.data() as any)?.photos) ? (interventionSnap.data() as any).photos : [],
         webLink: payload.webLink,
         completeAccountLink: payload.completeAccountLink,
         activationCode: payload.activationCode,
@@ -3350,6 +3388,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { merge: true }
       );
 
+      // Email de confirmation au prestataire avec le récapitulatif du compte-rendu
+      try {
+        const rc = await getUncachableResendClient();
+        const categoryLabel = CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category;
+        const photosHtml = completionPhotos.length > 0
+          ? `<div style="margin-top:16px;"><div style="font-size:13px;color:#64748b;margin-bottom:8px;">Vos photos :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map(url => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>`
+          : "";
+        await rc.client.emails.send({
+          from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          to: payload.provider.email,
+          subject: `✅ Compte-rendu transmis — ${payload.intervention.title}`,
+          html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+<div style="max-width:600px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:#0B1628;padding:28px 32px 22px;">
+    <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropriété</div>
+  </div>
+  <div style="padding:32px;">
+    <div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 12px;border-radius:20px;margin-bottom:18px;">✅ Compte-rendu transmis</div>
+    <h1 style="font-size:20px;color:#0F172A;margin:0 0 8px;">Bonjour ${escapeHtml(payload.provider.name)},</h1>
+    <p style="font-size:15px;color:#475569;line-height:1.6;margin:0 0 20px;">Votre compte-rendu d'intervention a bien été reçu pour la copropriété <strong>${escapeHtml(payload.copro.name)}</strong>.</p>
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:18px;margin-bottom:20px;">
+      <div style="font-size:13px;color:#64748B;margin-bottom:4px;">Intervention</div>
+      <div style="font-size:16px;font-weight:700;color:#0F172A;margin-bottom:8px;">${escapeHtml(payload.intervention.title)}</div>
+      <div style="display:inline-block;background:#DBEAFE;color:#1D4ED8;font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;">${escapeHtml(categoryLabel)}</div>
+      <div style="margin-top:14px;">
+        <div style="font-size:12px;color:#64748B;margin-bottom:4px;">Votre rapport</div>
+        <div style="font-size:14px;color:#0F172A;line-height:1.6;white-space:pre-wrap;">${escapeHtml(report ?? "")}</div>
+      </div>
+      ${photosHtml}
+    </div>
+    <p style="font-size:13px;color:#94A3B8;">L'administrateur de la copropriété a été notifié. Merci pour votre intervention.</p>
+  </div>
+</div>
+</body></html>`,
+        });
+      } catch (mailErr) {
+        console.warn("Confirmation mail prestataire failed:", mailErr);
+      }
+
+      // Notification à l'admin que le prestataire a soumis son compte-rendu
+      if (payload.copro.adminEmail) {
+        try {
+          const rc = await getUncachableResendClient();
+          const categoryLabel = CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category;
+          const adminPhotosHtml = completionPhotos.length > 0
+            ? `<div style="margin-top:12px;"><div style="font-size:12px;color:#64748b;margin-bottom:6px;">Photos du prestataire :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map(url => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>`
+            : "";
+          await rc.client.emails.send({
+            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            to: payload.copro.adminEmail,
+            subject: `📋 Compte-rendu reçu — ${payload.intervention.title}`,
+            html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+<div style="max-width:600px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:#0B1628;padding:28px 32px 22px;"><div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div></div>
+  <div style="padding:32px;">
+    <div style="display:inline-block;background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 12px;border-radius:20px;margin-bottom:16px;">📋 Compte-rendu reçu</div>
+    <h2 style="font-size:18px;color:#0F172A;margin:0 0 16px;">Le prestataire <strong>${escapeHtml(payload.provider.name)}</strong> a soumis son compte-rendu.</h2>
+    <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:15px;font-weight:700;color:#0F172A;">${escapeHtml(payload.intervention.title)}</div>
+      <div style="display:inline-block;background:#DBEAFE;color:#1D4ED8;font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;margin-top:6px;">${escapeHtml(categoryLabel)}</div>
+      <div style="margin-top:12px;font-size:12px;color:#64748b;">Rapport :</div>
+      <div style="font-size:14px;color:#0F172A;margin-top:4px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(report ?? "")}</div>
+      ${adminPhotosHtml}
+    </div>
+    <p style="font-size:13px;color:#94A3B8;">Retrouvez le détail dans l'application Maintena.</p>
+  </div>
+</div></body></html>`,
+          });
+        } catch (adminMailErr) {
+          console.warn("Notification admin report failed:", adminMailErr);
+        }
+      }
+
       if (isFormPost) return res.redirect(`/guest-intervention/${token}`);
       return res.json({ success: true });
     } catch (e: any) {
@@ -3447,7 +3561,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   <!-- Fiche intervention -->
   <div style="background:#fff;border-radius:18px;padding:28px;box-shadow:0 4px 24px rgba(0,0,0,0.08);margin-bottom:20px;">
-    <div style="display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:700;margin-bottom:14px;">Intervention</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="display:inline-block;background:#dbeafe;color:#1d4ed8;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:700;">Intervention</div>
+      <div style="display:inline-block;background:#f1f5f9;color:#475569;border-radius:999px;padding:5px 14px;font-size:12px;font-weight:600;">${escapeHtml(CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category)}</div>
+    </div>
     <h1 style="font-size:24px;font-weight:800;color:#0f172a;margin:0 0 6px;">${escapeHtml(payload.intervention.title)}</h1>
     <p style="color:#64748b;font-size:14px;margin:0 0 20px;">${escapeHtml(payload.copro.name)}${payload.copro.address ? ` · ${escapeHtml(payload.copro.address)}` : ""}</p>
 
