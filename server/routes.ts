@@ -533,6 +533,7 @@ async function buildGuestInterventionPayload(token: string) {
       completionComment: intervention.completionComment ?? "",
       interventionReport: intervention.interventionReport ?? "",
       interventionRemaining: intervention.interventionRemaining ?? "",
+      photos: Array.isArray(intervention.photos) ? intervention.photos : [],
       completionPhotos: Array.isArray(intervention.completionPhotos)
         ? intervention.completionPhotos
         : [],
@@ -1085,7 +1086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const inviteCode = await createUniqueInviteCode(db);
       const coProRef = db.collection("copros").doc();
       const now = new Date().toISOString();
-      const trialEndsAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // TEST: 15min
+      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
 
       await db.collection("users").doc(userId).set({
         uid: userId,
@@ -1360,7 +1361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Votre abonnement est déjà actif." });
       }
 
-      const trialEndsAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // TEST: 15min
+      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
       await db.collection("users").doc(uid).set(
         { subscriptionStatus: "trialing", trialEndsAt },
         { merge: true }
@@ -3466,6 +3467,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">Description</div>
       <div style="font-size:15px;color:#0f172a;line-height:1.6;">${escapeHtml(payload.intervention.description || "Aucune description fournie.")}</div>
     </div>
+    ${payload.intervention.photos.length > 0 ? `<div style="background:#f8fafc;border-radius:12px;padding:14px;margin-top:12px;">
+      <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;">Photos jointes par l'administrateur</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">${payload.intervention.photos.map((url: string) =>
+        `<a href="${escapeHtml(url)}" target="_blank" style="display:block;"><img src="${escapeHtml(url)}" alt="photo" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`
+      ).join("")}</div>
+    </div>` : ""}
   </div>
 
   ${cleaningZonesHtml}
@@ -3495,7 +3502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div>${existingPhotosHtml}</div>
     </div>
     ` : `
-    <form id="report-form" method="POST" action="/api/public/intervention/${token}/report">
+    <form id="report-form" method="POST" action="/api/public/intervention/${token}/report" onsubmit="handleSubmit(event); return false;">
       <input type="hidden" name="completionPhotos" id="completionPhotosInput" value="${escapeHtml(JSON.stringify(payload.intervention.completionPhotos || []))}" />
       <input type="hidden" name="cleaningChecklist" id="cleaningChecklistInput" value="${escapeHtml(JSON.stringify(payload.intervention.cleaningChecklist || {}))}" />
 
@@ -3514,7 +3521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       <div id="photosList" style="margin-top:10px;margin-bottom:4px;">${existingPhotosHtml}</div>
 
-      <button type="button" id="submitBtn" class="m-btn" style="margin-top:14px;" onclick="submitReport()">✓ Enregistrer le compte-rendu</button>
+      <button type="submit" id="submitBtn" class="m-btn" style="margin-top:14px;">✓ Enregistrer le compte-rendu</button>
 
       <div class="m-error" id="error" style="display:none;"></div>
     </form>
@@ -3635,38 +3642,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
-  async function submitReport() {
-    const error = document.getElementById('error');
-    const submitBtn = document.getElementById('submitBtn');
-    const reportForm = document.getElementById('report-form');
+  function handleSubmit(event) {
+    if (event) event.preventDefault();
+    doSubmitReport();
+    return false;
+  }
 
-    error.style.display = 'none';
+  async function doSubmitReport() {
+    var errorEl = document.getElementById('error');
+    var submitBtn = document.getElementById('submitBtn');
+    var reportForm = document.getElementById('report-form');
 
-    const reportText = document.getElementById('report').value.trim();
+    if (errorEl) errorEl.style.display = 'none';
+
+    var reportEl = document.getElementById('report');
+    var reportText = reportEl ? reportEl.value.trim() : '';
     if (!reportText) {
-      error.textContent = 'Veuillez remplir le rapport d\'intervention.';
-      error.style.display = 'block';
+      if (errorEl) {
+        errorEl.textContent = 'Veuillez remplir le rapport d\'intervention.';
+        errorEl.style.display = 'block';
+      }
       return;
     }
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Envoi en cours...';
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Envoi en cours...';
+    }
 
     try {
-      // 1. Upload la photo si une est sélectionnée (AJAX)
       await uploadPhotoIfSelected();
-
-      // 2. Mettre à jour les champs cachés avant soumission native
-      document.getElementById('completionPhotosInput').value = JSON.stringify(completionPhotos);
-      document.getElementById('cleaningChecklistInput').value = JSON.stringify(cleaningChecklist);
-
-      // 3. Soumettre le formulaire nativement (POST)
+      var photosInput = document.getElementById('completionPhotosInput');
+      var checklistInput = document.getElementById('cleaningChecklistInput');
+      if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
+      if (checklistInput) checklistInput.value = JSON.stringify(cleaningChecklist);
       reportForm.submit();
-    } catch (e) {
-      error.textContent = (e && e.message) ? e.message : 'Erreur réseau — vérifiez votre connexion.';
-      error.style.display = 'block';
-      submitBtn.disabled = false;
-      submitBtn.textContent = '✓ Enregistrer le compte-rendu';
+    } catch(e) {
+      if (errorEl) {
+        errorEl.textContent = (e && e.message) ? e.message : 'Erreur réseau — vérifiez votre connexion.';
+        errorEl.style.display = 'block';
+      }
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '✓ Enregistrer le compte-rendu';
+      }
     }
   }
 </script>`;
