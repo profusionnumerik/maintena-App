@@ -599,7 +599,11 @@ export default function InterventionsScreen() {
       )}
       {searchBar}
       {!isFilteredPrestataire && (
-        <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
           <Pressable
             style={[styles.catChip, catFilter === "all" && styles.catChipActive]}
             onPress={() => { Haptics.selectionAsync(); setCatFilter("all"); }}
@@ -607,7 +611,7 @@ export default function InterventionsScreen() {
             <Ionicons name="apps" size={12} color={catFilter === "all" ? "#fff" : COLORS.textMuted} />
             <Text style={[styles.catChipText, catFilter === "all" && styles.catChipTextActive]}>Tout</Text>
           </Pressable>
-          {visibleChips.map((cat) => {
+          {enabledCategories.map((cat) => {
             const isActive = catFilter === cat;
             const iconName = (CATEGORY_ICONS[cat] ?? "ellipsis-horizontal-circle") as keyof typeof Ionicons.glyphMap;
             return (
@@ -623,29 +627,7 @@ export default function InterventionsScreen() {
               </Pressable>
             );
           })}
-          {hasMore && (
-            <Pressable
-              style={[
-                styles.catChip, styles.catChipMore,
-                !visibleChips.includes(catFilter as Category) && catFilter !== "all" && styles.catChipActive,
-              ]}
-              onPress={() => { Haptics.selectionAsync(); setCatModalVisible(true); }}
-            >
-              <Ionicons
-                name="grid-outline" size={12}
-                color={!visibleChips.includes(catFilter as Category) && catFilter !== "all" ? "#fff" : COLORS.primary}
-              />
-              <Text style={[
-                styles.catChipText,
-                { color: !visibleChips.includes(catFilter as Category) && catFilter !== "all" ? "#fff" : COLORS.primary },
-              ]}>
-                {!visibleChips.includes(catFilter as Category) && catFilter !== "all"
-                  ? selectedLabel
-                  : `+${enabledCategories.length - VISIBLE_CHIPS}`}
-              </Text>
-            </Pressable>
-          )}
-        </View>
+        </ScrollView>
       )}
       <Text style={styles.resultCount}>
         {interventionItems.length} intervention{interventionItems.length !== 1 ? "s" : ""}
@@ -960,7 +942,7 @@ const styles = StyleSheet.create({
 
   filterRow: {
     flexDirection: "row", gap: 8, paddingHorizontal: 16,
-    marginTop: 10, marginBottom: 2, flexWrap: "nowrap",
+    marginTop: 10, marginBottom: 2,
   },
   catChip: {
     flexDirection: "row", alignItems: "center", gap: 5,

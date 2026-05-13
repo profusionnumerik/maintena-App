@@ -3310,9 +3310,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/public/intervention/:token/report", async (req: Request, res: Response) => {
+  app.post("/api/public/intervention/:token/report", uploadMiddleware.single("photo"), async (req: Request, res: Response) => {
     const token = String(req.params.token);
-    const isFormPost = req.is("application/x-www-form-urlencoded");
+    const isFormPost = req.is("application/x-www-form-urlencoded") || !!req.is("multipart/form-data");
     const payload = await buildGuestInterventionPayload(token);
 
     if (payload.status !== 200) {
@@ -3359,6 +3359,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (parsed && typeof parsed === "object") cleaningChecklist = parsed;
       }
     } catch { /* ignore */ }
+
+    // Upload proof photo if submitted directly in the multipart form
+    if (req.file) {
+      try {
+        const bucket = getAdminStorage();
+        if (bucket) {
+          const mimeType = req.file.mimetype || "image/jpeg";
+          const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+          const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${extension}`;
+          const storagePath = `copros/${payload.copro.id}/interventions/${payload.intervention.id}/completion/${fileName}`;
+          const storageFile = bucket.file(storagePath);
+          const downloadToken = generateDownloadToken();
+          await storageFile.save(req.file.buffer, {
+            metadata: {
+              contentType: mimeType,
+              metadata: { firebaseStorageDownloadTokens: downloadToken },
+            },
+            resumable: false,
+          });
+          const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+          const photoUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+          completionPhotos = [...completionPhotos, photoUrl];
+          console.log(`[report/photo] upload OK → ${photoUrl}`);
+        }
+      } catch (uploadErr) {
+        console.error("[report/photo] upload error:", uploadErr);
+      }
+    }
 
     try {
       await payload.interventionRef.set(
@@ -3616,8 +3644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div>${existingPhotosHtml}</div>
     </div>
     ` : `
-    <form id="report-form" method="POST" action="/api/public/intervention/${token}/report" onsubmit="handleSubmit(event); return false;">
-      <input type="hidden" name="completionPhotos" id="completionPhotosInput" value="${escapeHtml(JSON.stringify(payload.intervention.completionPhotos || []))}" />
+    <form id="report-form" method="POST" enctype="multipart/form-data" action="/api/public/intervention/${token}/report" onsubmit="handleSubmit(event); return false;">
       <input type="hidden" name="cleaningChecklist" id="cleaningChecklistInput" value="${escapeHtml(JSON.stringify(payload.intervention.cleaningChecklist || {}))}" />
 
       <label class="m-label" for="status">Statut</label>
@@ -3629,10 +3656,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <label class="m-label" for="interventionRemaining">Travaux restants (si applicable)</label>
       <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
 
-      <label class="m-label" for="photoInput">📷 Photo de preuve</label>
-      <input id="photoInput" type="file" accept="image/*" class="m-input" onchange="handlePhotoChange(this)" />
-      <div id="photoUploadStatus" style="font-size:13px;margin:4px 0 8px;"></div>
-      <div id="photoPreview" style="margin:8px 0;"></div>
+      <label class="m-label" for="photoInput">📷 Photo de preuve (optionnel)</label>
+      <input id="photoInput" type="file" name="photo" accept="image/*" class="m-input" />
 
       <div id="photosList" style="margin-top:10px;margin-bottom:4px;">${existingPhotosHtml}</div>
 
@@ -3693,11 +3718,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
-  let completionPhotos = ${JSON.stringify(payload.intervention.completionPhotos || [])};
-  const photosList = document.getElementById('photosList');
-  const success = document.getElementById('success');
-  const error = document.getElementById('error');
-
   // Zones de nettoyage — état local des checkboxes
   let cleaningChecklist = ${JSON.stringify(payload.intervention.cleaningChecklist)};
 
@@ -3719,112 +3739,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   updateZoneCount();
 
-  function renderPhotos() {
-    const list = document.getElementById('photosList');
-    if (!list) return;
-    if (!completionPhotos.length) {
-      list.innerHTML = '';
-      return;
-    }
-    list.innerHTML = completionPhotos.map((url) =>
-      '<a href="' + url + '" target="_blank" style="display:flex;align-items:center;gap:6px;margin:4px 0;color:#2563eb;font-size:13px;">📷 Voir la photo</a>'
-    ).join('');
-  }
-
-  var photoUploading = false;
-
-  function handlePhotoChange(input) {
-    var file = input && input.files && input.files[0];
-    var statusEl = document.getElementById('photoUploadStatus');
-    if (!file) {
-      if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = ''; }
-      return;
-    }
-    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Envoi en cours…'; }
-    photoUploading = true;
-
-    var formData = new FormData();
-    formData.append('photo', file, 'photo.jpg');
-
-    fetch('/api/public/intervention/' + TOKEN + '/photo', {
-      method: 'POST',
-      body: formData,
-    })
-    .then(function(res) {
-      return res.text().then(function(text) {
-        try { return { ok: res.ok, data: JSON.parse(text) }; }
-        catch(e) { return { ok: false, data: { error: text || ('HTTP ' + res.status) } }; }
-      });
-    })
-    .then(function(r) {
-      photoUploading = false;
-      if (!r.ok) {
-        if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (r.data.error || 'Erreur serveur'); }
-        return;
-      }
-      completionPhotos = r.data.completionPhotos || completionPhotos;
-      renderPhotos();
-      var photosInput = document.getElementById('completionPhotosInput');
-      if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
-      if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée (' + completionPhotos.length + ')'; }
-    })
-    .catch(function(e) {
-      photoUploading = false;
-      var msg = e && e.message ? e.message : 'Erreur réseau';
-      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + msg; }
-      alert('Erreur upload photo : ' + msg);
-    });
-  }
-
   function handleSubmit(event) {
     if (event) event.preventDefault();
-    if (photoUploading) {
-      var errorEl = document.getElementById('error');
-      if (errorEl) { errorEl.textContent = 'Photo en cours d\'envoi, veuillez patienter…'; errorEl.style.display = 'block'; }
-      return false;
-    }
-    doSubmitReport();
-    return false;
-  }
-
-  async function doSubmitReport() {
     var errorEl = document.getElementById('error');
-    var submitBtn = document.getElementById('submitBtn');
-    var reportForm = document.getElementById('report-form');
-
     if (errorEl) errorEl.style.display = 'none';
 
     var reportEl = document.getElementById('report');
     var reportText = reportEl ? reportEl.value.trim() : '';
     if (!reportText) {
-      if (errorEl) {
-        errorEl.textContent = 'Veuillez remplir le rapport d\'intervention.';
-        errorEl.style.display = 'block';
-      }
-      return;
+      if (errorEl) { errorEl.textContent = 'Veuillez remplir le rapport d\'intervention.'; errorEl.style.display = 'block'; }
+      return false;
     }
 
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Envoi en cours...';
-    }
+    var checklistInput = document.getElementById('cleaningChecklistInput');
+    if (checklistInput) checklistInput.value = JSON.stringify(cleaningChecklist);
 
-    try {
-      var photosInput = document.getElementById('completionPhotosInput');
-      var checklistInput = document.getElementById('cleaningChecklistInput');
-      if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
-      if (checklistInput) checklistInput.value = JSON.stringify(cleaningChecklist);
-      reportForm.submit();
-    } catch(e) {
-      if (errorEl) {
-        errorEl.textContent = (e && e.message) ? e.message : 'Erreur réseau — vérifiez votre connexion.';
-        errorEl.style.display = 'block';
-      }
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = '✓ Enregistrer le compte-rendu';
-      }
-    }
+    var submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Envoi en cours...'; }
+
+    document.getElementById('report-form').submit();
+    return false;
   }
 </script>`;
 
