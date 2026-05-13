@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Stripe from "stripe";
+import multer from "multer";
 import { getUncachableResendClient } from "./resend-client";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
@@ -3153,7 +3154,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/public/intervention/:token/photo", async (req: Request, res: Response) => {
+  const uploadMiddleware = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+
+  app.post("/api/public/intervention/:token/photo", uploadMiddleware.single("photo"), async (req: Request, res: Response) => {
     const payload = await buildGuestInterventionPayload(String(req.params.token));
     if (payload.status !== 200) {
       return res.status(payload.status).json({ error: payload.error });
@@ -3163,38 +3166,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: "Ce compte-rendu a déjà été transmis. Aucune modification n'est possible." });
     }
 
-    const { base64, mimeType = "image/jpeg" } = req.body as {
-      base64?: string;
-      mimeType?: string;
-    };
+    // Accepte multipart (FormData) ou JSON base64
+    let buffer: Buffer;
+    let mimeType = "image/jpeg";
 
-    if (!base64) {
-      return res.status(400).json({ error: "Image manquante." });
+    if (req.file) {
+      buffer = req.file.buffer;
+      mimeType = req.file.mimetype || "image/jpeg";
+    } else {
+      const { base64, mimeType: mt = "image/jpeg" } = req.body as { base64?: string; mimeType?: string };
+      if (!base64) {
+        return res.status(400).json({ error: "Image manquante." });
+      }
+      buffer = Buffer.from(base64, "base64");
+      mimeType = mt;
     }
 
     try {
       const bucket = getAdminStorage();
       if (!bucket) {
-        return res.status(503).json({
-          error: "Storage Firebase Admin non configuré.",
-        });
+        return res.status(503).json({ error: "Storage Firebase Admin non configuré." });
       }
 
-      const extension =
-        mimeType === "image/png"
-          ? "png"
-          : mimeType === "image/webp"
-          ? "webp"
-          : "jpg";
-
+      const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
       const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${extension}`;
       const storagePath = `copros/${payload.copro.id}/interventions/${payload.intervention.id}/completion/${fileName}`;
-      const file = bucket.file(storagePath);
+      const storageFile = bucket.file(storagePath);
       const downloadToken = generateDownloadToken();
 
-      const buffer = Buffer.from(base64, "base64");
+      console.log(`[photo] upload ${fileName} (${buffer.length} bytes, ${mimeType})`);
 
-      await file.save(buffer, {
+      await storageFile.save(buffer, {
         metadata: {
           contentType: mimeType,
           metadata: { firebaseStorageDownloadTokens: downloadToken },
@@ -3206,16 +3208,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const url = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
       const updatedPhotos = [...payload.intervention.completionPhotos, url];
 
-      await payload.interventionRef.set(
-        { completionPhotos: updatedPhotos },
-        { merge: true }
-      );
+      await payload.interventionRef.set({ completionPhotos: updatedPhotos }, { merge: true });
 
-      return res.json({
-        success: true,
-        url,
-        completionPhotos: updatedPhotos,
-      });
+      console.log(`[photo] saved OK → ${url}`);
+      return res.json({ success: true, url, completionPhotos: updatedPhotos });
     } catch (e: any) {
       console.error("guest photo upload error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
@@ -3634,7 +3630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <textarea id="interventionRemaining" name="interventionRemaining" class="m-input" style="min-height:80px;resize:vertical;" placeholder="Ce qu'il reste à faire...">${escapeHtml(payload.intervention.interventionRemaining || "")}</textarea>
 
       <label class="m-label" for="photoInput">📷 Photo de preuve</label>
-      <input id="photoInput" type="file" accept="image/*" capture="environment" class="m-input" onchange="handlePhotoChange(this)" />
+      <input id="photoInput" type="file" accept="image/*" class="m-input" onchange="handlePhotoChange(this)" />
       <div id="photoUploadStatus" style="font-size:13px;margin:4px 0 8px;"></div>
       <div id="photoPreview" style="margin:8px 0;"></div>
 
@@ -3742,43 +3738,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!file) return;
     var statusEl = document.getElementById('photoUploadStatus');
     var previewEl = document.getElementById('photoPreview');
-    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Upload en cours…'; }
+    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Compression et envoi…'; }
     if (previewEl) previewEl.innerHTML = '';
     photoUploading = true;
 
-    var reader = new FileReader();
-    reader.onerror = function() {
+    var img = new Image();
+    var objectUrl = URL.createObjectURL(file);
+    img.onerror = function() {
+      URL.revokeObjectURL(objectUrl);
       photoUploading = false;
-      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Impossible de lire le fichier.'; }
+      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Impossible de lire l\'image.'; }
     };
-    reader.onload = function() {
-      // Affiche le preview local immédiatement
-      if (previewEl) previewEl.innerHTML = '<img src="' + reader.result + '" alt="preview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;margin-top:4px;" />';
+    img.onload = function() {
+      URL.revokeObjectURL(objectUrl);
+      // Compression canvas — max 1280px, qualité 0.75
+      var maxW = 1280;
+      var scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      var result = String(reader.result || '');
-      var base64 = result.includes(',') ? result.split(',')[1] : result;
-      fetch('/api/public/intervention/' + TOKEN + '/photo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64: base64, mimeType: file.type || 'image/jpeg' }),
-      })
-      .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
-      .then(function(r) {
-        photoUploading = false;
-        if (!r.ok) throw new Error(r.data.error || 'Erreur upload');
-        completionPhotos = r.data.completionPhotos || completionPhotos;
-        renderPhotos();
-        var photosInput = document.getElementById('completionPhotosInput');
-        if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
-        if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée avec succès'; }
-      })
-      .catch(function(e) {
-        photoUploading = false;
-        if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (e.message || 'Erreur upload photo'); }
-        if (previewEl) previewEl.innerHTML = '';
-      });
+      // Preview miniature
+      if (previewEl) previewEl.innerHTML = '<img src="' + canvas.toDataURL('image/jpeg', 0.5) + '" alt="preview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;margin-top:4px;" />';
+
+      canvas.toBlob(function(blob) {
+        if (!blob) {
+          photoUploading = false;
+          if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Erreur compression image.'; }
+          return;
+        }
+        var formData = new FormData();
+        formData.append('photo', blob, 'photo.jpg');
+        fetch('/api/public/intervention/' + TOKEN + '/photo', {
+          method: 'POST',
+          body: formData,
+        })
+        .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
+        .then(function(r) {
+          photoUploading = false;
+          if (!r.ok) throw new Error(r.data.error || 'Erreur upload');
+          completionPhotos = r.data.completionPhotos || completionPhotos;
+          renderPhotos();
+          var photosInput = document.getElementById('completionPhotosInput');
+          if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
+          if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée avec succès'; }
+        })
+        .catch(function(e) {
+          photoUploading = false;
+          if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (e.message || 'Erreur upload photo'); }
+        });
+      }, 'image/jpeg', 0.75);
     };
-    reader.readAsDataURL(file);
+    img.src = objectUrl;
   }
 
   function handleSubmit(event) {
