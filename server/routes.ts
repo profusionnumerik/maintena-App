@@ -3735,63 +3735,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   function handlePhotoChange(input) {
     var file = input && input.files && input.files[0];
-    if (!file) return;
     var statusEl = document.getElementById('photoUploadStatus');
-    var previewEl = document.getElementById('photoPreview');
-    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Compression et envoi…'; }
-    if (previewEl) previewEl.innerHTML = '';
+    if (!file) {
+      if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = ''; }
+      return;
+    }
+    if (statusEl) { statusEl.style.color = '#64748b'; statusEl.textContent = '⏳ Envoi en cours…'; }
     photoUploading = true;
 
-    var img = new Image();
-    var objectUrl = URL.createObjectURL(file);
-    img.onerror = function() {
-      URL.revokeObjectURL(objectUrl);
+    var formData = new FormData();
+    formData.append('photo', file, 'photo.jpg');
+
+    fetch('/api/public/intervention/' + TOKEN + '/photo', {
+      method: 'POST',
+      body: formData,
+    })
+    .then(function(res) {
+      return res.text().then(function(text) {
+        try { return { ok: res.ok, data: JSON.parse(text) }; }
+        catch(e) { return { ok: false, data: { error: text || ('HTTP ' + res.status) } }; }
+      });
+    })
+    .then(function(r) {
       photoUploading = false;
-      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Impossible de lire l\'image.'; }
-    };
-    img.onload = function() {
-      URL.revokeObjectURL(objectUrl);
-      // Compression canvas — max 1280px, qualité 0.75
-      var maxW = 1280;
-      var scale = img.naturalWidth > maxW ? maxW / img.naturalWidth : 1;
-      var canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.naturalWidth * scale);
-      canvas.height = Math.round(img.naturalHeight * scale);
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      // Preview miniature
-      if (previewEl) previewEl.innerHTML = '<img src="' + canvas.toDataURL('image/jpeg', 0.5) + '" alt="preview" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;margin-top:4px;" />';
-
-      canvas.toBlob(function(blob) {
-        if (!blob) {
-          photoUploading = false;
-          if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ Erreur compression image.'; }
-          return;
-        }
-        var formData = new FormData();
-        formData.append('photo', blob, 'photo.jpg');
-        fetch('/api/public/intervention/' + TOKEN + '/photo', {
-          method: 'POST',
-          body: formData,
-        })
-        .then(function(res) { return res.json().then(function(data) { return { ok: res.ok, data: data }; }); })
-        .then(function(r) {
-          photoUploading = false;
-          if (!r.ok) throw new Error(r.data.error || 'Erreur upload');
-          completionPhotos = r.data.completionPhotos || completionPhotos;
-          renderPhotos();
-          var photosInput = document.getElementById('completionPhotosInput');
-          if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
-          if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée avec succès'; }
-        })
-        .catch(function(e) {
-          photoUploading = false;
-          if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (e.message || 'Erreur upload photo'); }
-        });
-      }, 'image/jpeg', 0.75);
-    };
-    img.src = objectUrl;
+      if (!r.ok) {
+        if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + (r.data.error || 'Erreur serveur'); }
+        return;
+      }
+      completionPhotos = r.data.completionPhotos || completionPhotos;
+      renderPhotos();
+      var photosInput = document.getElementById('completionPhotosInput');
+      if (photosInput) photosInput.value = JSON.stringify(completionPhotos);
+      if (statusEl) { statusEl.style.color = '#059669'; statusEl.textContent = '✅ Photo envoyée (' + completionPhotos.length + ')'; }
+    })
+    .catch(function(e) {
+      photoUploading = false;
+      var msg = e && e.message ? e.message : 'Erreur réseau';
+      if (statusEl) { statusEl.style.color = '#ef4444'; statusEl.textContent = '❌ ' + msg; }
+      alert('Erreur upload photo : ' + msg);
+    });
   }
 
   function handleSubmit(event) {
