@@ -42,7 +42,11 @@
 
 ## 6) Stripe — Passage en mode production
 
-- [ ] Créer les produits et prix dans Stripe Dashboard (mode live)
+- [ ] Créer les 4 prix dans Stripe Dashboard (mode live) et renseigner dans Cloud Run :
+  - `STRIPE_PRICE_ID_STARTER=price_live_...`  → 7,99 €/mois (1–5 copros)
+  - `STRIPE_PRICE_ID_PRO=price_live_...`      → 14,99 €/mois (jusqu'à 15 copros)
+  - `STRIPE_PRICE_ID_BUSINESS=price_live_...` → 19,99 €/mois (jusqu'à 30 copros)
+  - `STRIPE_PRICE_ID_ANNUEL=price_live_...`   → 169 €/an
 - [ ] Configurer le webhook Stripe live pointant vers `https://maintena-pro.fr/api/stripe-webhook`
 - [ ] Tester un paiement réel end-to-end en mode live avant publication
 

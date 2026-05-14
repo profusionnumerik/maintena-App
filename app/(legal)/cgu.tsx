@@ -42,7 +42,7 @@ export default function CguScreen() {
 
           <Section
             title="5. Accès au service et abonnement"
-            text="L'accès complet au service requiert un abonnement payant souscrit via Stripe. Un essai gratuit de 30 jours est proposé sans engagement ni carte bancaire. Les tarifs en vigueur sont : 19,99 €/mois (mensuel, sans engagement) ou 169 €/an (annuel). Les prix peuvent évoluer ; les abonnés sont informés 30 jours avant toute modification tarifaire."
+            text="L'accès complet au service requiert un abonnement payant souscrit via Stripe. Un essai gratuit de 30 jours est proposé sans engagement ni carte bancaire. Tarifs mensuels (sans engagement) : Starter 7,99 €/mois (1–5 copros), Pro 14,99 €/mois (jusqu'à 15 copros), Business 19,99 €/mois (jusqu'à 30 copros). Offre annuelle : 169 €/an. Les prix peuvent évoluer ; les abonnés sont informés 30 jours avant toute modification tarifaire."
           />
 
           <Section
