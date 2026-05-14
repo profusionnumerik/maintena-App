@@ -18,51 +18,71 @@ export default function ConfidentialiteScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Politique de confidentialité</Text>
-          <Text style={styles.updated}>Dernière mise à jour : 2026</Text>
+          <Text style={styles.updated}>Dernière mise à jour : mai 2026</Text>
 
           <Section
-            title="1. Éditeur"
-            text="L’application Maintena est éditée et exploitée par Profusion Numérik."
+            title="1. Responsable du traitement"
+            text="Profusion Numérik (SIREN 932 117 500) est responsable du traitement de vos données personnelles dans le cadre de l'application Maintena. Contact : contact@profusionnumerik.com — Tél. : 06 68 18 30 92."
           />
 
           <Section
             title="2. Données collectées"
-            text="Nous collectons uniquement les données nécessaires au fonctionnement du service : nom, prénom, email, téléphone, informations liées aux interventions, photos d’intervention et, lorsque nécessaire, la localisation pour vérifier la présence sur site."
+            text="Nous collectons uniquement les données nécessaires au fonctionnement du service : nom, prénom, adresse email, numéro de téléphone, rôle au sein de la copropriété, contenu saisi (rapports, notes), photos d'intervention, et, après votre autorisation explicite, données de localisation pour vérifier la présence sur site."
           />
 
           <Section
-            title="3. Utilisation des données"
-            text="Ces données sont utilisées pour créer, suivre et attribuer les interventions, faciliter les échanges entre syndics, prestataires et copropriétaires, et améliorer la qualité du service."
+            title="3. Finalités du traitement"
+            text="Vos données sont utilisées pour : créer et gérer votre compte, suivre et attribuer les interventions, faciliter les échanges entre syndics, prestataires et résidents, envoyer des notifications liées aux interventions, et améliorer la qualité du service."
           />
 
           <Section
-            title="4. Partage des données"
-            text="Les données ne sont pas revendues. Elles sont partagées uniquement avec les personnes autorisées dans le cadre de l’exploitation du service : syndic, prestataires concernés, membres autorisés de la copropriété."
+            title="4. Base légale"
+            text="Le traitement est fondé sur l'exécution du contrat (fourniture du service), l'intérêt légitime (amélioration du service, sécurité) et, pour certaines données sensibles, votre consentement explicite."
           />
 
           <Section
-            title="5. Localisation"
-            text="La localisation n’est utilisée que pour vérifier la présence sur site lors d’une déclaration ou d’une intervention. Elle n’est pas utilisée comme outil de suivi permanent."
+            title="5. Partage des données"
+            text="Vos données ne sont pas vendues. Elles sont partagées uniquement avec les membres autorisés au sein de votre copropriété (syndic, prestataires concernés, résidents autorisés) ainsi qu'avec nos sous-traitants techniques (Firebase/Google pour l'hébergement et l'authentification, Resend pour les emails, Stripe pour le paiement) dans le strict cadre du service."
           />
 
           <Section
-            title="6. Sécurité"
-            text="Nous mettons en place des mesures techniques raisonnables pour sécuriser les données et limiter les accès non autorisés."
+            title="6. Localisation"
+            text="La localisation n'est demandée que lorsque vous effectuez une déclaration de présence sur site. Elle n'est jamais utilisée comme outil de suivi permanent. Vous pouvez révoquer cette autorisation à tout moment depuis les paramètres de votre appareil."
           />
 
           <Section
-            title="7. Conservation"
-            text="Les données sont conservées pendant la durée nécessaire au fonctionnement du service et au respect des obligations légales ou contractuelles."
+            title="7. Hébergement"
+            text="Les données sont hébergées sur les serveurs de Google Cloud (europe-west1, Union Européenne) et Firebase (Google). Stripe traite les données de paiement conformément à sa propre politique de confidentialité et aux normes PCI-DSS."
           />
 
           <Section
-            title="8. Vos droits"
-            text="Conformément à la réglementation applicable, vous pouvez demander l’accès, la rectification ou la suppression de vos données, dans la mesure permise par la loi."
+            title="8. Durée de conservation"
+            text="Les données de compte sont conservées tant que le compte est actif. En cas de suppression du compte, les données personnelles sont effacées dans un délai de 30 jours, sauf obligation légale de conservation (données comptables conservées 10 ans)."
           />
 
           <Section
-            title="9. Contact"
-            text="Pour toute demande liée à la confidentialité ou à vos données personnelles : contact@profusionnumerik.com"
+            title="9. Vos droits (RGPD)"
+            text="Conformément au RGPD, vous disposez des droits suivants : accès, rectification, suppression, limitation, portabilité et opposition au traitement de vos données. Vous pouvez exercer ces droits en nous contactant à contact@profusionnumerik.com. En cas de désaccord, vous avez le droit d'introduire une réclamation auprès de la CNIL (www.cnil.fr)."
+          />
+
+          <Section
+            title="10. Suppression de compte"
+            text="Vous pouvez demander la suppression de votre compte et de l'ensemble de vos données depuis l'application (Profil → Supprimer mon compte) ou via la page https://maintena-pro.fr/account-deletion. La demande est traitée dans un délai de 30 jours."
+          />
+
+          <Section
+            title="11. Cookies"
+            text="L'application mobile n'utilise pas de cookies. La version web utilise des cookies strictement nécessaires au fonctionnement du service (session, authentification). Aucun cookie publicitaire n'est déposé."
+          />
+
+          <Section
+            title="12. Modifications"
+            text="Cette politique peut être mise à jour. En cas de modification substantielle, vous serez notifié dans l'application. La date de dernière mise à jour est indiquée en haut de ce document."
+          />
+
+          <Section
+            title="13. Contact"
+            text="Pour toute question relative à la protection de vos données : contact@profusionnumerik.com"
           />
         </View>
       </ScrollView>

@@ -1292,7 +1292,7 @@ export default function AddInterventionScreen() {
               {isReassign
                 ? "Réattribuer"
                 : isEditMode
-                ? "Sauvegarder"
+                ? "Enregistrer"
                 : recurrenceEnabled
                 ? "Planifier"
                 : "Enregistrer"}

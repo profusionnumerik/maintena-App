@@ -117,9 +117,8 @@ export default function AdminScreen() {
     const webAccessLink = `${webBase}/acces-prestataire?code=${encodeURIComponent(code)}`;
   
     const appLine =
-      "Téléchargez Maintena :\n" +
-      "App Store : https://apps.apple.com/app/maintena\n" +
-      "Google Play : https://play.google.com/store/apps/details?id=com.maintena";
+      "Téléchargez Maintena sur Google Play :\n" +
+      "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
   
     if (inviteRole === "propriétaire") {
       return (

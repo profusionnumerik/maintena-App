@@ -880,11 +880,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(400).json({ error: "Paramètres manquants." });
     }
 
-    const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
+    const selectedPlan = String(plan ?? "mensuel").trim().toLowerCase();
     const priceId =
-      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
-                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
+      selectedPlan === "annuel"
+        ? (process.env.STRIPE_PRICE_ID_ANNUEL || process.env.STRIPE_PRICE_ID_PRO || process.env.STRIPE_PRICE_ID)
+        : (process.env.STRIPE_PRICE_ID_MENSUEL || process.env.STRIPE_PRICE_ID_STARTER || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -961,11 +961,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
+    const selectedPlan = String(plan ?? "mensuel").trim().toLowerCase();
     const priceId =
-      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
-                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
+      selectedPlan === "annuel"
+        ? (process.env.STRIPE_PRICE_ID_ANNUEL || process.env.STRIPE_PRICE_ID_PRO || process.env.STRIPE_PRICE_ID)
+        : (process.env.STRIPE_PRICE_ID_MENSUEL || process.env.STRIPE_PRICE_ID_STARTER || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -1697,7 +1697,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p>Les données collectées (nom, email, téléphone, photos) sont utilisées exclusivement dans le cadre du service. Consultez notre <a href="/privacy-policy" style="color:var(--blue);">Politique de confidentialité</a> pour plus d'informations.</p>
 
       <h2>6. Abonnement</h2>
-      <p>L'accès complet au service nécessite un abonnement payant. Les tarifs et conditions sont affichés lors de l'inscription. L'abonnement est sans engagement et résiliable à tout moment.</p>
+      <p>L'accès complet au service nécessite un abonnement payant (essai gratuit 30 jours inclus). Tarifs : <strong>19,99 €/mois</strong> (sans engagement) ou <strong>169 €/an</strong> (engagement 12 mois). L'abonnement mensuel est résiliable à tout moment depuis votre espace client Stripe.</p>
 
       <h2>7. Responsabilité</h2>
       <p>ProFusion Numérik s'engage à maintenir le service disponible et sécurisé, sans garantir une disponibilité ininterrompue. La société ne peut être tenue responsable des dommages indirects liés à l'utilisation du service.</p>
@@ -1836,7 +1836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       </form>
 
       <p style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted);">
-        Après l’essai, à partir de 7,99 €/mois · Résiliable à tout moment<br/>
+        Après l’essai, à partir de 14,08 €/mois (plan annuel) ou 19,99 €/mois · Résiliable à tout moment<br/>
         <a href="/inscription-paiement" style="color:var(--muted);text-decoration:underline;text-underline-offset:2px;">Payer directement sans essai</a>
       </p>
     </div>
@@ -1896,8 +1896,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Ancienne inscription avec paiement direct (pour ceux qui veulent payer sans essai)
   app.get("/inscription-paiement", (req: Request, res: Response) => {
-    const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
-    const initialPlan = ["pro", "business"].includes(queryPlan) ? queryPlan : "starter";
+    const queryPlan = String(req.query?.plan ?? "mensuel").trim().toLowerCase();
+    const initialPlan = queryPlan === "annuel" ? "annuel" : "mensuel";
     const html = pageShell("Créer mon espace syndic — Abonnement direct", `
   <style>
     .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); }
@@ -1912,9 +1912,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <h1>Abonnement direct</h1>
       <p class="subtitle">Créez votre compte et activez votre abonnement immédiatement via Stripe.</p>
       <div class="plan-toggle" id="plan-toggle" role="group">
-        <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">Starter<small>1–5 copros · 7,99 €/mois</small></button>
-        <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">Pro<small>4–15 copros · 14,99 €/mois</small></button>
-        <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">Business<small>16–30 copros · 19,99 €/mois</small></button>
+        <button type="button" class="plan-btn${initialPlan === "mensuel" ? " active" : ""}" data-plan="mensuel">Mensuel<small>Sans engagement · 19,99 €/mois</small></button>
+        <button type="button" class="plan-btn${initialPlan === "annuel" ? " active" : ""}" data-plan="annuel">Annuel ⭐<small>169 €/an — soit 14,08 €/mois</small></button>
       </div>
       <form id="signup-form">
         <div class="m-row"><div><label class="m-label">Prénom</label><input class="m-input" id="firstName" placeholder="Jean" required /></div><div><label class="m-label">Nom</label><input class="m-input" id="lastName" placeholder="Dupont" required /></div></div>
@@ -1925,7 +1924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <label class="m-label">Nom de la copropriété</label><input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
         <label class="m-label">Adresse</label><input class="m-input" id="address" placeholder="12 rue de la Paix" required />
         <div class="m-row"><div><label class="m-label">Code postal</label><input class="m-input" id="postalCode" placeholder="31000" required /></div><div><label class="m-label">Ville</label><input class="m-input" id="city" placeholder="Toulouse" required /></div></div>
-        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "pro" ? "14,99 €/mois" : initialPlan === "business" ? "19,99 €/mois" : "7,99 €/mois"}</button>
+        <button class="m-btn" type="submit" id="submit-btn">Continuer → ${initialPlan === "annuel" ? "169 €/an" : "19,99 €/mois"}</button>
         <div class="m-error" id="error"></div>
       </form>
       <p style="text-align:center;margin-top:14px;font-size:12px;color:var(--muted);">🔒 Paiement sécurisé via Stripe · Résiliation à tout moment</p>
@@ -1933,7 +1932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   </div>
   <script>
     var currentPlan = "${initialPlan}";
-    var planLabels = { starter: "Continuer → 7,99 €/mois", pro: "Continuer → 14,99 €/mois", business: "Continuer → 19,99 €/mois" };
+    var planLabels = { mensuel: "Continuer → 19,99 €/mois", annuel: "Continuer → 169 €/an" };
     var form = document.getElementById("signup-form");
     var errorBox = document.getElementById("error");
     var btn = document.getElementById("submit-btn");
