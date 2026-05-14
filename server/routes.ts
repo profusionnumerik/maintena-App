@@ -882,10 +882,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
     const priceId =
-      selectedPlan === "annuel"   ? (process.env.STRIPE_PRICE_ID_ANNUEL   || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
-                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
+      selectedPlan === "starter-annuel"  ? (process.env.STRIPE_PRICE_ID_STARTER_ANNUEL  || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "pro-annuel"      ? (process.env.STRIPE_PRICE_ID_PRO_ANNUEL      || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business-annuel" ? (process.env.STRIPE_PRICE_ID_BUSINESS_ANNUEL || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "pro"             ? (process.env.STRIPE_PRICE_ID_PRO             || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business"        ? (process.env.STRIPE_PRICE_ID_BUSINESS        || process.env.STRIPE_PRICE_ID) :
+                                           (process.env.STRIPE_PRICE_ID_STARTER         || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -964,10 +966,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
     const priceId =
-      selectedPlan === "annuel"   ? (process.env.STRIPE_PRICE_ID_ANNUEL   || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "pro"      ? (process.env.STRIPE_PRICE_ID_PRO      || process.env.STRIPE_PRICE_ID) :
-      selectedPlan === "business" ? (process.env.STRIPE_PRICE_ID_BUSINESS || process.env.STRIPE_PRICE_ID) :
-                                    (process.env.STRIPE_PRICE_ID_STARTER  || process.env.STRIPE_PRICE_ID);
+      selectedPlan === "starter-annuel"  ? (process.env.STRIPE_PRICE_ID_STARTER_ANNUEL  || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "pro-annuel"      ? (process.env.STRIPE_PRICE_ID_PRO_ANNUEL      || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business-annuel" ? (process.env.STRIPE_PRICE_ID_BUSINESS_ANNUEL || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "pro"             ? (process.env.STRIPE_PRICE_ID_PRO             || process.env.STRIPE_PRICE_ID) :
+      selectedPlan === "business"        ? (process.env.STRIPE_PRICE_ID_BUSINESS        || process.env.STRIPE_PRICE_ID) :
+                                           (process.env.STRIPE_PRICE_ID_STARTER         || process.env.STRIPE_PRICE_ID);
     if (!priceId) {
       return res.status(503).json({
         error: "Configuration Stripe incomplète (STRIPE_PRICE_ID manquant).",
@@ -1899,32 +1903,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Inscription avec paiement direct (pour ceux qui veulent payer sans essai)
   app.get("/inscription-paiement", (req: Request, res: Response) => {
     const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
-    const initialPlan = ["pro", "business", "annuel"].includes(queryPlan) ? queryPlan : "starter";
-    const btnLabels: Record<string, string> = {
-      starter: "Continuer → 7,99 €/mois",
-      pro: "Continuer → 14,99 €/mois",
-      business: "Continuer → 19,99 €/mois",
-      annuel: "Continuer → 169 €/an",
+    const validPlans = ["starter","pro","business","starter-annuel","pro-annuel","business-annuel"];
+    const initialPlan = validPlans.includes(queryPlan) ? queryPlan : "starter";
+    const planLabels: Record<string, string> = {
+      "starter":          "Continuer → 7,99 €/mois",
+      "pro":              "Continuer → 14,99 €/mois",
+      "business":         "Continuer → 19,99 €/mois",
+      "starter-annuel":   "Continuer → 79 €/an",
+      "pro-annuel":       "Continuer → 149 €/an",
+      "business-annuel":  "Continuer → 199 €/an",
     };
     const html = pageShell("Créer mon espace syndic — Abonnement direct", `
   <style>
-    .plan-toggle { display:flex; gap:0; margin-bottom:24px; border-radius:12px; overflow:hidden; border:1px solid var(--border); flex-wrap:wrap; }
-    .plan-btn { flex:1; min-width:120px; padding:14px 10px; background:transparent; color:var(--muted); border:none; cursor:pointer; font-size:13px; font-weight:600; font-family:inherit; transition:background 0.15s, color 0.15s; text-align:center; line-height:1.3; }
-    .plan-btn.active { background:var(--blue); color:#fff; }
-    .plan-btn:not(.active):hover { background:rgba(255,255,255,0.06); color:var(--text); }
-    .plan-btn small { display:block; font-size:11px; font-weight:400; opacity:0.8; margin-top:2px; }
+    .billing-toggle { display:flex; gap:0; margin-bottom:16px; border-radius:10px; overflow:hidden; border:1px solid var(--border); max-width:280px; margin-left:auto; margin-right:auto; }
+    .billing-btn { flex:1; padding:10px 12px; background:transparent; color:var(--muted); border:none; cursor:pointer; font-size:13px; font-weight:600; font-family:inherit; transition:background 0.15s,color 0.15s; text-align:center; }
+    .billing-btn.active { background:var(--blue); color:#fff; }
+    .plan-grid { display:flex; gap:10px; margin-bottom:24px; flex-wrap:wrap; }
+    .plan-card { flex:1; min-width:140px; border:2px solid var(--border); border-radius:12px; padding:14px 12px; cursor:pointer; transition:border-color 0.15s,background 0.15s; text-align:center; }
+    .plan-card.active { border-color:var(--blue); background:rgba(37,99,235,0.06); }
+    .plan-card:hover:not(.active) { border-color:rgba(255,255,255,0.3); }
+    .plan-name { font-size:14px; font-weight:700; color:var(--text); margin-bottom:4px; }
+    .plan-price { font-size:13px; color:var(--muted); }
+    .plan-copros { font-size:11px; color:var(--muted); margin-top:3px; }
   </style>
   <div class="m-container">
     <div class="m-card">
       <p style="text-align:center;margin-bottom:16px;"><a href="/inscription" style="color:var(--blue);font-size:0.88rem;">← Retour à l’essai gratuit</a></p>
       <h1>Abonnement direct</h1>
       <p class="subtitle">Créez votre compte et activez votre abonnement immédiatement via Stripe.</p>
-      <div class="plan-toggle" id="plan-toggle" role="group">
-        <button type="button" class="plan-btn${initialPlan === "starter" ? " active" : ""}" data-plan="starter">Starter<small>1–5 copros · 7,99 €/mois</small></button>
-        <button type="button" class="plan-btn${initialPlan === "pro" ? " active" : ""}" data-plan="pro">Pro<small>jusqu’à 15 copros · 14,99 €/mois</small></button>
-        <button type="button" class="plan-btn${initialPlan === "business" ? " active" : ""}" data-plan="business">Business<small>jusqu’à 30 copros · 19,99 €/mois</small></button>
-        <button type="button" class="plan-btn${initialPlan === "annuel" ? " active" : ""}" data-plan="annuel">Annuel ⭐<small>169 €/an — soit 14,08 €/mois</small></button>
+
+      <div class="billing-toggle" id="billing-toggle">
+        <button type="button" class="billing-btn${!initialPlan.includes("annuel") ? " active" : ""}" data-billing="mensuel">Mensuel</button>
+        <button type="button" class="billing-btn${initialPlan.includes("annuel") ? " active" : ""}" data-billing="annuel">Annuel ⭐</button>
       </div>
+
+      <div class="plan-grid" id="plan-grid">
+        <div class="plan-card${initialPlan === "starter" || initialPlan === "starter-annuel" ? " active" : ""}" data-tier="starter">
+          <div class="plan-name">Starter</div>
+          <div class="plan-price" id="price-starter">7,99 €/mois</div>
+          <div class="plan-copros">1 à 5 copros</div>
+        </div>
+        <div class="plan-card${initialPlan === "pro" || initialPlan === "pro-annuel" ? " active" : ""}" data-tier="pro">
+          <div class="plan-name">Pro</div>
+          <div class="plan-price" id="price-pro">14,99 €/mois</div>
+          <div class="plan-copros">jusqu’à 15 copros</div>
+        </div>
+        <div class="plan-card${initialPlan === "business" || initialPlan === "business-annuel" ? " active" : ""}" data-tier="business">
+          <div class="plan-name">Business</div>
+          <div class="plan-price" id="price-business">19,99 €/mois</div>
+          <div class="plan-copros">jusqu’à 30 copros</div>
+        </div>
+      </div>
+
       <form id="signup-form">
         <div class="m-row"><div><label class="m-label">Prénom</label><input class="m-input" id="firstName" placeholder="Jean" required /></div><div><label class="m-label">Nom</label><input class="m-input" id="lastName" placeholder="Dupont" required /></div></div>
         <label class="m-label">Email professionnel</label><input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required />
@@ -1934,29 +1964,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <label class="m-label">Nom de la copropriété</label><input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
         <label class="m-label">Adresse</label><input class="m-input" id="address" placeholder="12 rue de la Paix" required />
         <div class="m-row"><div><label class="m-label">Code postal</label><input class="m-input" id="postalCode" placeholder="31000" required /></div><div><label class="m-label">Ville</label><input class="m-input" id="city" placeholder="Toulouse" required /></div></div>
-        <button class="m-btn" type="submit" id="submit-btn">${btnLabels[initialPlan]}</button>
+        <button class="m-btn" type="submit" id="submit-btn">${planLabels[initialPlan]}</button>
         <div class="m-error" id="error"></div>
       </form>
       <p style="text-align:center;margin-top:14px;font-size:12px;color:var(--muted);">🔒 Paiement sécurisé via Stripe · Résiliation à tout moment</p>
     </div>
   </div>
   <script>
-    var currentPlan = "${initialPlan}";
-    var planLabels = { starter:"Continuer → 7,99 €/mois", pro:"Continuer → 14,99 €/mois", business:"Continuer → 19,99 €/mois", annuel:"Continuer → 169 €/an" };
+    var currentTier = "${initialPlan.replace("-annuel", "") || "starter"}";
+    var currentBilling = "${initialPlan.includes("annuel") ? "annuel" : "mensuel"}";
+
+    var monthlyPrices = { starter:"7,99 €/mois", pro:"14,99 €/mois", business:"19,99 €/mois" };
+    var annualPrices  = { starter:"79 €/an", pro:"149 €/an", business:"199 €/an" };
+    var btnLabels = {
+      starter:{mensuel:"Continuer → 7,99 €/mois", annuel:"Continuer → 79 €/an"},
+      pro:{mensuel:"Continuer → 14,99 €/mois", annuel:"Continuer → 149 €/an"},
+      business:{mensuel:"Continuer → 19,99 €/mois", annuel:"Continuer → 199 €/an"},
+    };
+
     var form = document.getElementById("signup-form");
     var errorBox = document.getElementById("error");
     var btn = document.getElementById("submit-btn");
-    document.querySelectorAll("#plan-toggle .plan-btn").forEach(function(b) {
-      b.addEventListener("click", function() { currentPlan = b.dataset.plan; document.querySelectorAll("#plan-toggle .plan-btn").forEach(function(x){x.classList.toggle("active",x===b);}); btn.textContent = planLabels[currentPlan]; });
+
+    function getCurrentPlanCode() {
+      return currentBilling === "annuel" ? currentTier + "-annuel" : currentTier;
+    }
+
+    function updateUI() {
+      var prices = currentBilling === "annuel" ? annualPrices : monthlyPrices;
+      document.getElementById("price-starter").textContent = prices.starter;
+      document.getElementById("price-pro").textContent = prices.pro;
+      document.getElementById("price-business").textContent = prices.business;
+      document.querySelectorAll("#plan-grid .plan-card").forEach(function(c) {
+        c.classList.toggle("active", c.dataset.tier === currentTier);
+      });
+      document.querySelectorAll("#billing-toggle .billing-btn").forEach(function(b) {
+        b.classList.toggle("active", b.dataset.billing === currentBilling);
+      });
+      btn.textContent = btnLabels[currentTier][currentBilling];
+    }
+
+    document.querySelectorAll("#billing-toggle .billing-btn").forEach(function(b) {
+      b.addEventListener("click", function() { currentBilling = b.dataset.billing; updateUI(); });
     });
+    document.querySelectorAll("#plan-grid .plan-card").forEach(function(c) {
+      c.addEventListener("click", function() { currentTier = c.dataset.tier; updateUI(); });
+    });
+
     var phoneInput = document.getElementById("phone");
     phoneInput.addEventListener("input", function() { var d = phoneInput.value.replace(/\\D/g,"").slice(0,10); phoneInput.value = d.replace(/(\\d{2})(?=\\d)/g,"$1 ").trim(); });
+
     form.addEventListener("submit", async function(e) {
       e.preventDefault(); errorBox.style.display="none"; btn.textContent="Chargement…"; btn.disabled=true;
-      var body = { firstName:document.getElementById("firstName").value.trim(), lastName:document.getElementById("lastName").value.trim(), email:document.getElementById("email").value.trim().toLowerCase(), phone:document.getElementById("phone").value.replace(/\\s/g,"").trim(), password:document.getElementById("password").value, coProName:document.getElementById("coProName").value.trim(), address:document.getElementById("address").value.trim(), postalCode:document.getElementById("postalCode").value.trim(), city:document.getElementById("city").value.trim(), plan:currentPlan };
+      var body = { firstName:document.getElementById("firstName").value.trim(), lastName:document.getElementById("lastName").value.trim(), email:document.getElementById("email").value.trim().toLowerCase(), phone:document.getElementById("phone").value.replace(/\\s/g,"").trim(), password:document.getElementById("password").value, coProName:document.getElementById("coProName").value.trim(), address:document.getElementById("address").value.trim(), postalCode:document.getElementById("postalCode").value.trim(), city:document.getElementById("city").value.trim(), plan:getCurrentPlanCode() };
       try { var r = await fetch("/api/web-signup-checkout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); var d = await r.json(); if(!r.ok) throw new Error(d.error||"Erreur"); if(d.url){window.location.href=d.url;return;} throw new Error("Session Stripe introuvable"); }
-      catch(err) { errorBox.textContent=err.message||"Erreur inconnue"; errorBox.style.display="block"; btn.textContent=planLabels[currentPlan]; btn.disabled=false; }
+      catch(err) { errorBox.textContent=err.message||"Erreur inconnue"; errorBox.style.display="block"; btn.textContent=btnLabels[currentTier][currentBilling]; btn.disabled=false; }
     });
+
+    updateUI();
   </script>`);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);
