@@ -44,6 +44,7 @@ export default function AdminScreen() {
   const router = useRouter();
   const { user, isSuperAdmin, logout, deleteAccount } = useAuth();
   const { currentCopro, currentRole, members, copros, switchCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
+  const [adminTab, setAdminTab] = useState<"copro" | "membres" | "config" | "compte">("copro");
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedOwnerCode, setCopiedOwnerCode] = useState(false);
   const [copiedConseilCode, setCopiedConseilCode] = useState(false);
@@ -573,7 +574,27 @@ export default function AdminScreen() {
         </View>
       </View>
 
-      {currentCopro && (
+      {isAdmin && currentCopro && (
+        <View style={styles.adminTabBar}>
+          {([
+            { key: "copro",    label: "Copropriété", icon: "business-outline" },
+            { key: "membres",  label: "Membres",     icon: "people-outline" },
+            { key: "config",   label: "Config.",     icon: "settings-outline" },
+            { key: "compte",   label: "Compte",      icon: "person-outline" },
+          ] as const).map(({ key, label, icon }) => (
+            <Pressable
+              key={key}
+              style={[styles.adminTabBtn, adminTab === key && styles.adminTabBtnActive]}
+              onPress={() => setAdminTab(key)}
+            >
+              <Ionicons name={icon} size={16} color={adminTab === key ? COLORS.primary : COLORS.textMuted} />
+              <Text style={[styles.adminTabLabel, adminTab === key && styles.adminTabLabelActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {currentCopro && adminTab === "copro" && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Copropriété</Text>
           <View style={styles.coProInfo}>
@@ -628,7 +649,7 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {isAdmin && userSubscription?.status === "active" && (
+      {isAdmin && userSubscription?.status === "active" && adminTab === "copro" && (
         <Pressable
           style={({ pressed }) => [styles.portalBtn, pressed && { opacity: 0.82 }]}
           onPress={handleBillingPortal}
@@ -643,7 +664,7 @@ export default function AdminScreen() {
         </Pressable>
       )}
 
-      {isAdmin && currentCopro && (
+      {isAdmin && currentCopro && adminTab === "membres" && (
   <>
     <Pressable
       style={({ pressed }) => [styles.inviteBtn, pressed && { opacity: 0.85 }]}
@@ -671,7 +692,7 @@ export default function AdminScreen() {
   </>
 )}
 
-      {isAdmin && currentCopro && (
+      {isAdmin && currentCopro && adminTab === "membres" && (
         <>
 
           {/* ── Codes d'accès propriétaires & conseil syndical ── */}
@@ -781,6 +802,11 @@ export default function AdminScreen() {
             </View>
           </View>
 
+        </>
+      )}
+
+      {isAdmin && currentCopro && adminTab === "config" && (
+        <>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Position du bâtiment</Text>
             <Text style={styles.sectionDesc}>
@@ -1042,6 +1068,11 @@ export default function AdminScreen() {
             })}
           </View>
 
+        </>
+      )}
+
+      {isAdmin && currentCopro && adminTab === "membres" && (
+        <>
           <View style={styles.section}>
             <View style={styles.sectionRow}>
               <Text style={styles.sectionTitle}>Membres ({members.length})</Text>
@@ -1098,7 +1129,7 @@ export default function AdminScreen() {
         </>
       )}
 
-      {copros.length > 1 && (
+      {copros.length > 1 && adminTab === "copro" && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Mes copropriétés</Text>
           {copros.map((c) => (
@@ -1114,7 +1145,7 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {(isAdmin || currentRole === "conseil") && (
+      {(isAdmin || currentRole === "conseil") && adminTab === "compte" && (
         <View style={styles.section}>
           <Pressable
             style={styles.statsNavBtn}
@@ -1132,7 +1163,7 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {isAdmin && (
+      {isAdmin && adminTab === "compte" && (
         <View style={styles.section}>
           <Pressable
             style={styles.statsNavBtn}
@@ -1163,6 +1194,7 @@ export default function AdminScreen() {
         </View>
       )}
 
+      {adminTab === "compte" && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Aide & informations</Text>
 
@@ -1201,8 +1233,9 @@ export default function AdminScreen() {
               <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
             </Pressable>
           </View>
+      )}
 
-
+      {adminTab === "compte" && (
       <View style={styles.accountSection}>
         <Pressable style={styles.logoutRow} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={18} color={COLORS.danger} />
@@ -1215,6 +1248,7 @@ export default function AdminScreen() {
           </Pressable>
         )}
       </View>
+      )}
     </ScrollView>
 
     <Modal
@@ -1319,6 +1353,18 @@ export default function AdminScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
   content: { paddingHorizontal: 20, gap: 16 },
+  adminTabBar: {
+    flexDirection: "row", backgroundColor: COLORS.surface,
+    borderRadius: 14, padding: 4, marginBottom: 16,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  adminTabBtn: {
+    flex: 1, flexDirection: "column", alignItems: "center", justifyContent: "center",
+    paddingVertical: 8, borderRadius: 10, gap: 3,
+  },
+  adminTabBtnActive: { backgroundColor: COLORS.background },
+  adminTabLabel: { fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  adminTabLabelActive: { color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
   pageTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   pageTitle: { fontSize: 24, fontFamily: "Inter_700Bold", color: COLORS.text },
   coProSwitcherBtn: {
