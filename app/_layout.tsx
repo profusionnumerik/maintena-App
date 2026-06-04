@@ -6,15 +6,31 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Image, Platform, StyleSheet, Text, View } from "react-native";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CoProProvider, useCoPro } from "@/context/CoProContext";
 import { InterventionsProvider } from "@/context/InterventionsContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(
+    Platform.OS === "web" ? (typeof navigator !== "undefined" ? navigator.onLine : true) : true
+  );
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const onOnline  = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+  }, []);
+  return isOnline;
+}
+
 function WebNavbar() {
   if (Platform.OS !== "web") return null;
+  const isOnline = useOnlineStatus();
   return (
     <View style={webNav.bar}>
       <View style={webNav.left}>
@@ -25,9 +41,11 @@ function WebNavbar() {
         />
         <Text style={webNav.brand}>Maintena</Text>
       </View>
-      <View style={webNav.pill}>
-        <View style={webNav.pillDot} />
-        <Text style={webNav.pillText}>En ligne</Text>
+      <View style={[webNav.pill, !isOnline && webNav.pillOffline]}>
+        <View style={[webNav.pillDot, !isOnline && webNav.pillDotOffline]} />
+        <Text style={[webNav.pillText, !isOnline && webNav.pillTextOffline]}>
+          {isOnline ? "En ligne" : "Hors ligne"}
+        </Text>
       </View>
     </View>
   );
@@ -71,6 +89,9 @@ const webNav = StyleSheet.create({
   },
   pillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#10b981" },
   pillText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#6ee7b7" },
+  pillOffline: { backgroundColor: "rgba(239,68,68,0.12)", borderColor: "rgba(239,68,68,0.25)" },
+  pillDotOffline: { backgroundColor: "#ef4444" },
+  pillTextOffline: { color: "#fca5a5" },
 });
 
 SplashScreen.preventAutoHideAsync();
