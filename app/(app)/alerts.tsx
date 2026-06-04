@@ -21,6 +21,26 @@ import {
 const MAX_SIGNAL_PHOTOS = 3;
 const FlatListAny = FlatList as any;
 
+function BottomSheet({ visible, onClose, insetBottom, children }: {
+  visible: boolean; onClose: () => void; insetBottom: number; children: React.ReactNode;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }} onPress={onClose}>
+        <Pressable onPress={(e: any) => e.stopPropagation()}>
+          <ScrollView
+            style={{ flex: 0 }}
+            contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 function SignalCard({ item, isOwn }: { item: Signalement; isOwn: boolean }) {
   const isAck = item.acknowledged;
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
@@ -155,14 +175,7 @@ function SignalementModal({
   const canAddMore = photoUris.length < MAX_SIGNAL_PHOTOS;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-      <ScrollView
-        style={{ flex: 0 }}
-        contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
-        keyboardShouldPersistTaps="handled"
-      >
+    <BottomSheet visible={visible} onClose={onClose} insetBottom={insetBottom}>
         <View style={styles.modalHandle} />
         <View style={styles.signalHeader}>
           <View style={styles.signalIconWrap}>
@@ -240,9 +253,7 @@ function SignalementModal({
             : <><Ionicons name="send" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Envoyer le signalement</Text></>
           }
         </Pressable>
-      </ScrollView>
-      </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 
@@ -314,14 +325,7 @@ function CreateAnnouncementModal({
   const canSave = !!title.trim() && !!message.trim() && !saving;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} />
-      <ScrollView
-        style={{ flex: 0 }}
-        contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
-        keyboardShouldPersistTaps="handled"
-      >
+    <BottomSheet visible={visible} onClose={onClose} insetBottom={insetBottom}>
         <View style={styles.modalHandle} />
         <View style={styles.signalHeader}>
           <View style={[styles.signalIconWrap, { backgroundColor: "rgba(37,99,235,0.1)" }]}>
@@ -388,9 +392,7 @@ function CreateAnnouncementModal({
             : <><Ionicons name="megaphone" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Publier l'annonce</Text></>
           }
         </Pressable>
-      </ScrollView>
-      </View>
-    </Modal>
+    </BottomSheet>
   );
 }
 
@@ -605,14 +607,7 @@ export default function AlertsScreen() {
   );
 
   const pollModal = (
-    <Modal visible={pollModalVisible} transparent animationType="slide" onRequestClose={() => setPollModalVisible(false)}>
-      <View style={{ flex: 1, justifyContent: "flex-end" }}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setPollModalVisible(false)} />
-      <ScrollView
-        style={{ flex: 0 }}
-        contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: bottom + 16 }]}
-        keyboardShouldPersistTaps="handled"
-      >
+    <BottomSheet visible={pollModalVisible} onClose={() => setPollModalVisible(false)} insetBottom={bottom}>
         <View style={styles.modalHandle} />
         <View style={styles.signalHeader}>
           <View style={[styles.signalIconWrap, { backgroundColor: "rgba(139,92,246,0.1)" }]}>
@@ -700,9 +695,7 @@ export default function AlertsScreen() {
             : <><Ionicons name="bar-chart-outline" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Lancer le sondage</Text></>
           }
         </Pressable>
-      </ScrollView>
-      </View>
-    </Modal>
+    </BottomSheet>
   );
 
   const tabSwitcher = (
