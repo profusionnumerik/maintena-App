@@ -422,10 +422,15 @@ export default function AlertsScreen() {
   const [togglingAnnoEmail, setTogglingAnnoEmail] = useState(false);
 
   // Sondages
+  const defaultExpiresAt = () => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  };
   const [pollModalVisible, setPollModalVisible] = useState(false);
   const [pollTitle, setPollTitle] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
   const [pollTarget, setPollTarget] = useState<PollTarget>("propriétaires");
+  const [pollExpiresAt, setPollExpiresAt] = useState(defaultExpiresAt());
   const [pollSaving, setPollSaving] = useState(false);
 
   const isConseil = currentRole === "conseil";
@@ -483,11 +488,12 @@ export default function AlertsScreen() {
     if (validOptions.length < 2) { wa("Erreur", "Au moins 2 options requises."); return; }
     setPollSaving(true);
     try {
-      await addPoll(pollTitle.trim(), validOptions, pollTarget);
+      await addPoll(pollTitle.trim(), validOptions, pollTarget, pollExpiresAt ? new Date(pollExpiresAt).toISOString() : undefined);
       setPollModalVisible(false);
       setPollTitle("");
       setPollOptions(["", ""]);
       setPollTarget("propriétaires");
+      setPollExpiresAt(defaultExpiresAt());
     } catch (e: any) { wa("Erreur", e.message ?? "Impossible de créer le sondage."); }
     finally { setPollSaving(false); }
   };
@@ -554,6 +560,7 @@ export default function AlertsScreen() {
                     <Text style={styles.pollMeta}>
                       {poll.createdByName} · {new Date(poll.createdAt).toLocaleDateString("fr-FR")}
                       {" · "}{POLL_TARGET_LABELS[poll.target]}
+                      {poll.expiresAt && ` · Clôture ${new Date(poll.expiresAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })}`}
                     </Text>
                   </View>
                   {poll.status === "closed" && (
@@ -684,6 +691,16 @@ export default function AlertsScreen() {
             );
           })}
         </View>
+
+        <Text style={styles.signalFieldLabel}>Date de clôture</Text>
+        <TextInput
+          style={[styles.signalInputSmall, { marginBottom: 16 }]}
+          value={pollExpiresAt}
+          onChangeText={setPollExpiresAt}
+          placeholder="AAAA-MM-JJ"
+          placeholderTextColor={COLORS.textMuted}
+          {...(Platform.OS === "web" ? { type: "date" } as any : {})}
+        />
 
         <Pressable
           style={({ pressed }) => [

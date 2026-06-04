@@ -117,7 +117,7 @@ interface CoProContextValue {
   ) => Promise<void>;
   deleteAnnouncement: (id: string) => Promise<void>;
   polls: Poll[];
-  addPoll: (title: string, options: string[], target: PollTarget) => Promise<void>;
+  addPoll: (title: string, options: string[], target: PollTarget, expiresAt?: string) => Promise<void>;
   castPollVote: (pollId: string, optionIndex: number) => Promise<void>;
   closePoll: (pollId: string) => Promise<void>;
   deletePoll: (pollId: string) => Promise<void>;
@@ -1185,9 +1185,9 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   // ── Sondages ────────────────────────────────────────────────────────────────
 
   const addPoll = useCallback(
-    async (title: string, options: string[], target: PollTarget) => {
+    async (title: string, options: string[], target: PollTarget, expiresAt?: string) => {
       if (!currentCopro || !user) return;
-      const data = {
+      const data: any = {
         coProId: currentCopro.id,
         title: title.trim(),
         options,
@@ -1198,6 +1198,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         votes: {},
         status: "open",
       };
+      if (expiresAt) data.expiresAt = expiresAt;
       await addDoc(collection(db, "copros", currentCopro.id, "polls"), data);
       // Notification email aux membres ciblés
       try {

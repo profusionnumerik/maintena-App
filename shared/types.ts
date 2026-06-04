@@ -423,6 +423,7 @@ export interface Poll {
   votes: Record<string, number>; // uid → index de l'option choisie
   status: "open" | "closed";
   closedAt?: string;
+  expiresAt?: string;
 }
 
 export const POLL_TARGET_LABELS: Record<PollTarget, string> = {
