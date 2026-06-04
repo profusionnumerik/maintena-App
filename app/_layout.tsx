@@ -31,6 +31,8 @@ function useOnlineStatus() {
 function WebNavbar() {
   if (Platform.OS !== "web") return null;
   const isOnline = useOnlineStatus();
+  const { user } = useAuth();
+  if (!user) return null;
   return (
     <View style={webNav.bar}>
       <View style={webNav.left}>
