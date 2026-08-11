@@ -3101,6 +3101,140 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
+  async function sendPushToAdmins(coProId, title, body, data) {
+    const db2 = getAdminDb();
+    if (!db2) return;
+    const membersSnap = await db2.collection("copros").doc(coProId).collection("members").get();
+    const adminUids = membersSnap.docs.filter((d) => d.data().role === "admin").map((d) => d.id);
+    if (adminUids.length === 0) return;
+    const tokens = [];
+    await Promise.all(adminUids.map(async (uid) => {
+      const userDoc = await db2.collection("users").doc(uid).get();
+      const token = userDoc.data()?.pushToken;
+      if (token && typeof token === "string" && token.startsWith("ExponentPushToken")) tokens.push(token);
+    }));
+    if (tokens.length === 0) return;
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" })))
+    }).catch((e) => console.warn("[push] sendPushToAdmins failed:", e));
+  }
+  async function sendPushToUser(uid, title, body, data) {
+    const db2 = getAdminDb();
+    if (!db2) return;
+    const userDoc = await db2.collection("users").doc(uid).get();
+    const token = userDoc.data()?.pushToken;
+    if (!token || typeof token !== "string" || !token.startsWith("ExponentPushToken")) return;
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "default" }])
+    }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
+  }
+  app2.post("/api/notify-intervention-created", async (req, res) => {
+    const { coProId, coProName, title, category, createdByRole } = req.body;
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    const db2 = getAdminDb();
+    if (!db2) return res.json({ sent: false });
+    try {
+      const categoryLabel = CATEGORY_LABELS_SERVER[category ?? ""] ?? category ?? "";
+      if (createdByRole === "admin") {
+        const membersSnap = await db2.collection("copros").doc(coProId).collection("members").get();
+        const targetUids = membersSnap.docs.filter((d) => ["propri\xE9taire", "conseil"].includes(d.data().role)).map((d) => d.id);
+        const tokens = [];
+        await Promise.all(targetUids.map(async (uid) => {
+          const u = await db2.collection("users").doc(uid).get();
+          const t = u.data()?.pushToken;
+          if (t && typeof t === "string" && t.startsWith("ExponentPushToken")) tokens.push(t);
+        }));
+        if (tokens.length > 0) {
+          await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(tokens.map((to) => ({
+              to,
+              sound: "default",
+              title: `\u{1F6E0}\uFE0F Intervention planifi\xE9e \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+              body: categoryLabel ? `${title} \xB7 ${categoryLabel}` : title,
+              data: { type: "intervention_created", coProId }
+            })))
+          }).catch(() => {
+          });
+        }
+      } else {
+        await sendPushToAdmins(
+          coProId,
+          `\u{1F4CB} Rapport soumis \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+          `Rapport d'intervention : ${title}`,
+          { type: "intervention_created", coProId }
+        );
+      }
+      return res.json({ sent: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/notify-intervention-report", async (req, res) => {
+    const { coProId, coProName, title, providerName } = req.body;
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    try {
+      await sendPushToAdmins(
+        coProId,
+        `\u{1F4CB} Rapport \xE0 valider \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+        `${providerName ?? "Le prestataire"} a soumis un rapport pour "${title}"`,
+        { type: "intervention_report", coProId }
+      );
+      return res.json({ sent: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/notify-intervention-done", async (req, res) => {
+    const { coProId, coProName, title, category } = req.body;
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    try {
+      await sendPushToMembers(
+        coProId,
+        `\u2705 Intervention termin\xE9e \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+        `"${title}" a \xE9t\xE9 valid\xE9e`,
+        { type: "intervention_done", coProId }
+      );
+      return res.json({ sent: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/notify-provider-response", async (req, res) => {
+    const { coProId, coProName, title, providerName, status } = req.body;
+    if (!coProId || !title || !status) return res.status(400).json({ error: "Param\xE8tres manquants" });
+    try {
+      await sendPushToAdmins(
+        coProId,
+        status === "accepted" ? `\u2705 Mission accept\xE9e \u2014 ${coProName ?? "Copropri\xE9t\xE9"}` : `\u274C Mission refus\xE9e \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+        `${providerName ?? "Le prestataire"} ${status === "accepted" ? "a accept\xE9" : "a refus\xE9"} "${title}"`,
+        { type: "provider_response", coProId, status }
+      );
+      return res.json({ sent: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/notify-signalement-response", async (req, res) => {
+    const { creatorUid, coProName, adminResponse, signalementMessage } = req.body;
+    if (!creatorUid) return res.status(400).json({ error: "creatorUid requis" });
+    try {
+      await sendPushToUser(
+        creatorUid,
+        `\u{1F4AC} R\xE9ponse \xE0 votre signalement \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+        adminResponse ? `L'admin a r\xE9pondu : "${adminResponse}"` : "Votre signalement a \xE9t\xE9 pris en compte.",
+        { type: "signalement_response" }
+      );
+      return res.json({ sent: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
   app2.post("/api/notify-maintenance-created", async (req, res) => {
     const {
       coProId,

@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npx expo *)",
       "Bash(grep -v \"node_modules\\\\|\\\\.js$\")",
-      "Bash(eas update *)"
+      "Bash(eas update *)",
+      "Bash(eas build *)"
     ]
   }
 }

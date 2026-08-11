@@ -294,6 +294,19 @@ async function createGuestAccess(params: {
   };
 }
 
+async function notifyInterventionCreated(params: {
+  coProId: string; coProName: string; title: string;
+  category?: string; createdByRole: string;
+}) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) return;
+  fetch(`${apiBaseUrl}/api/notify-intervention-created`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  }).catch(() => {});
+}
+
 async function notifyMaintenanceCreated(params: {
   coProId: string;
   interventionId: string;
@@ -1146,6 +1159,15 @@ export default function AddInterventionScreen() {
         } as any);
 
         safeHapticSuccess();
+
+        // Notification push
+        notifyInterventionCreated({
+          coProId: currentCopro.id,
+          coProName: currentCopro.name,
+          title: title.trim(),
+          category: category ?? undefined,
+          createdByRole: isAdmin ? "admin" : "prestataire",
+        });
 
         if (isAdmin && invitedProviderPayload) {
           // Nouveau prestataire : pré-inscription

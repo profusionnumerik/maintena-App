@@ -3618,6 +3618,188 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Helpers push supplémentaires ─────────────────────────────────────────
+
+  async function sendPushToAdmins(
+    coProId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>
+  ): Promise<void> {
+    const db = getAdminDb();
+    if (!db) return;
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
+    const adminUids = membersSnap.docs.filter((d) => d.data().role === "admin").map((d) => d.id);
+    if (adminUids.length === 0) return;
+    const tokens: string[] = [];
+    await Promise.all(adminUids.map(async (uid) => {
+      const userDoc = await db.collection("users").doc(uid).get();
+      const token = userDoc.data()?.pushToken;
+      if (token && typeof token === "string" && token.startsWith("ExponentPushToken")) tokens.push(token);
+    }));
+    if (tokens.length === 0) return;
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" }))),
+    }).catch((e) => console.warn("[push] sendPushToAdmins failed:", e));
+  }
+
+  async function sendPushToUser(
+    uid: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>
+  ): Promise<void> {
+    const db = getAdminDb();
+    if (!db) return;
+    const userDoc = await db.collection("users").doc(uid).get();
+    const token = userDoc.data()?.pushToken;
+    if (!token || typeof token !== "string" || !token.startsWith("ExponentPushToken")) return;
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "default" }]),
+    }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
+  }
+
+  // ─── Intervention créée ────────────────────────────────────────────────────
+
+  app.post("/api/notify-intervention-created", async (req: Request, res: Response) => {
+    const { coProId, coProName, title, category, createdByRole } = req.body as {
+      coProId?: string; coProName?: string; title?: string;
+      category?: string; createdByRole?: string;
+    };
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    const db = getAdminDb();
+    if (!db) return res.json({ sent: false });
+    try {
+      const categoryLabel = CATEGORY_LABELS_SERVER[category ?? ""] ?? category ?? "";
+      if (createdByRole === "admin") {
+        // Admin crée → notifie propriétaires + conseil
+        const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
+        const targetUids = membersSnap.docs
+          .filter((d) => ["propriétaire", "conseil"].includes(d.data().role))
+          .map((d) => d.id);
+        const tokens: string[] = [];
+        await Promise.all(targetUids.map(async (uid) => {
+          const u = await db.collection("users").doc(uid).get();
+          const t = u.data()?.pushToken;
+          if (t && typeof t === "string" && t.startsWith("ExponentPushToken")) tokens.push(t);
+        }));
+        if (tokens.length > 0) {
+          await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(tokens.map((to) => ({
+              to, sound: "default",
+              title: `🛠️ Intervention planifiée — ${coProName ?? "Copropriété"}`,
+              body: categoryLabel ? `${title} · ${categoryLabel}` : title,
+              data: { type: "intervention_created", coProId },
+            }))),
+          }).catch(() => {});
+        }
+      } else {
+        // Prestataire crée un rapport → notifie l'admin
+        await sendPushToAdmins(
+          coProId,
+          `📋 Rapport soumis — ${coProName ?? "Copropriété"}`,
+          `Rapport d'intervention : ${title}`,
+          { type: "intervention_created", coProId }
+        );
+      }
+      return res.json({ sent: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Prestataire soumet rapport (→ en_cours) ───────────────────────────────
+
+  app.post("/api/notify-intervention-report", async (req: Request, res: Response) => {
+    const { coProId, coProName, title, providerName } = req.body as {
+      coProId?: string; coProName?: string; title?: string; providerName?: string;
+    };
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    try {
+      await sendPushToAdmins(
+        coProId,
+        `📋 Rapport à valider — ${coProName ?? "Copropriété"}`,
+        `${providerName ?? "Le prestataire"} a soumis un rapport pour "${title}"`,
+        { type: "intervention_report", coProId }
+      );
+      return res.json({ sent: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Intervention validée (→ terminée) ────────────────────────────────────
+
+  app.post("/api/notify-intervention-done", async (req: Request, res: Response) => {
+    const { coProId, coProName, title, category } = req.body as {
+      coProId?: string; coProName?: string; title?: string; category?: string;
+    };
+    if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
+    try {
+      await sendPushToMembers(
+        coProId,
+        `✅ Intervention terminée — ${coProName ?? "Copropriété"}`,
+        `"${title}" a été validée`,
+        { type: "intervention_done", coProId }
+      );
+      return res.json({ sent: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Prestataire accepte ou refuse ────────────────────────────────────────
+
+  app.post("/api/notify-provider-response", async (req: Request, res: Response) => {
+    const { coProId, coProName, title, providerName, status } = req.body as {
+      coProId?: string; coProName?: string; title?: string;
+      providerName?: string; status?: "accepted" | "refused";
+    };
+    if (!coProId || !title || !status) return res.status(400).json({ error: "Paramètres manquants" });
+    try {
+      await sendPushToAdmins(
+        coProId,
+        status === "accepted"
+          ? `✅ Mission acceptée — ${coProName ?? "Copropriété"}`
+          : `❌ Mission refusée — ${coProName ?? "Copropriété"}`,
+        `${providerName ?? "Le prestataire"} ${status === "accepted" ? "a accepté" : "a refusé"} "${title}"`,
+        { type: "provider_response", coProId, status }
+      );
+      return res.json({ sent: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Signalement acquitté par l'admin ────────────────────────────────────
+
+  app.post("/api/notify-signalement-response", async (req: Request, res: Response) => {
+    const { creatorUid, coProName, adminResponse, signalementMessage } = req.body as {
+      creatorUid?: string; coProName?: string;
+      adminResponse?: string; signalementMessage?: string;
+    };
+    if (!creatorUid) return res.status(400).json({ error: "creatorUid requis" });
+    try {
+      await sendPushToUser(
+        creatorUid,
+        `💬 Réponse à votre signalement — ${coProName ?? "Copropriété"}`,
+        adminResponse
+          ? `L'admin a répondu : "${adminResponse}"`
+          : "Votre signalement a été pris en compte.",
+        { type: "signalement_response" }
+      );
+      return res.json({ sent: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─── Notification de contrat de maintenance ────────────────────────────────
 
   app.post("/api/notify-maintenance-created", async (req: Request, res: Response) => {

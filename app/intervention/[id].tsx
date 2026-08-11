@@ -28,7 +28,7 @@ import { useCoPro } from "@/context/CoProContext";
 import { uploadPhoto } from "@/lib/storage";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
 import { wa, wConfirm } from "@/shared/dialogs";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { useAuth } from "@/context/AuthContext";
 import { collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -603,6 +603,14 @@ export default function InterventionDetailScreen() {
 
       await updateIntervention(intervention.id, updates as any);
 
+      // Push → notifie l’admin qu’un rapport est à valider
+      apiRequest("POST", "/api/notify-intervention-report", {
+        coProId: currentCopro?.id,
+        coProName: currentCopro?.name,
+        title: intervention.title,
+        providerName: user?.displayName ?? "Le prestataire",
+      }).catch(() => {});
+
       setLocalCompletionPhotos([]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -635,6 +643,14 @@ export default function InterventionDetailScreen() {
 
       await updateIntervention(intervention.id, updates as any);
 
+      // Push → notifie tous les membres que l’intervention est terminée
+      apiRequest("POST", "/api/notify-intervention-done", {
+        coProId: currentCopro?.id,
+        coProName: currentCopro?.name,
+        title: intervention.title,
+        category: intervention.category,
+      }).catch(() => {});
+
       setLocalCompletionPhotos([]);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -655,6 +671,16 @@ export default function InterventionDetailScreen() {
         providerStatus: status,
         providerStatusAt: new Date().toISOString(),
       } as any);
+
+      // Push → notifie l'admin de la réponse du prestataire
+      apiRequest("POST", "/api/notify-provider-response", {
+        coProId: currentCopro?.id,
+        coProName: currentCopro?.name,
+        title: intervention.title,
+        providerName: user?.displayName ?? "Le prestataire",
+        status,
+      }).catch(() => {});
+
       const msg =
         status === "accepted"
           ? "Vous avez accepté cette intervention. L'admin en est informé."

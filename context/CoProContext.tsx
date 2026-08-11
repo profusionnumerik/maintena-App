@@ -1118,13 +1118,27 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   );
 
   const acknowledgeSignalement = useCallback(
-    async (id: string) => {
+    async (id: string, adminResponse?: string) => {
       if (!currentCopro) return;
+      // Récupérer le créateur du signalement pour lui envoyer une push
+      const snap = await getDoc(doc(db, "copros", currentCopro.id, "signalements", id));
+      const creatorUid = snap.exists() ? snap.data()?.uid : null;
+
       await updateDoc(doc(db, "copros", currentCopro.id, "signalements", id), {
         acknowledged: true,
         acknowledgedAt: serverTimestamp(),
         read: true,
+        ...(adminResponse ? { adminResponse } : {}),
       });
+
+      // Push → notifie le créateur du signalement
+      if (creatorUid) {
+        apiRequest("POST", "/api/notify-signalement-response", {
+          creatorUid,
+          coProName: currentCopro.name,
+          adminResponse: adminResponse ?? null,
+        }).catch(() => {});
+      }
     },
     [currentCopro]
   );
