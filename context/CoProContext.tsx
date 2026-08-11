@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   addDoc,
   arrayUnion,
+  arrayRemove,
   collection,
   deleteDoc,
   doc,
@@ -17,6 +18,7 @@ import {
   where,
   collectionGroup,
   orderBy,
+  writeBatch,
 } from "firebase/firestore";
 import React, {
   createContext,
@@ -75,6 +77,7 @@ interface CoProContextValue {
   loadError: string | null;
   userSubscription: UserSubscription | null;
   isSubscribed: boolean;
+  isInTrial: boolean;
   switchCoPro: (id: string) => void;
   createCoPro: (
     name: string,
@@ -85,6 +88,7 @@ interface CoProContextValue {
     lng?: number
   ) => Promise<CoPro>;
   joinCoPro: (code: string) => Promise<CoPro>;
+  deleteCoPro: (coProId: string) => Promise<void>;
   updateCoProStatus: (coProId: string, status: CoPro["status"]) => Promise<void>;
   refreshCoPros: () => Promise<void>;
   refreshSubscription: () => Promise<void>;
@@ -102,7 +106,9 @@ interface CoProContextValue {
     message: string,
     senderName: string,
     apartmentNumber: string,
-    photoUris?: string[]
+    photoUris?: string[],
+    category?: Category,
+    urgency?: "normal" | "urgent"
   ) => Promise<void>;
   markSignalementRead: (id: string) => Promise<void>;
   acknowledgeSignalement: (id: string) => Promise<void>;
@@ -589,12 +595,18 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, [currentCoproId, roleMap]);
 
+  const isInTrial = useMemo(() => {
+    if (!currentCopro?.trialEndsAt) return false;
+    return new Date(currentCopro.trialEndsAt) > new Date();
+  }, [currentCopro]);
+
   const isSubscribed = useMemo(
     () =>
       isSuperAdmin ||
+      isInTrial ||
       userSubscription?.status === "active" ||
       userSubscription?.status === "trialing",
-    [isSuperAdmin, userSubscription]
+    [isSuperAdmin, isInTrial, userSubscription]
   );
 
   const switchCoPro = useCallback(async (id: string) => {
@@ -633,9 +645,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         .filter(Boolean)
         .join(", ");
 
-      const hasActiveCopro = copros.some((c) => c.status === "active");
-      const autoActivate =
-        isSuperAdmin || hasActiveCopro || userSubscription?.status === "active";
+      const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
       const ownerCode = generateCode();
       const conseilCode = generateCode();
@@ -648,16 +658,14 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         city: city.trim() || null,
         adminId: user.uid,
         adminEmail: user.email,
-        status: autoActivate ? "active" : "pending",
+        status: "active",
+        trialEndsAt,
         inviteCode: code,
         ownerInviteCode: ownerCode,
         conseilInviteCode: conseilCode,
         createdAt: new Date().toISOString(),
+        activatedAt: new Date().toISOString(),
       };
-
-      if (autoActivate) {
-        coProData.activatedAt = new Date().toISOString();
-      }
 
       if (lat !== undefined && lng !== undefined) {
         coProData.latitude = lat;
@@ -721,7 +729,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         city: city.trim() || undefined,
         adminId: user.uid,
         adminEmail: user.email ?? "",
-        status: autoActivate ? "active" : "pending",
+        status: "active",
         inviteCode: code,
         ownerInviteCode: ownerCode,
         conseilInviteCode: conseilCode,
@@ -802,7 +810,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      if (coProData.status !== "active" && coProData.adminId !== user.uid) {
+      const trialActive = coProData.createdAt
+        ? Date.now() - new Date(coProData.createdAt).getTime() < 30 * 24 * 60 * 60 * 1000
+        : false;
+      if (coProData.status !== "active" && !trialActive && coProData.adminId !== user.uid) {
         throw new Error(
           "Cette copropriété n'est pas encore activée. Contactez votre admin."
         );
@@ -1027,7 +1038,9 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       message: string,
       senderName: string,
       apartmentNumber: string,
-      photoUris?: string[]
+      photoUris?: string[],
+      category?: Category,
+      urgency?: "normal" | "urgent"
     ) => {
       if (!user || !currentCopro) throw new Error("Non authentifié.");
 
@@ -1048,6 +1061,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         senderName,
         apartmentNumber,
         ...(photos.length > 0 ? { photoUrl: photos[0], photos } : {}),
+        ...(category ? { category } : {}),
+        urgency: urgency ?? "normal",
         createdAt: serverTimestamp(),
         read: false,
         acknowledged: false,
@@ -1246,6 +1261,60 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     [currentCopro]
   );
 
+  const deleteCoPro = useCallback(
+    async (coProId: string) => {
+      if (!user) throw new Error("Non authentifié.");
+
+      // 1. Mettre à jour l'état React EN PREMIER pour détacher les listeners Firestore
+      //    avant de supprimer les documents (évite permission-denied sur les onSnapshot)
+      const remaining = copros.filter((c) => c.id !== coProId);
+      setCopros(remaining);
+      if (currentCopro?.id === coProId) {
+        if (remaining.length > 0) setCurrentCoproId(remaining[0].id);
+        else setCurrentCoproId(null);
+      }
+
+      // 2. Petite pause pour laisser React détacher les listeners
+      await new Promise((r) => setTimeout(r, 300));
+
+      // 3. Supprimer les sous-collections (sauf members — gardé pour la fin)
+      // Les règles Firestore vérifient isCoProAdmin() qui dépend de members/{uid}
+      // On supprime le doc copro via adminId (pas isCoProAdmin), donc pas de dépendance circulaire
+      const SUB_COLLECTIONS = ["interventions", "announcements", "polls", "signalements", "providerContacts", "expenses", "budgets"];
+      for (const sub of SUB_COLLECTIONS) {
+        const snap = await getDocs(collection(db, "copros", coProId, sub));
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+
+      // 4. Supprimer les codes d'invitation liés (besoin du doc members/{uid} encore présent)
+      const codesSnap = await getDocs(query(collection(db, "inviteCodes"), where("coProId", "==", coProId)));
+      if (!codesSnap.empty) {
+        const codeBatch = writeBatch(db);
+        codesSnap.docs.forEach((d) => codeBatch.delete(d.ref));
+        await codeBatch.commit();
+      }
+
+      // 5. Supprimer le document copro (règle: adminId == uid, indépendante de members)
+      await deleteDoc(doc(db, "copros", coProId));
+
+      // 6. Supprimer les membres EN DERNIER (plus besoin de isCoProAdmin après)
+      const membersSnap = await getDocs(collection(db, "copros", coProId, "members"));
+      if (!membersSnap.empty) {
+        const membersBatch = writeBatch(db);
+        membersSnap.docs.forEach((d) => membersBatch.delete(d.ref));
+        await membersBatch.commit();
+      }
+
+      // 7. Retirer de la liste de l'utilisateur (sans toucher au compte)
+      await updateDoc(doc(db, "users", user.uid), { managedCoproIds: arrayRemove(coProId) }).catch(() => {});
+    },
+    [user, currentCopro, copros]
+  );
+
   const value = useMemo(
     () => ({
       copros,
@@ -1259,9 +1328,11 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       loadError,
       userSubscription,
       isSubscribed,
+      isInTrial,
       switchCoPro,
       createCoPro,
       joinCoPro,
+      deleteCoPro,
       updateCoProStatus,
       refreshCoPros,
       refreshSubscription,
@@ -1298,9 +1369,11 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       loadError,
       userSubscription,
       isSubscribed,
+      isInTrial,
       switchCoPro,
       createCoPro,
       joinCoPro,
+      deleteCoPro,
       updateCoProStatus,
       refreshCoPros,
       refreshSubscription,

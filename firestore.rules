@@ -74,6 +74,7 @@ service cloud.firestore {
         // Membres du conseil : uniquement les champs du vote trésorier
         (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid', 'revoteRequest']))
       );
+      allow delete: if isSignedIn() && (isSuperAdmin() || resource.data.adminId == request.auth.uid);
 
       match /members/{userId} {
         allow read: if isSignedIn() && (isSuperAdmin() || isMember(coProId));
@@ -117,6 +118,26 @@ service cloud.firestore {
         allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
       }
 
+      match /demandesDevis/{demandeId} {
+        // Tout membre peut lire et créer un ticket
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId);
+        // Mise à jour : admin, conseil, ou créateur du ticket
+        allow update: if isSignedIn() && (
+          isCoProAdmin(coProId) || isConseilMember(coProId) ||
+          resource.data.createdBy == request.auth.uid
+        );
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
+      match /entretiens/{entretienId} {
+        // Lecture : tous les membres de la copropriété
+        allow read: if isSignedIn() && isMember(coProId);
+        // Écriture : admin et conseil seulement
+        allow create, update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
       match /polls/{pollId} {
         // Visible à tous les membres (filtrage de visibilité assuré côté client)
         allow read: if isSignedIn() && isMember(coProId);
@@ -139,6 +160,27 @@ service cloud.firestore {
 
     match /{path=**}/members/{memberId} {
       allow read: if isSignedIn();
+    }
+
+    // Tokens de devis (lookup public pour le formulaire prestataire — lecture par token uniquement côté serveur Admin SDK)
+    match /devisTokens/{token} {
+      allow read, write: if false; // accès exclusivement via Admin SDK (Cloud Run)
+    }
+
+    // Accès démo accordés par le super admin — exclusivement via Admin SDK
+    match /demoInvites/{email} {
+      allow read, write: if false;
+    }
+
+    // Liens démo générés par le super admin — exclusivement via Admin SDK
+    match /demoLinks/{token} {
+      allow read, write: if false;
+    }
+
+    // Configuration globale de l'app (maintenance, etc.)
+    match /appConfig/{docId} {
+      allow read: if true;           // public — tous les clients lisent le flag maintenance
+      allow write: if isSuperAdmin(); // seul le superadmin peut activer/désactiver
     }
   }
 }

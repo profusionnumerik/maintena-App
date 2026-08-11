@@ -1,6 +1,7 @@
 import * as WebBrowser from "expo-web-browser";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
+import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
   Platform,
@@ -22,13 +23,15 @@ import { PLAN_PRICES, PLAN_COPRO_LIMITS, SubscriptionPlan } from "@/shared/types
 
 
 const PLAN_LIMIT_LABELS: Record<SubscriptionPlan, string> = {
-  starter:  "1 à 5 copropriétés",
-  pro:      "4 à 15 copropriétés",
+  benevole: "1 copropriété · Syndic bénévole",
+  starter:  "1 à 4 copropriétés",
+  pro:      "5 à 15 copropriétés",
   business: "16 à 30 copropriétés",
 };
 
 export default function BlockedScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, logout } = useAuth();
   const {
     currentCopro,
@@ -36,6 +39,7 @@ export default function BlockedScreen() {
     userSubscription,
     refreshCoPros,
     refreshSubscription,
+    isInTrial,
   } = useCoPro();
 
   const [loading, setLoading] = useState(false);
@@ -51,6 +55,7 @@ export default function BlockedScreen() {
   const isAdmin = currentRole === "admin";
   const isExpired = userSubscription?.status === "expired";
   const isTrialExpired = isExpired && !!userSubscription?.trialEndsAt;
+  const isCoProTrialExpired = !isInTrial && currentCopro?.trialEndsAt && !userSubscription?.status?.match(/^(active|trialing)$/);
 
   const handlePayment = async () => {
     if (!currentCopro || !user) {
@@ -229,6 +234,13 @@ export default function BlockedScreen() {
           { paddingTop: top + 24, paddingBottom: bottom + 24 },
         ]}
       >
+        <Pressable
+          style={styles.backBtn}
+          onPress={() => router.replace("/(onboarding)")}
+        >
+          <Ionicons name="arrow-back-outline" size={20} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.backBtnText}>Retour</Text>
+        </Pressable>
         {isAdmin ? (
           isExpired ? (
             <>
@@ -291,9 +303,10 @@ export default function BlockedScreen() {
 
                 {/* Sélecteur de plan */}
                 <View style={styles.planSelector}>
-                  {(["starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
+                  {(["benevole", "starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
                     const isActive = selectedPlan === key;
-                    const isLast = idx === 2;
+                    const isLast = idx === 3;
+                    const isBenevole = key === "benevole";
                     return (
                       <Pressable
                         key={key}
@@ -305,7 +318,14 @@ export default function BlockedScreen() {
                             {isActive && <View style={styles.planRadioDot} />}
                           </View>
                           <View>
-                            <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Text style={[styles.planRowName, isActive && styles.planRowNameActive]}>{PLAN_PRICES[key].label}</Text>
+                              {isBenevole && (
+                                <View style={styles.trialBadge}>
+                                  <Text style={styles.trialBadgeText}>1 mois gratuit</Text>
+                                </View>
+                              )}
+                            </View>
                             <Text style={[styles.planRowLimit, isActive && styles.planRowLimitActive]}>{PLAN_LIMIT_LABELS[key]}</Text>
                           </View>
                         </View>
@@ -325,7 +345,11 @@ export default function BlockedScreen() {
                   {loading ? <ActivityIndicator color="#fff" /> : (
                     <>
                       <Ionicons name="card-outline" size={18} color="#fff" />
-                      <Text style={styles.payBtnText}>{`Renouveler — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
+                      <Text style={styles.payBtnText}>
+                    {selectedPlan === "benevole"
+                      ? "Commencer — 0 € aujourd'hui"
+                      : `Renouveler — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
+                  </Text>
                     </>
                   )}
                 </Pressable>
@@ -423,7 +447,11 @@ export default function BlockedScreen() {
                       {loading ? <ActivityIndicator color="#fff" /> : (
                         <>
                           <Ionicons name="card-outline" size={18} color="#fff" />
-                          <Text style={styles.payBtnText}>{`Payer — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}</Text>
+                          <Text style={styles.payBtnText}>
+                    {selectedPlan === "benevole"
+                      ? "Commencer — 0 € aujourd'hui"
+                      : `Payer — ${PLAN_PRICES[selectedPlan].monthly.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €/mois`}
+                  </Text>
                         </>
                       )}
                     </Pressable>
@@ -537,6 +565,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 20,
+  },
+
+  backBtn: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  backBtnText: {
+    fontSize: 15,
+    color: "rgba(255,255,255,0.7)",
+    fontFamily: "Inter_500Medium",
   },
 
   iconWrap: {
@@ -894,5 +938,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_500Medium",
     color: "rgba(255,255,255,0.3)",
+  },
+
+  // Badge "1 mois gratuit" sur le plan bénévole
+  trialBadge: {
+    backgroundColor: "#DCFCE7",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  trialBadgeText: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    color: "#15803D",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
   },
 });

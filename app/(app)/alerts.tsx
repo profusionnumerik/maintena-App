@@ -1,8 +1,9 @@
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
-  ActivityIndicator, FlatList, Image, Modal, Platform, Pressable,
+  ActivityIndicator, FlatList, Image, Keyboard, KeyboardEvent,
+  Modal, Platform, Pressable,
   ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
 import { wa, wConfirm } from "@/shared/dialogs";
@@ -16,7 +17,12 @@ import { useCoPro } from "@/context/CoProContext";
 import {
   Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS,
   Poll, PollTarget, POLL_TARGET_LABELS, Signalement,
+  Category, CATEGORY_LABELS, ALL_CATEGORIES,
+  ProviderContact, DemandeDevis,
 } from "@/shared/types";
+import { addDoc, collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { getApiUrl } from "@/lib/query-client";
 
 const MAX_SIGNAL_PHOTOS = 3;
 const FlatListAny = FlatList as any;
@@ -24,6 +30,22 @@ const FlatListAny = FlatList as any;
 function BottomSheet({ visible, onClose, insetBottom, children }: {
   visible: boolean; onClose: () => void; insetBottom: number; children: React.ReactNode;
 }) {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e: KeyboardEvent) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  useEffect(() => {
+    if (!visible) setKeyboardHeight(0);
+  }, [visible]);
+
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       <View style={StyleSheet.absoluteFillObject}>
@@ -31,7 +53,7 @@ function BottomSheet({ visible, onClose, insetBottom, children }: {
           style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.45)" }]}
           onPress={onClose}
         />
-        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
+        <View style={{ position: "absolute", bottom: keyboardHeight, left: 0, right: 0 }}>
           <ScrollView
             style={{ flex: 0 }}
             contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
@@ -111,16 +133,18 @@ function SignalementModal({
   visible, onClose, onSend, insetBottom,
 }: {
   visible: boolean; onClose: () => void;
-  onSend: (message: string, senderName: string, apartmentNumber: string, photoUris?: string[]) => Promise<void>;
+  onSend: (message: string, senderName: string, apartmentNumber: string, photoUris?: string[], category?: Category, urgency?: "normal" | "urgent") => Promise<void>;
   insetBottom: number;
 }) {
   const [senderName, setSenderName] = useState("");
   const [apartmentNumber, setApartmentNumber] = useState("");
   const [message, setMessage] = useState("");
   const [photoUris, setPhotoUris] = useState<string[]>([]);
+  const [category, setCategory] = useState<Category>("divers");
+  const [urgency, setUrgency] = useState<"normal" | "urgent">("normal");
   const [sending, setSending] = useState(false);
 
-  const resetForm = () => { setSenderName(""); setApartmentNumber(""); setMessage(""); setPhotoUris([]); };
+  const resetForm = () => { setSenderName(""); setApartmentNumber(""); setMessage(""); setPhotoUris([]); setCategory("divers"); setUrgency("normal"); };
 
   const handlePickPhoto = async () => {
     if (photoUris.length >= MAX_SIGNAL_PHOTOS) return;
@@ -165,7 +189,7 @@ function SignalementModal({
     if (!trimmedMsg || !trimmedName || !trimmedAppt) return;
     setSending(true);
     try {
-      await onSend(trimmedMsg, trimmedName, trimmedAppt, photoUris.length > 0 ? photoUris : undefined);
+      await onSend(trimmedMsg, trimmedName, trimmedAppt, photoUris.length > 0 ? photoUris : undefined, category, urgency);
       resetForm(); onClose();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
@@ -206,6 +230,48 @@ function SignalementModal({
             onChangeText={setApartmentNumber}
           />
         </View>
+        <Text style={styles.signalFieldLabel}>Catégorie</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
+            {ALL_CATEGORIES.map((cat) => (
+              <Pressable
+                key={cat}
+                onPress={() => setCategory(cat)}
+                style={[
+                  styles.typeChip,
+                  category === cat
+                    ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary }
+                    : { borderColor: COLORS.border }
+                ]}
+              >
+                <Text style={[styles.typeChipText, { color: category === cat ? "#fff" : COLORS.textMuted }]}>
+                  {CATEGORY_LABELS[cat]}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </ScrollView>
+
+        <View style={{ flexDirection: "row", gap: 10, marginBottom: 10, alignItems: "center" }}>
+          <Text style={[styles.signalFieldLabel, { marginBottom: 0, marginTop: 0, flex: 1 }]}>Urgence</Text>
+          {(["normal", "urgent"] as const).map((u) => (
+            <Pressable
+              key={u}
+              onPress={() => setUrgency(u)}
+              style={[
+                styles.typeChip,
+                urgency === u
+                  ? { backgroundColor: u === "urgent" ? "#DC2626" : COLORS.primary, borderColor: u === "urgent" ? "#DC2626" : COLORS.primary }
+                  : { borderColor: COLORS.border }
+              ]}
+            >
+              <Text style={[styles.typeChipText, { color: urgency === u ? "#fff" : COLORS.textMuted }]}>
+                {u === "urgent" ? "Urgent" : "Normal"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         <TextInput
           style={styles.signalInput}
           placeholder="Ex : Fuite d'eau au rez-de-chaussée, portail bloqué..."
@@ -434,6 +500,65 @@ export default function AlertsScreen() {
   const [pollSaving, setPollSaving] = useState(false);
 
   const isConseil = currentRole === "conseil";
+  const canManageDevis = isAdmin || isConseil;
+
+  const [devisSignalement, setDevisSignalement] = useState<Signalement | null>(null);
+  const [devisContacts, setDevisContacts] = useState<ProviderContact[]>([]);
+  const [devisSelected, setDevisSelected] = useState<string[]>([]);
+  const [devisSending, setDevisSending] = useState(false);
+  const [devisModalVisible, setDevisModalVisible] = useState(false);
+
+  const handleOpenDevisModal = async (sig: Signalement) => {
+    if (!currentCopro) return;
+    setDevisSignalement(sig);
+    setDevisSelected([]);
+    setDevisModalVisible(true);
+    try {
+      const snap = await getDocs(collection(db, "copros", currentCopro.id, "providerContacts"));
+      const contacts = snap.docs.map(d => ({ id: d.id, coProId: currentCopro.id, ...d.data() } as ProviderContact));
+      setDevisContacts(contacts);
+    } catch { setDevisContacts([]); }
+  };
+
+  const handleSendDevis = async () => {
+    if (!devisSignalement || !currentCopro || devisSelected.length === 0) return;
+    setDevisSending(true);
+    try {
+      const catLabel = devisSignalement.category ? CATEGORY_LABELS[devisSignalement.category] : "Divers";
+      const demandeRef = await addDoc(
+        collection(db, "copros", currentCopro.id, "demandesDevis"),
+        {
+          coProId: currentCopro.id,
+          title: `${catLabel} — ${devisSignalement.senderName}`,
+          description: devisSignalement.message,
+          category: devisSignalement.category ?? "divers",
+          urgency: devisSignalement.urgency ?? "normal",
+          createdBy: user?.uid ?? "",
+          createdByName: user?.displayName ?? "Admin",
+          createdAt: new Date().toISOString(),
+          status: "open",
+          devis: [],
+          signalementId: devisSignalement.id,
+        } as Omit<DemandeDevis, "id"> & { signalementId: string }
+      );
+      await updateDoc(doc(db, "copros", currentCopro.id, "signalements", devisSignalement.id), {
+        devisDemandeId: demandeRef.id,
+      });
+      const token = await user?.getIdToken();
+      const baseUrl = getApiUrl();
+      await fetch(`${baseUrl}/api/demande-devis/send-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ demandeId: demandeRef.id, coProId: currentCopro.id, contactIds: devisSelected }),
+      });
+      setDevisModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message ?? "Impossible d'envoyer la demande de devis.");
+    } finally {
+      setDevisSending(false);
+    }
+  };
 
   const myMember = members.find((m) => m.uid === user?.uid);
   const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
@@ -468,8 +593,8 @@ export default function AlertsScreen() {
     setTogglingAnnoEmail(true);
     try { await toggleAnnouncementEmail(); } catch {} finally { setTogglingAnnoEmail(false); }
   };
-  const handleSend = async (message: string, senderName: string, apartmentNumber: string, photoUris?: string[]) => {
-    await addSignalement(message, senderName, apartmentNumber, photoUris);
+  const handleSend = async (message: string, senderName: string, apartmentNumber: string, photoUris?: string[], category?: Category, urgency?: "normal" | "urgent") => {
+    await addSignalement(message, senderName, apartmentNumber, photoUris, category, urgency);
   };
   const handleDeleteAnnouncement = (id: string) => {
     wConfirm(
@@ -811,7 +936,7 @@ export default function AlertsScreen() {
           }
         </View>
       )}
-      {isProprietaire && activeTab === "alertes" && (
+      {(isProprietaire || isConseil) && activeTab === "alertes" && (
         <Pressable style={styles.addBtn} onPress={() => setSignalModalVisible(true)}>
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
@@ -916,6 +1041,7 @@ export default function AlertsScreen() {
                 onAcknowledge={() => handleAcknowledge(item.id)}
                 onDelete={() => handleDeleteSignal(item.id)}
                 onRead={() => handleRead(item.id)}
+                onRequestDevis={canManageDevis ? handleOpenDevisModal : undefined}
               />
             )}
             ListHeaderComponent={unacknowledged > 0 ? (
@@ -944,6 +1070,72 @@ export default function AlertsScreen() {
           insetBottom={bottom}
         />
         {pollModal}
+        <BottomSheet visible={devisModalVisible} onClose={() => setDevisModalVisible(false)} insetBottom={bottom}>
+          <View style={styles.modalHandle} />
+          <View style={styles.signalHeader}>
+            <View style={[styles.signalIconWrap, { backgroundColor: "rgba(124,58,237,0.1)" }]}>
+              <Ionicons name="send-outline" size={20} color="#7C3AED" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>Demander des devis</Text>
+              <Text style={styles.signalSub}>
+                {devisSignalement ? `${devisSignalement.senderName} · ${devisSignalement.message.slice(0, 60)}${devisSignalement.message.length > 60 ? "…" : ""}` : ""}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.signalFieldLabel}>
+            Prestataires à contacter (max 3)
+          </Text>
+          {devisContacts.length === 0 ? (
+            <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 16 }}>
+              Aucun prestataire dans l'annuaire. Ajoutez-en depuis le menu → Annuaire prestataires.
+            </Text>
+          ) : (
+            <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+              {devisContacts.map((c) => {
+                const selected = devisSelected.includes(c.id);
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.devisContactRow, selected && styles.devisContactRowSelected]}
+                    onPress={() => {
+                      if (selected) {
+                        setDevisSelected(prev => prev.filter(id => id !== c.id));
+                      } else if (devisSelected.length < 3) {
+                        setDevisSelected(prev => [...prev, c.id]);
+                      }
+                    }}
+                  >
+                    <View style={[styles.devisCheckbox, selected && styles.devisCheckboxSelected]}>
+                      {selected && <Ionicons name="checkmark" size={12} color="#fff" />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.devisContactName}>{c.firstName} {c.lastName}</Text>
+                      <Text style={styles.devisContactMeta}>
+                        {[c.specialty || c.company, c.email].filter(Boolean).join(" · ")}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.signalSendBtn,
+              { backgroundColor: "#7C3AED", marginTop: 16 },
+              (devisSelected.length === 0 || devisSending) && styles.signalSendBtnDisabled,
+              pressed && { opacity: 0.85 },
+            ]}
+            onPress={handleSendDevis}
+            disabled={devisSelected.length === 0 || devisSending}
+          >
+            {devisSending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <><Ionicons name="send" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Envoyer la demande ({devisSelected.length})</Text></>
+            }
+          </Pressable>
+        </BottomSheet>
       </View>
     );
   }
@@ -1208,6 +1400,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   tabBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#fff" },
+
+  devisContactRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 10, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  devisContactRowSelected: { backgroundColor: "rgba(124,58,237,0.04)" },
+  devisCheckbox: {
+    width: 22, height: 22, borderRadius: 6, borderWidth: 1.5,
+    borderColor: COLORS.border, alignItems: "center", justifyContent: "center",
+  },
+  devisCheckboxSelected: { backgroundColor: "#7C3AED", borderColor: "#7C3AED" },
+  devisContactName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  devisContactMeta: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 
   annoCard: {
     backgroundColor: COLORS.surface, borderRadius: 14,

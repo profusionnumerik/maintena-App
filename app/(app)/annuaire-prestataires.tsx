@@ -26,10 +26,11 @@ interface ProviderContact {
   email: string;
   phone: string;
   company: string;
+  specialty?: string;
   createdAt: string;
 }
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", company: "" };
+const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", company: "", specialty: "" };
 
 function safeHaptic() {
   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -108,7 +109,7 @@ export default function AnnuairePrestatairesScreen() {
 
   const openEdit = (c: ProviderContact) => {
     setEditing(c);
-    setForm({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, company: c.company });
+    setForm({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, company: c.company, specialty: c.specialty ?? "" });
     setErrors({});
     setModalVisible(true);
   };
@@ -136,6 +137,7 @@ export default function AnnuairePrestatairesScreen() {
         email: form.email.trim().toLowerCase(),
         phone: form.phone.trim(),
         company: form.company.trim(),
+        specialty: form.specialty.trim(),
       };
       if (editing) {
         await updateDoc(doc(db, "copros", targetCoProId, "providerContacts", editing.id), data);
@@ -228,7 +230,9 @@ export default function AnnuairePrestatairesScreen() {
                 </View>
                 <View style={styles.cardInfo}>
                   <Text style={styles.cardName}>{c.firstName} {c.lastName}</Text>
-                  {!!c.company && <Text style={styles.cardCompany}>{c.company}</Text>}
+                  {!!(c.specialty || c.company) && (
+                    <Text style={styles.cardCompany}>{[c.specialty, c.company].filter(Boolean).join(" · ")}</Text>
+                  )}
                   <View style={styles.cardMeta}>
                     {!!c.phone && (
                       <View style={styles.cardMetaItem}>
@@ -331,12 +335,22 @@ export default function AnnuairePrestatairesScreen() {
                 keyboardType="phone-pad"
               />
             </Field>
-            <Field label="Profession / Société">
+            <Field label="Entreprise / Société">
               <TextInput
                 style={styles.input}
                 value={form.company}
                 onChangeText={(v) => setForm((f) => ({ ...f, company: v }))}
-                placeholder="Plombier, Électricien…"
+                placeholder="SARL Dupont Plomberie…"
+                placeholderTextColor={COLORS.textMuted}
+                autoCapitalize="words"
+              />
+            </Field>
+            <Field label="Spécialité / Métier">
+              <TextInput
+                style={styles.input}
+                value={form.specialty}
+                onChangeText={(v) => setForm((f) => ({ ...f, specialty: v }))}
+                placeholder="Plombier, Électricien, Ascensoriste…"
                 placeholderTextColor={COLORS.textMuted}
                 autoCapitalize="words"
               />

@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { useRef, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator, KeyboardAvoidingView, Modal, Platform,
   Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -39,11 +39,19 @@ export default function JoinCoPro() {
   const insets = useSafeAreaInsets();
   const { joinCoPro } = useCoPro();
   const codeRef = useRef<TextInput>(null);
+  const { code: codeParam } = useLocalSearchParams<{ code?: string }>();
 
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCategories, setShowCategories] = useState(false);
+
+  // Pré-remplir le code depuis le lien /rejoindre/:code
+  useEffect(() => {
+    if (codeParam && typeof codeParam === "string" && codeParam.length >= 4) {
+      setCode(codeParam.toUpperCase());
+    }
+  }, [codeParam]);
 
   // Category modal (for prestataires who pick a category first)
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);

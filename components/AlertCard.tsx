@@ -4,16 +4,17 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import PhotoViewer from "@/components/PhotoViewer";
 import { COLORS } from "@/constants/colors";
-import { Signalement } from "@/shared/types";
+import { Signalement, CATEGORY_LABELS } from "@/shared/types";
 
 interface AlertCardProps {
   item: Signalement;
   onAcknowledge: (id: string) => void;
   onDelete?: (id: string) => void;
   onRead?: (id: string) => void;
+  onRequestDevis?: (item: Signalement) => void;
 }
 
-export default function AlertCard({ item, onAcknowledge, onDelete, onRead }: AlertCardProps) {
+export default function AlertCard({ item, onAcknowledge, onDelete, onRead, onRequestDevis }: AlertCardProps) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const photoList =
     item.photos && item.photos.length > 0
@@ -118,23 +119,58 @@ export default function AlertCard({ item, onAcknowledge, onDelete, onRead }: Ale
           </ScrollView>
         )}
 
-        {isAck ? (
-          <View style={styles.ackChip}>
-            <Ionicons name="checkmark-circle" size={11} color={COLORS.success} />
-            <Text style={styles.ackChipText}>Pris en compte</Text>
+        {(item.category || item.urgency === "urgent") && (
+          <View style={styles.metaRow}>
+            {item.category && (
+              <View style={styles.categoryChip}>
+                <Text style={styles.categoryChipText}>{CATEGORY_LABELS[item.category]}</Text>
+              </View>
+            )}
+            {item.urgency === "urgent" && (
+              <View style={styles.urgentChip}>
+                <Text style={styles.urgentChipText}>Urgent</Text>
+              </View>
+            )}
           </View>
-        ) : (
-          <Pressable
-            style={({ pressed }) => [styles.ackBtn, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              Haptics.selectionAsync();
-              onAcknowledge(item.id);
-            }}
-          >
-            <Ionicons name="checkmark" size={12} color={COLORS.primary} />
-            <Text style={styles.ackBtnText}>Pris en compte</Text>
-          </Pressable>
         )}
+
+        <View style={styles.actionRow}>
+          {isAck ? (
+            <View style={styles.ackChip}>
+              <Ionicons name="checkmark-circle" size={11} color={COLORS.success} />
+              <Text style={styles.ackChipText}>Pris en compte</Text>
+            </View>
+          ) : (
+            <Pressable
+              style={({ pressed }) => [styles.ackBtn, pressed && { opacity: 0.75 }]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onAcknowledge(item.id);
+              }}
+            >
+              <Ionicons name="checkmark" size={12} color={COLORS.primary} />
+              <Text style={styles.ackBtnText}>Pris en compte</Text>
+            </Pressable>
+          )}
+
+          {item.devisDemandeId ? (
+            <View style={styles.devisChip}>
+              <Ionicons name="document-text" size={11} color="#7C3AED" />
+              <Text style={styles.devisChipText}>Devis demandé</Text>
+            </View>
+          ) : onRequestDevis ? (
+            <Pressable
+              style={({ pressed }) => [styles.devisBtn, pressed && { opacity: 0.75 }]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                onRequestDevis(item);
+              }}
+            >
+              <Ionicons name="send-outline" size={11} color="#7C3AED" />
+              <Text style={styles.devisBtnText}>Demander un devis</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
     </Pressable>
   );
@@ -266,5 +302,69 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     color: COLORS.primary,
+  },
+  metaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 2,
+  },
+  categoryChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(100,116,139,0.1)",
+  },
+  categoryChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: COLORS.textMuted,
+  },
+  urgentChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(239,68,68,0.1)",
+  },
+  urgentChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "#DC2626",
+  },
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  devisChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "rgba(124,58,237,0.1)",
+  },
+  devisChipText: {
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
+    color: "#7C3AED",
+  },
+  devisBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.3)",
+    backgroundColor: "rgba(124,58,237,0.06)",
+  },
+  devisBtnText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#7C3AED",
   },
 });

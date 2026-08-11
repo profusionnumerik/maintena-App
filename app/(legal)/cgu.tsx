@@ -18,7 +18,7 @@ export default function CguScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           <Text style={styles.title}>Conditions Générales d'Utilisation</Text>
-          <Text style={styles.updated}>Dernière mise à jour : mai 2026</Text>
+          <Text style={styles.updated}>Dernière mise à jour : août 2026</Text>
 
           <Section
             title="1. Éditeur"
@@ -42,7 +42,16 @@ export default function CguScreen() {
 
           <Section
             title="5. Accès au service et abonnement"
-            text="L'accès complet au service requiert un abonnement payant souscrit via Stripe. Un essai gratuit de 30 jours est proposé sans engagement ni carte bancaire. Tarifs mensuels (sans engagement) : Starter 7,99 €/mois (1–5 copros), Pro 14,99 €/mois (jusqu'à 15 copros), Business 19,99 €/mois (jusqu'à 30 copros). Offre annuelle : 169 €/an. Les prix peuvent évoluer ; les abonnés sont informés 30 jours avant toute modification tarifaire."
+            text={
+              "L'accès complet au service requiert un abonnement payant souscrit via Stripe.\n\n" +
+              "Tarifs mensuels (sans engagement) :\n" +
+              "• Syndic Bénévole — 4,99 €/mois (1 copropriété) · 1 mois offert à l'inscription (carte bancaire requise)\n" +
+              "• Starter — 9,99 €/mois (1 à 4 copropriétés)\n" +
+              "• Pro — 19,99 €/mois (jusqu'à 15 copropriétés)\n" +
+              "• Business — 34,99 €/mois (jusqu'à 30 copropriétés)\n\n" +
+              "Offres annuelles : Starter 99 €/an · Pro 199 €/an · Business 349 €/an.\n\n" +
+              "L'essai gratuit du plan Bénévole est limité à une utilisation par numéro de téléphone. Les prix peuvent évoluer ; les abonnés sont informés 30 jours avant toute modification tarifaire."
+            }
           />
 
           <Section

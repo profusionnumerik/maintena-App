@@ -45,6 +45,8 @@ const config: ExpoConfig = {
   },
   android: {
     package: ANDROID_PACKAGE,
+    enableProguardInReleaseBuilds: true,
+    resizeableActivity: true,
     adaptiveIcon: {
       backgroundColor: '#0B1628',
       foregroundImage: './assets/images/android-icon-foreground.png',
@@ -61,6 +63,7 @@ const config: ExpoConfig = {
     favicon: './assets/images/favicon.png',
   },
   plugins: [
+    'react-native-edge-to-edge',
     'expo-router',
     'expo-font',
     'expo-web-browser',

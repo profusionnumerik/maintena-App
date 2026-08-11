@@ -42,18 +42,18 @@ function todayStr() {
 function isoToDisplay(iso: string) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
+  return `${d}-${m}-${y}`;
 }
 function displayToIso(display: string) {
-  const parts = display.split("/");
+  const parts = display.split("-");
   if (parts.length !== 3) return "";
   return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
 }
 function formatDateInput(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
 }
 
 const COMMON_SUGGESTIONS = [
@@ -74,11 +74,11 @@ type Tab = "depenses" | "budget" | "synthese";
 
 interface ExpenseForm {
   label: string; amount: string; category: ExpenseCategory;
-  date: string; description: string; buildingId: string;
+  date: string; invoiceNumber: string; description: string; buildingId: string;
 }
 const EMPTY_FORM: ExpenseForm = {
   label: "", amount: "", category: "divers",
-  date: new Date().toISOString().slice(0, 10), description: "", buildingId: COMMUN,
+  date: new Date().toISOString().slice(0, 10), invoiceNumber: "", description: "", buildingId: COMMUN,
 };
 
 interface BudgetFormLine {
@@ -276,6 +276,7 @@ export default function ConseilFinancesScreen() {
     setEditingExpense(null);
     setForm({
       label: intervention.title, amount: String(amount), category: cat, date: isoDate,
+      invoiceNumber: "",
       description: `Intervention du ${isoToDisplay(isoDate)}${intervention.assignedToName ? ` — ${intervention.assignedToName}` : ""}`,
       buildingId: COMMUN,
     });
@@ -295,7 +296,7 @@ export default function ConseilFinancesScreen() {
     setEditingExpense(e);
     setForm({
       label: e.label, amount: String(e.amount), category: e.category,
-      date: e.date, description: e.description ?? "", buildingId: e.buildingId ?? COMMUN,
+      date: e.date, invoiceNumber: e.invoiceNumber ?? "", description: e.description ?? "", buildingId: e.buildingId ?? COMMUN,
     });
     setDateDisplay(isoToDisplay(e.date));
     setExpenseModal(true);
@@ -313,7 +314,7 @@ export default function ConseilFinancesScreen() {
       const linkedInterventionId = (editingExpense as any)?.interventionId as string | undefined;
       const data: Record<string, any> = {
         coProId: currentCopro.id, label: form.label.trim(), amount, category: form.category,
-        date: isoDate, description: form.description.trim(), buildingId: form.buildingId,
+        date: isoDate, invoiceNumber: form.invoiceNumber.trim() || null, description: form.description.trim(), buildingId: form.buildingId,
         addedBy: user.uid, addedByName: user.displayName || user.email || "Inconnu",
         updatedAt: new Date().toISOString(),
       };
@@ -827,6 +828,11 @@ export default function ConseilFinancesScreen() {
                                 </View>
                               )}
                             </View>
+                            {!!e.invoiceNumber && (
+                              <Text style={styles.expenseDesc} numberOfLines={1}>
+                                N° {e.invoiceNumber}
+                              </Text>
+                            )}
                             {!!e.description && <Text style={styles.expenseDesc} numberOfLines={1}>{e.description}</Text>}
                           </View>
                           <Text style={styles.expenseAmount}>{formatAmount(e.amount)}</Text>
@@ -1072,10 +1078,15 @@ export default function ConseilFinancesScreen() {
               })}
             </View>
 
+            <Text style={styles.fieldLabel}>N° de facture (optionnel)</Text>
+            <TextInput style={styles.input} value={form.invoiceNumber}
+              onChangeText={(v) => setForm((f) => ({ ...f, invoiceNumber: v }))}
+              placeholder="FAC-2025-001" placeholderTextColor={COLORS.textMuted} autoCapitalize="characters" />
+
             <Text style={styles.fieldLabel}>Note (optionnel)</Text>
             <TextInput style={[styles.input, { minHeight: 70, textAlignVertical: "top" }]} value={form.description}
               onChangeText={(v) => setForm((f) => ({ ...f, description: v }))}
-              placeholder="Référence facture, remarque…" placeholderTextColor={COLORS.textMuted} multiline />
+              placeholder="Remarque, prestataire…" placeholderTextColor={COLORS.textMuted} multiline />
             <View style={{ height: 40 }} />
           </ScrollView>
         </View>

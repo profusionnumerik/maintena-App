@@ -30,6 +30,7 @@ import React, {
 } from "react";
 import { auth, db } from "@/lib/firebase";
 import { apiRequest } from "@/lib/query-client";
+import { registerPushToken } from "@/lib/notifications";
 
 const SUPER_ADMIN_EMAIL =
   process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "admin@example.com";
@@ -114,6 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setIsLoading(false);
+      if (u?.uid) registerPushToken(u.uid).catch(() => {});
     });
     return unsub;
   }, []);

@@ -9,5 +9,12 @@ service firebase.storage {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && request.resource.size < 10 * 1024 * 1024;
     }
+
+    // Signatures personnelles (modèle + signatures devis)
+    match /signatures/{uid}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid
+                   && request.resource.size < 1 * 1024 * 1024;
+    }
   }
 }

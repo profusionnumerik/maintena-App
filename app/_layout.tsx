@@ -6,8 +6,10 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CoProProvider, useCoPro } from "@/context/CoProContext";
 import { InterventionsProvider } from "@/context/InterventionsContext";
@@ -68,6 +70,17 @@ function RootLayoutNav() {
   const router = useRouter();
   const segmentsSafe = [...segments] as string[];
 
+  // ── Maintenance mode ────────────────────────────────────────────────────
+  const [isMaintenance, setIsMaintenance] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "appConfig", "maintenance"), (snap) => {
+      setIsMaintenance(snap.exists() && snap.data()?.active === true);
+    });
+    return unsub;
+  }, []);
+  // ────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (authLoading || coProLoading) return;
 
@@ -77,9 +90,21 @@ function RootLayoutNav() {
     const inApp = segmentsSafe[0] === "(app)";
     const inSuperAdmin = segmentsSafe[0] === "(superadmin)";
     const inLegal = segmentsSafe[0] === "(legal)";
+    const inMaintenance = segmentsSafe[0] === "maintenance";
     const inModal = segmentsSafe[0] === "add" || segmentsSafe[0] === "intervention";
     const secondSegment = segmentsSafe[1];
     const inCreateCopro = inOnboarding && secondSegment === "create";
+
+    // Maintenance : redirige tout le monde sauf le superadmin
+    if (isMaintenance && !isSuperAdmin) {
+      if (!inMaintenance) router.replace("/maintenance");
+      return;
+    }
+    // Si la maintenance est levée et qu'on est sur l'écran maintenance → sortir
+    if (!isMaintenance && inMaintenance) {
+      router.replace(user ? "/(app)" : "/(auth)");
+      return;
+    }
 
     if (!user) {
       if (!inAuth && !inLegal) router.replace("/(auth)");
@@ -114,6 +139,7 @@ function RootLayoutNav() {
     currentCopro,
     isSuperAdmin,
     isSubscribed,
+    isMaintenance,
     segments,
     router,
   ]);
@@ -126,6 +152,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(app)" />
       <Stack.Screen name="(superadmin)" />
       <Stack.Screen name="(legal)" />
+      <Stack.Screen name="maintenance" />
       <Stack.Screen name="add" options={{ presentation: "modal", headerShown: false }} />
       <Stack.Screen name="intervention/[id]" options={{ headerShown: false }} />
     </Stack>

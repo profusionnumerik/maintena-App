@@ -109,6 +109,16 @@ export default function AppLayout() {
       />
 
       <Tabs.Screen
+        name="demandes-devis"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
+        name="entretien"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
         name="admin"
         options={{
           title: "Menu",

@@ -2,16 +2,18 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Linking, Modal, Platform, Pressable,
+  ActivityIndicator, Dimensions, Linking, Modal, PanResponder, Platform, Pressable,
   ScrollView, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
+import { Path, Svg, SvgXml } from "react-native-svg";
 import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { doc, setDoc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { COLORS } from "@/constants/colors";
@@ -43,7 +45,7 @@ export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, isSuperAdmin, logout, deleteAccount } = useAuth();
-  const { currentCopro, currentRole, members, copros, switchCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
+  const { currentCopro, currentRole, members, copros, switchCoPro, deleteCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
   const [adminTab, setAdminTab] = useState<"copro" | "membres" | "config" | "compte">("copro");
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedOwnerCode, setCopiedOwnerCode] = useState(false);
@@ -60,6 +62,105 @@ export default function AdminScreen() {
   const [inviteCategory, setInviteCategory] = useState<Category>("nettoyage");
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
+
+  // ── Signature modèle ──
+  const [signatureModelUrl, setSignatureModelUrl] = useState<string | null>(null);
+  const [signatureModelSvg, setSignatureModelSvg] = useState<string | null>(null);
+  const [signPadVisible, setSignPadVisible] = useState(false);
+  const [sigStrokes, setSigStrokes] = useState<Array<Array<{ x: number; y: number }>>>([]);
+  const [sigLiveStroke, setSigLiveStroke] = useState<Array<{ x: number; y: number }>>([]);
+  const sigCurrentStroke = useRef<Array<{ x: number; y: number }>>([]);
+  const sigStrokesRef = useRef<Array<Array<{ x: number; y: number }>>>([]);
+  const [savingSig, setSavingSig] = useState(false);
+
+  const SIG_W = Math.min(Dimensions.get("window").width - 80, 320);
+  const SIG_H = 140;
+
+  const sigPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => {
+        const { locationX: x, locationY: y } = e.nativeEvent;
+        sigCurrentStroke.current = [{ x, y }];
+        setSigLiveStroke([{ x, y }]);
+      },
+      onPanResponderMove: (e) => {
+        const { locationX: x, locationY: y } = e.nativeEvent;
+        sigCurrentStroke.current = [...sigCurrentStroke.current, { x, y }];
+        setSigLiveStroke([...sigCurrentStroke.current]);
+      },
+      onPanResponderRelease: () => {
+        if (sigCurrentStroke.current.length > 0) {
+          sigStrokesRef.current = [...sigStrokesRef.current, sigCurrentStroke.current];
+          setSigStrokes([...sigStrokesRef.current]);
+        }
+        setSigLiveStroke([]);
+        sigCurrentStroke.current = [];
+      },
+      onPanResponderTerminate: () => {
+        if (sigCurrentStroke.current.length > 0) {
+          sigStrokesRef.current = [...sigStrokesRef.current, sigCurrentStroke.current];
+          setSigStrokes([...sigStrokesRef.current]);
+        }
+        setSigLiveStroke([]);
+        sigCurrentStroke.current = [];
+      },
+    })
+  ).current;
+
+  function sigPointsToPath(pts: Array<{ x: number; y: number }>): string {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} l0.1,0.1`;
+    return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}` +
+      pts.slice(1).map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
+  }
+
+  async function handleSaveSignatureModel() {
+    // Lire depuis le ref pour éviter la closure périmée (race condition React)
+    const strokes = sigStrokesRef.current;
+    if (!user?.uid || strokes.length === 0) return;
+    setSavingSig(true);
+    try {
+      const pathsXml = strokes
+        .map((pts) => `<path d="${sigPointsToPath(pts)}" stroke="#1E293B" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`)
+        .join("");
+      const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIG_W}" height="${SIG_H}" viewBox="0 0 ${SIG_W} ${SIG_H}">${pathsXml}</svg>`;
+      // Stocker le SVG texte dans Firestore (affichage immédiat sans réseau)
+      // + garder l'upload Storage pour le serveur (génération PDF)
+      const blob = new Blob([svgStr], { type: "image/svg+xml" });
+      const sRef = storageRef(storage, `signatures/${user.uid}/model.svg`);
+      await uploadBytes(sRef, blob, { contentType: "image/svg+xml" });
+      const url = await getDownloadURL(sRef);
+      await updateDoc(doc(db, "users", user.uid), {
+        signatureModelUrl: url,
+        signatureModelSvg: svgStr,
+      });
+      setSignatureModelUrl(url);
+      setSignatureModelSvg(svgStr);
+      setSignPadVisible(false);
+      setSigStrokes([]); sigStrokesRef.current = [];
+      setSigLiveStroke([]);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message ?? "Impossible d'enregistrer la signature.");
+    } finally {
+      setSavingSig(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    getDoc(doc(db, "users", user.uid)).then((snap) => {
+      const url = snap.data()?.signatureModelUrl ?? null;
+      const svg = snap.data()?.signatureModelSvg ?? null;
+      setSignatureModelUrl(url);
+      setSignatureModelSvg(svg);
+    }).catch(() => {});
+  }, [user?.uid]);
 
   const disabledCategories: Category[] = currentCopro?.disabledCategories ?? [];
 
@@ -105,60 +206,62 @@ export default function AdminScreen() {
   const [savingBuildingConfig, setSavingBuildingConfig] = useState(false);
   const [newCustomArea, setNewCustomArea] = useState("");
 
+  // ── Informations légales du syndic ──
+  const [syndicCompanyName, setSyndicCompanyName] = useState(currentCopro?.syndicCompanyName ?? "");
+  const [syndicSiret, setSyndicSiret]             = useState(currentCopro?.syndicSiret ?? "");
+  const [syndicPhone, setSyndicPhone]             = useState(currentCopro?.syndicPhone ?? "");
+  const [syndicLegalForm, setSyndicLegalForm]     = useState(currentCopro?.syndicLegalForm ?? "");
+  const [savingLegal, setSavingLegal]             = useState(false);
+
   useEffect(() => {
     setBuildingConfig(normalizeBuildingConfig(currentCopro?.buildingConfig));
   }, [currentCopro?.id]);
 
+  useEffect(() => {
+    setSyndicCompanyName(currentCopro?.syndicCompanyName ?? "");
+    setSyndicSiret(currentCopro?.syndicSiret ?? "");
+    setSyndicPhone(currentCopro?.syndicPhone ?? "");
+    setSyndicLegalForm(currentCopro?.syndicLegalForm ?? "");
+  }, [currentCopro?.id]);
+
   const buildInviteMessage = (code: string): string => {
-    const webBase =
-      Platform.OS === "web"
-        ? window.location.origin
-        : "https://maintena.app";
-  
-    const webAccessLink = `${webBase}/acces-prestataire?code=${encodeURIComponent(code)}`;
-  
-    const appLine =
-      "Téléchargez Maintena sur Google Play :\n" +
-      "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
-  
+    // Lien de la landing page avec le code pré-rempli
+    const inviteLink = `https://maintena-pro.fr/rejoindre/${code}`;
+
     if (inviteRole === "propriétaire") {
       return (
-        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena.\n\n` +
-        `${appLine}\n\n` +
-        `Accès web : ${webAccessLink}\n\n` +
-        `Rôle : Propriétaire\n` +
+        `🏢 Invitation Maintena — ${currentCopro?.name}\n\n` +
+        `Vous êtes invité(e) à suivre l'entretien et les actualités de votre résidence.\n\n` +
+        `👉 Cliquez sur le lien pour rejoindre :\n${inviteLink}\n\n` +
         `Code d'invitation : ${code}`
       );
     }
-  
+
     if (inviteRole === "collaborateur") {
       return (
-        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que collaborateur.\n\n` +
-        `${appLine}\n\n` +
-        `Accès web : ${webAccessLink}\n\n` +
-        `Rôle : Collaborateur\n` +
+        `🏢 Invitation Maintena — ${currentCopro?.name}\n\n` +
+        `Vous êtes invité(e) à gérer cette résidence en tant que collaborateur.\n\n` +
+        `👉 Cliquez sur le lien pour rejoindre :\n${inviteLink}\n\n` +
         `Code d'invitation : ${code}`
       );
     }
 
     if (inviteRole === "conseil") {
       return (
-        `Vous êtes invité(e) à rejoindre la copropriété "${currentCopro?.name}" sur Maintena en tant que membre du conseil syndical.\n\n` +
-        `${appLine}\n\n` +
-        `Accès web : ${webAccessLink}\n\n` +
-        `Rôle : Conseil syndical\n` +
-        `Code d'invitation : ${code}\n\n` +
-        `Ce code vous donne un accès direct au module "Contrôle des comptes" (dépenses, budget, comparatif).`
+        `🏢 Invitation Maintena — ${currentCopro?.name}\n\n` +
+        `Vous êtes invité(e) à rejoindre le conseil syndical et accéder au contrôle des comptes.\n\n` +
+        `👉 Cliquez sur le lien pour rejoindre :\n${inviteLink}\n\n` +
+        `Code d'invitation : ${code}`
       );
     }
 
+    // Prestataire
     return (
-      `Vous êtes invité(e) à intervenir dans la copropriété "${currentCopro?.name}" sur Maintena.\n\n` +
-      `${appLine}\n\n` +
-      `Accès rapide sans installer l'application :\n${webAccessLink}\n\n` +
-      `Rôle : Prestataire - ${CATEGORY_LABELS[inviteCategory]}\n` +
-      `Code d'accès : ${code}\n\n` +
-      `Entrez ce code pour créer votre accès et déclarer votre intervention.`
+      `🔧 Invitation Maintena — ${currentCopro?.name}\n\n` +
+      `Votre client syndic vous invite à rejoindre Maintena pour suivre et déclarer vos interventions.\n\n` +
+      `👉 Cliquez sur le lien pour rejoindre :\n${inviteLink}\n\n` +
+      `Votre code prestataire : ${code}\n\n` +
+      `Gratuit · Android + web · 30 secondes pour déclarer un passage`
     );
   };
 
@@ -274,6 +377,26 @@ export default function AdminScreen() {
     }
   };
 
+  const handleSaveLegalInfo = async () => {
+    if (!currentCopro) return;
+    setSavingLegal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await updateDoc(doc(db, "copros", currentCopro.id), {
+        syndicCompanyName: syndicCompanyName.trim(),
+        syndicSiret: syndicSiret.trim(),
+        syndicPhone: syndicPhone.trim(),
+        syndicLegalForm: syndicLegalForm.trim(),
+      });
+      await refreshCoPros();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message);
+    } finally {
+      setSavingLegal(false);
+    }
+  };
+
   const updateBuildingConfigField = <K extends keyof BuildingConfig>(key: K, value: BuildingConfig[K]) => {
     setBuildingConfig((prev) => ({ ...prev, [key]: value }));
   };
@@ -358,7 +481,8 @@ export default function AdminScreen() {
 
   const handleShareCode = async () => {
     if (!currentCopro) return;
-    await crossShare(`Rejoins notre copropriété "${currentCopro.name}" sur Maintena en tant que collaborateur.\nCode d'invitation : ${currentCopro.inviteCode}`);
+    const link = `https://maintena-pro.fr/rejoindre/${currentCopro.inviteCode}`;
+    await crossShare(`🏢 Invitation Maintena — ${currentCopro.name}\n\nRejoins la résidence en tant que collaborateur.\n\n👉 ${link}`);
   };
 
   const handleCopyOwnerCode = async () => {
@@ -371,7 +495,8 @@ export default function AdminScreen() {
 
   const handleShareOwnerCode = async () => {
     if (!currentCopro?.ownerInviteCode) return;
-    await crossShare(`Accédez aux informations de votre copropriété "${currentCopro.name}" sur Maintena.\nCode propriétaire : ${currentCopro.ownerInviteCode}`);
+    const link = `https://maintena-pro.fr/rejoindre/${currentCopro.ownerInviteCode}`;
+    await crossShare(`🏠 Votre résidence est sur Maintena\n\n${currentCopro.name} — Suivez l'entretien et les actualités de votre immeuble.\n\n👉 ${link}`);
   };
 
   const handleGenerateOwnerCode = async () => {
@@ -431,9 +556,8 @@ export default function AdminScreen() {
 
   const handleShareConseilCode = async () => {
     if (!currentCopro?.conseilInviteCode || !currentCopro) return;
-    await crossShare(
-      `Vous êtes invité(e) à rejoindre "${currentCopro.name}" en tant que membre du conseil syndical.\nCode d'invitation : ${currentCopro.conseilInviteCode}\n\nTéléchargez l'application Maintena et entrez ce code pour rejoindre.`
-    );
+    const link = `https://maintena-pro.fr/rejoindre/${currentCopro.conseilInviteCode}`;
+    await crossShare(`🏛️ Invitation Conseil syndical — ${currentCopro.name}\n\nAccédez au contrôle des comptes et à la gestion de la résidence.\n\n👉 ${link}`);
   };
 
   const handleRefresh = async () => {
@@ -462,7 +586,8 @@ export default function AdminScreen() {
     if (!currentCopro) return;
     const code = currentCopro.categoryInviteCodes?.[cat];
     if (!code) return;
-    await crossShare(`Code d'accès Maintena — ${CATEGORY_LABELS[cat]}\n\nCode d'accès : ${currentCopro.inviteCode}\nCode prestation : ${code}\n\nCopropriété : ${currentCopro.name}`);
+    const link = `https://maintena-pro.fr/rejoindre/${code}`;
+    await crossShare(`🔧 Invitation Maintena — ${CATEGORY_LABELS[cat]}\n\n${currentCopro.name} · Votre syndic vous invite à rejoindre Maintena pour déclarer vos interventions.\n\n👉 ${link}`);
   };
 
   const handleSetLocation = async () => {
@@ -594,6 +719,24 @@ export default function AdminScreen() {
         </View>
       )}
 
+      {currentRole === "conseil" && currentCopro && (
+        <View style={styles.adminTabBar}>
+          {([
+            { key: "copro",  label: "Copropriété", icon: "business-outline" },
+            { key: "compte", label: "Finances",    icon: "stats-chart-outline" },
+          ] as const).map(({ key, label, icon }) => (
+            <Pressable
+              key={key}
+              style={[styles.adminTabBtn, adminTab === key && styles.adminTabBtnActive]}
+              onPress={() => setAdminTab(key)}
+            >
+              <Ionicons name={icon} size={16} color={adminTab === key ? COLORS.primary : COLORS.textMuted} />
+              <Text style={[styles.adminTabLabel, adminTab === key && styles.adminTabLabelActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {currentCopro && adminTab === "copro" && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Copropriété</Text>
@@ -620,6 +763,67 @@ export default function AdminScreen() {
               </View>
             )}
           </View>
+        </View>
+      )}
+
+      {(currentRole === "propriétaire" || currentRole === "conseil" || currentRole === "collaborateur") && currentCopro && adminTab === "copro" && (
+        <View style={[styles.section, { paddingTop: 0 }]}>
+          {/* Carnet d'entretien — visible à tous les membres */}
+          <Pressable
+            style={styles.statsNavBtn}
+            onPress={() => router.push("/(app)/entretien" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="clipboard-outline" size={18} color="#16A34A" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Carnet d'entretien</Text>
+              <Text style={styles.statsNavSub}>Ascenseur, VMC, portail… · Historique des passages</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          {/* Demandes de devis — propriétaires et conseil */}
+          {(currentRole === "propriétaire" || currentRole === "conseil") && (
+            <Pressable
+              style={[styles.statsNavBtn, { marginTop: 1 }]}
+              onPress={() => router.push("/(app)/demandes-devis" as any)}
+            >
+              <View style={[styles.statsNavIcon, { backgroundColor: "#FEF3C7" }]}>
+                <Ionicons name="document-text-outline" size={18} color="#D97706" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.statsNavLabel}>Demander un devis</Text>
+                <Text style={styles.statsNavSub}>Ouvrir un ticket · Suivi de vos demandes</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {isAdmin && currentCopro && adminTab === "copro" && (
+        <View style={[styles.section, { paddingTop: 0 }]}>
+          <Pressable
+            style={({ pressed }) => [styles.deleteCoProBtn, pressed && { opacity: 0.8 }]}
+            onPress={() =>
+              wConfirm(
+                "Supprimer la copropriété",
+                `Voulez-vous vraiment supprimer "${currentCopro.name}" ? Toutes les données (membres, interventions, annonces) seront définitivement effacées.`,
+                async () => {
+                  try {
+                    await deleteCoPro(currentCopro.id);
+                  } catch (e: any) {
+                    wa("Erreur", e.message ?? "Impossible de supprimer.");
+                  }
+                },
+                "Supprimer",
+                false
+              )
+            }
+          >
+            <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
+            <Text style={styles.deleteCoProText}>Supprimer cette copropriété</Text>
+          </Pressable>
         </View>
       )}
 
@@ -840,6 +1044,33 @@ export default function AdminScreen() {
                 {currentCopro.latitude ? "Mettre à jour la position" : "Définir avec ma position actuelle"}
               </Text>
             </Pressable>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Vérification présence sur site</Text>
+            <Text style={styles.sectionDesc}>
+              Si activé, les prestataires doivent être à moins de {currentCopro.locationRadius ?? 300}m de la résidence pour soumettre un rapport d'intervention. Nécessite une position GPS définie.
+            </Text>
+            <View style={[styles.sectionRow, { marginTop: 12 }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.toggleLabel}>
+                  {currentCopro.requireOnsiteCheck ? "Vérification activée ✓" : "Vérification désactivée"}
+                </Text>
+                {!currentCopro.latitude && currentCopro.requireOnsiteCheck && (
+                  <Text style={{ fontSize: 12, color: COLORS.warning, marginTop: 2 }}>
+                    ⚠ Définissez d'abord une position GPS
+                  </Text>
+                )}
+              </View>
+              <Switch
+                value={!!currentCopro.requireOnsiteCheck}
+                onValueChange={async (val) => {
+                  await updateDoc(doc(db, "copros", currentCopro.id), { requireOnsiteCheck: val });
+                }}
+                trackColor={{ false: COLORS.border, true: COLORS.primary }}
+                thumbColor="#fff"
+              />
+            </View>
           </View>
 
           <View style={styles.section}>
@@ -1068,6 +1299,54 @@ export default function AdminScreen() {
             })}
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Informations légales du syndic</Text>
+            <Text style={styles.sectionDesc}>
+              Ces informations apparaissent dans le pied de page des bons de commande générés. Chaque résidence a ses propres informations.
+            </Text>
+            <TextInput
+              style={styles.legalInput}
+              placeholder="Nom de la société syndic"
+              placeholderTextColor={COLORS.textMuted}
+              value={syndicCompanyName}
+              onChangeText={setSyndicCompanyName}
+            />
+            <TextInput
+              style={styles.legalInput}
+              placeholder="SIRET (ex : 123 456 789 00012)"
+              placeholderTextColor={COLORS.textMuted}
+              value={syndicSiret}
+              onChangeText={setSyndicSiret}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.legalInput}
+              placeholder="Téléphone"
+              placeholderTextColor={COLORS.textMuted}
+              value={syndicPhone}
+              onChangeText={setSyndicPhone}
+              keyboardType="phone-pad"
+            />
+            <TextInput
+              style={styles.legalInput}
+              placeholder="Forme juridique (SARL, SAS, bénévole…)"
+              placeholderTextColor={COLORS.textMuted}
+              value={syndicLegalForm}
+              onChangeText={setSyndicLegalForm}
+            />
+            <Pressable
+              style={[styles.locBtn, savingLegal && { opacity: 0.6 }]}
+              onPress={handleSaveLegalInfo}
+              disabled={savingLegal}
+            >
+              {savingLegal
+                ? <ActivityIndicator size="small" color={COLORS.primary} />
+                : <Ionicons name="save-outline" size={16} color={COLORS.primary} />
+              }
+              <Text style={styles.locBtnText}>Enregistrer</Text>
+            </Pressable>
+          </View>
+
         </>
       )}
 
@@ -1145,7 +1424,7 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {(isAdmin || currentRole === "conseil") && adminTab === "compte" && (
+      {isAdmin && adminTab === "compte" && (
         <View style={styles.section}>
           <Pressable
             style={styles.statsNavBtn}
@@ -1157,6 +1436,76 @@ export default function AdminScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.statsNavLabel}>Contrôle des comptes</Text>
               <Text style={styles.statsNavSub}>Dépenses, budget prévisionnel, synthèse</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/demandes-devis" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#FEF3C7" }]}>
+              <Ionicons name="document-text-outline" size={18} color="#D97706" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Demandes de devis</Text>
+              <Text style={styles.statsNavSub}>Tickets · Appels d'offres · Comparatif de prix</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/entretien" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="clipboard-outline" size={18} color="#16A34A" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Carnet d'entretien</Text>
+              <Text style={styles.statsNavSub}>Ascenseur, VMC, chaufferie… · Historique des visites</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+        </View>
+      )}
+
+      {currentRole === "conseil" && adminTab === "compte" && (
+        <View style={styles.section}>
+          <View style={styles.conseilInfoCard}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Ionicons name="shield-checkmark-outline" size={20} color="#0891B2" />
+              <Text style={styles.conseilInfoTitle}>Conseil syndical</Text>
+            </View>
+            <Text style={styles.conseilInfoText}>
+              En tant que membre du conseil syndical, vous contrôlez les comptes de la copropriété.
+              Le syndic ne peut pas modifier les données financières sans votre validation.
+            </Text>
+            <Text style={[styles.conseilInfoText, { marginTop: 6 }]}>
+              Un trésorier est élu parmi les membres du conseil pour saisir les dépenses et le budget prévisionnel.
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 0 }]}
+            onPress={() => router.push("/(app)/conseil-finances" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#DBEAFE" }]}>
+              <Ionicons name="stats-chart-outline" size={18} color="#0891B2" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Contrôle des comptes</Text>
+              <Text style={styles.statsNavSub}>Dépenses réelles · Budget AG · Comparatif · Vote trésorier</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/entretien" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="clipboard-outline" size={18} color="#16A34A" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Carnet d'entretien</Text>
+              <Text style={styles.statsNavSub}>Ascenseur, VMC, chaufferie… · Historique des visites</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>
@@ -1191,6 +1540,38 @@ export default function AdminScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>
+        </View>
+      )}
+
+      {isAdmin && adminTab === "compte" && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ma signature</Text>
+          <View style={styles.sigModelCard}>
+            {signatureModelSvg ? (
+              <View style={[styles.sigModelPreview, { width: SIG_W, height: SIG_H }]}>
+                <SvgXml xml={signatureModelSvg} width={SIG_W} height={SIG_H} />
+              </View>
+            ) : (
+              <View style={styles.sigModelEmpty}>
+                <Ionicons name="create-outline" size={28} color={COLORS.textMuted} />
+                <Text style={styles.sigModelEmptyText}>Aucune signature enregistrée</Text>
+              </View>
+            )}
+            <Pressable
+              style={styles.sigModelBtn}
+              onPress={() => {
+                setSigStrokes([]); sigStrokesRef.current = [];
+                setSigLiveStroke([]);
+                sigCurrentStroke.current = [];
+                setSignPadVisible(true);
+              }}
+            >
+              <Ionicons name="create-outline" size={15} color={COLORS.primary} />
+              <Text style={styles.sigModelBtnText}>
+                {signatureModelUrl ? "Modifier ma signature" : "Créer ma signature"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -1250,6 +1631,47 @@ export default function AdminScreen() {
       </View>
       )}
     </ScrollView>
+
+    {/* ── Modal signature modèle ── */}
+    <Modal visible={signPadVisible} animationType="slide" presentationStyle="fullScreen">
+      <View style={[styles.modal, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.modalTopBar}>
+          <Pressable onPress={() => { setSignPadVisible(false); setSigStrokes([]); sigStrokesRef.current = []; setSigLiveStroke([]); }}>
+            <Text style={styles.modalCancelText}>Annuler</Text>
+          </Pressable>
+          <Text style={styles.modalTitleText}>Ma signature</Text>
+          <Pressable onPress={handleSaveSignatureModel} disabled={savingSig || sigStrokes.length === 0}>
+            {savingSig
+              ? <ActivityIndicator size="small" color={COLORS.primary} />
+              : <Text style={[styles.modalSaveText, sigStrokes.length === 0 && { opacity: 0.4 }]}>Enregistrer</Text>
+            }
+          </Pressable>
+        </View>
+        <View style={styles.sigPadBody}>
+          <Text style={styles.sigPadHint}>Dessinez votre signature dans le cadre ci-dessous</Text>
+          <View style={[styles.sigPadCanvas, { width: SIG_W, height: SIG_H }]} pointerEvents="box-only" {...sigPanResponder.panHandlers}>
+            <Svg width={SIG_W} height={SIG_H}>
+              {sigStrokes.map((pts, i) => (
+                <Path key={i} d={sigPointsToPath(pts)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+              {sigLiveStroke.length > 1 && (
+                <Path d={sigPointsToPath(sigLiveStroke)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              )}
+            </Svg>
+          </View>
+          <Pressable
+            style={styles.sigClearBtn}
+            onPress={() => { setSigStrokes([]); sigStrokesRef.current = []; setSigLiveStroke([]); sigCurrentStroke.current = []; }}
+          >
+            <Ionicons name="trash-outline" size={15} color={COLORS.textMuted} />
+            <Text style={styles.sigClearBtnText}>Effacer</Text>
+          </Pressable>
+          <Text style={styles.sigLegalText}>
+            Cette signature sera enregistrée dans votre profil et appliquée automatiquement lors de la validation des bons de commande.
+          </Text>
+        </View>
+      </View>
+    </Modal>
 
     <Modal
       visible={inviteModalVisible}
@@ -1397,6 +1819,7 @@ const styles = StyleSheet.create({
   sectionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
   sectionDesc: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 18 },
+  toggleLabel: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.text },
   coProInfo: { gap: 8 },
   coProRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   coProName: { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.text, flex: 1 },
@@ -1531,6 +1954,12 @@ const styles = StyleSheet.create({
   },
   statsNavLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   statsNavSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
+  conseilInfoCard: {
+    backgroundColor: "#EFF6FF", borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: "#BFDBFE", marginBottom: 12,
+  },
+  conseilInfoTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#1E40AF" },
+  conseilInfoText: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#1D4ED8", lineHeight: 18 },
   accountSection: { gap: 8 },
   logoutRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
@@ -1538,6 +1967,13 @@ const styles = StyleSheet.create({
     padding: 14, borderWidth: 1, borderColor: "#FECACA",
   },
   logoutText: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.danger },
+  deleteCoProBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingVertical: 12, paddingHorizontal: 16,
+    borderRadius: 12, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
+    backgroundColor: "rgba(239,68,68,0.06)",
+  },
+  deleteCoProText: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.danger },
   deleteAccountRow: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: COLORS.surface, borderRadius: 14,
@@ -1829,6 +2265,57 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 
+  // Signature modèle
+  sigModelCard: {
+    backgroundColor: "#fff", borderRadius: 14, borderWidth: 1,
+    borderColor: COLORS.border, overflow: "hidden",
+  },
+  sigModelPreview: {
+    backgroundColor: "#FAFAFA", borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  sigModelEmpty: {
+    alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 32, backgroundColor: "#FAFAFA",
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  sigModelEmptyText: { fontSize: 13, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
+  sigModelBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  sigModelBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
 
-  
+  // Pad modal
+  modal: { flex: 1, backgroundColor: "#fff" },
+  modalTopBar: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  modalCancelText: { fontSize: 15, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
+  modalTitleText: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  modalSaveText: { fontSize: 15, color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
+  sigPadBody: { padding: 20, alignItems: "center" },
+  sigPadHint: { fontSize: 13, color: COLORS.textMuted, fontFamily: "Inter_400Regular", marginBottom: 14, alignSelf: "flex-start" },
+  sigPadCanvas: {
+    borderWidth: 2, borderColor: COLORS.border, borderRadius: 12,
+    backgroundColor: "#FAFAFA", overflow: "hidden",
+  },
+  sigClearBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginTop: 12, paddingVertical: 8, paddingHorizontal: 14,
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface, alignSelf: "flex-end",
+  },
+  sigClearBtnText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  sigLegalText: {
+    fontSize: 11, color: COLORS.textMuted, fontFamily: "Inter_400Regular",
+    textAlign: "center", lineHeight: 16, marginTop: 20,
+  },
+  legalInput: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
+    backgroundColor: COLORS.surface, marginBottom: 10,
+  },
 });

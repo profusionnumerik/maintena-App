@@ -29,6 +29,17 @@ import { uploadPhoto } from "@/lib/storage";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
 import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl } from "@/lib/query-client";
+import { useAuth } from "@/context/AuthContext";
+import { collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { Entretien, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS } from "@/shared/types";
+
+function calcNextDateForCarnet(lastVisit: string, periodicite: string): string {
+  const days = (ENTRETIEN_PERIODICITE_DAYS as Record<string, number>)[periodicite] ?? 365;
+  const d = new Date(lastVisit);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
 
 function formatFrenchPhone(value?: string): string {
   if (!value) return "";
@@ -231,6 +242,7 @@ export default function InterventionDetailScreen() {
     updateIntervention,
   } = useInterventions();
   const { currentCopro, currentRole } = useCoPro();
+  const { user } = useAuth();
 
   const isAdmin = currentRole === "admin";
   const isPrestataire = currentRole === "prestataire";
@@ -258,6 +270,14 @@ export default function InterventionDetailScreen() {
   const [isSharingGuestInvite, setIsSharingGuestInvite] = useState(false);
   const [isRespondingProvider, setIsRespondingProvider] = useState(false);
 
+  // Carnet d'entretien — enregistrement après validation admin
+  const [carnetModalVisible, setCarnetModalVisible] = useState(false);
+  const [carnetEntretiens, setCarnetEntretiens] = useState<Entretien[]>([]);
+  const [carnetSelectedId, setCarnetSelectedId] = useState<string | null>(null);
+  const [carnetLoading, setCarnetLoading] = useState(false);
+  const [carnetSaving, setCarnetSaving] = useState(false);
+  const [carnetDone, setCarnetDone] = useState(!!(intervention as any)?.linkedEntretienId);
+
   const [report, setReport] = useState(intervention?.interventionReport ?? "");
   const [remaining, setRemaining] = useState(
     intervention?.interventionRemaining ?? ""
@@ -266,6 +286,80 @@ export default function InterventionDetailScreen() {
   const openViewer = (urls: string[], idx: number) => {
     setViewerPhotos(urls);
     setViewerIndex(idx);
+  };
+
+  // ─── Carnet d'entretien ────────────────────────────────────────────────────
+
+  const openCarnetModal = async () => {
+    if (!currentCopro || !intervention) return;
+    setCarnetLoading(true);
+    try {
+      const snap = await getDocs(collection(db, "copros", currentCopro.id, "entretiens"));
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Entretien));
+      // Filtre par catégorie correspondante (ex: "ascenseur", "vmc"…)
+      const filtered = all.filter((e) => e.equipement === (intervention as any).category);
+      const list = filtered.length > 0 ? filtered : all;
+      setCarnetEntretiens(list);
+      // Sélection automatique si un seul équipement correspond
+      setCarnetSelectedId(list.length === 1 ? list[0].id : null);
+      setCarnetModalVisible(true);
+    } catch {
+      wa("Erreur", "Impossible de charger le carnet d'entretien.");
+    } finally {
+      setCarnetLoading(false);
+    }
+  };
+
+  const handleSaveToCarnet = async () => {
+    if (!currentCopro || !carnetSelectedId || !user || !intervention) return;
+    setCarnetSaving(true);
+    try {
+      const entretienRef = doc(db, "copros", currentCopro.id, "entretiens", carnetSelectedId);
+      const entretienSnap = await getDoc(entretienRef);
+      if (!entretienSnap.exists()) throw new Error("Équipement introuvable dans le carnet.");
+      const data = entretienSnap.data();
+
+      const visitDate =
+        ((intervention as any).date as string | undefined)?.split("T")[0] ??
+        new Date().toISOString().split("T")[0];
+
+      const visitId = `visit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const newVisit = {
+        id: visitId,
+        date: visitDate,
+        technicianName:
+          (intervention as any).assignedToName ||
+          (intervention as any).technician ||
+          undefined,
+        notes: (intervention as any).interventionReport || undefined,
+        addedBy: user.uid,
+        addedByName: user.displayName || user.email || "—",
+        createdAt: new Date().toISOString(),
+      };
+
+      const updatedVisits = [...(data.visits ?? []), newVisit];
+      const nextVisitDate = calcNextDateForCarnet(visitDate, data.periodicite);
+
+      await updateDoc(entretienRef, {
+        visits: updatedVisits,
+        lastVisitDate: visitDate,
+        nextVisitDate,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Marque l'intervention comme liée (anti-doublon)
+      await updateIntervention(intervention.id, {
+        linkedEntretienId: carnetSelectedId,
+      } as any);
+
+      setCarnetDone(true);
+      setCarnetModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message || "Impossible d'enregistrer dans le carnet.");
+    } finally {
+      setCarnetSaving(false);
+    }
   };
 
   const cleaningAreas = useMemo<CleaningArea[]>(() => {
@@ -1309,6 +1403,137 @@ export default function InterventionDetailScreen() {
           ) : null}
         </View>
 
+        {/* Carnet d'entretien — admin uniquement, après validation */}
+        {isAdmin && intervention.status === "termine" && (
+          <View style={styles.carnetCard}>
+            {carnetDone ? (
+              <View style={styles.carnetDoneRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+                <Text style={styles.carnetDoneText}>Enregistré dans le carnet d'entretien</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.carnetCardHeader}>
+                  <Ionicons name="clipboard-outline" size={16} color="#16A34A" />
+                  <Text style={styles.carnetCardTitle}>Carnet d'entretien</Text>
+                </View>
+                <Text style={styles.carnetCardHint}>
+                  Enregistrez ce passage dans le carnet pour mettre à jour la date du prochain entretien.
+                </Text>
+                <Pressable
+                  style={styles.carnetBtn}
+                  onPress={openCarnetModal}
+                  disabled={carnetLoading}
+                >
+                  {carnetLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="add-circle-outline" size={16} color="#fff" />
+                      <Text style={styles.carnetBtnText}>Enregistrer dans le carnet</Text>
+                    </>
+                  )}
+                </Pressable>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* Modal carnet d'entretien */}
+        <Modal
+          visible={carnetModalVisible}
+          animationType="slide"
+          presentationStyle="formSheet"
+          onRequestClose={() => setCarnetModalVisible(false)}
+        >
+          <View style={styles.carnetModalRoot}>
+            <View style={styles.carnetModalHeader}>
+              <Pressable
+                onPress={() => setCarnetModalVisible(false)}
+                style={styles.carnetModalClose}
+              >
+                <Ionicons name="close" size={20} color={COLORS.text} />
+              </Pressable>
+              <Text style={styles.carnetModalTitle}>Carnet d'entretien</Text>
+              <Pressable
+                style={[styles.carnetModalSave, (!carnetSelectedId || carnetSaving) && { opacity: 0.4 }]}
+                onPress={handleSaveToCarnet}
+                disabled={!carnetSelectedId || carnetSaving}
+              >
+                {carnetSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.carnetModalSaveText}>Valider</Text>
+                )}
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.carnetModalBody}>
+              <Text style={styles.carnetModalHint}>
+                Sélectionnez l'équipement correspondant à cette intervention :
+              </Text>
+
+              {carnetEntretiens.length === 0 ? (
+                <View style={styles.carnetEmpty}>
+                  <Ionicons name="clipboard-outline" size={36} color={COLORS.border} />
+                  <Text style={styles.carnetEmptyText}>
+                    Aucun équipement dans le carnet.{"\n"}
+                    Ajoutez-en un depuis Menu → Carnet d'entretien.
+                  </Text>
+                </View>
+              ) : (
+                carnetEntretiens.map((e) => {
+                  const selected = carnetSelectedId === e.id;
+                  const lastVisit = e.lastVisitDate
+                    ? new Date(e.lastVisitDate).toLocaleDateString("fr-FR")
+                    : "Jamais";
+                  return (
+                    <Pressable
+                      key={e.id}
+                      style={[styles.carnetItem, selected && styles.carnetItemActive]}
+                      onPress={() => setCarnetSelectedId(e.id)}
+                    >
+                      <Ionicons
+                        name={selected ? "checkmark-circle" : "ellipse-outline"}
+                        size={22}
+                        color={selected ? COLORS.primary : COLORS.border}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.carnetItemLabel, selected && { color: COLORS.primary }]}>
+                          {e.label}
+                        </Text>
+                        <Text style={styles.carnetItemSub}>
+                          {ENTRETIEN_EQUIPEMENT_LABELS[e.equipement]} · Dernier : {lastVisit}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })
+              )}
+
+              {/* Aperçu de la visite qui sera créée */}
+              {carnetSelectedId && (
+                <View style={styles.carnetVisitPreview}>
+                  <Text style={styles.carnetVisitPreviewTitle}>Visite qui sera créée</Text>
+                  <Text style={styles.carnetVisitPreviewRow}>
+                    📅 {((intervention as any).date as string | undefined)?.split("T")[0] ?? "Aujourd'hui"}
+                  </Text>
+                  {(intervention as any).assignedToName ? (
+                    <Text style={styles.carnetVisitPreviewRow}>
+                      👷 {(intervention as any).assignedToName}
+                    </Text>
+                  ) : null}
+                  {(intervention as any).interventionReport ? (
+                    <Text style={styles.carnetVisitPreviewRow} numberOfLines={2}>
+                      📝 {(intervention as any).interventionReport}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </Modal>
+
         {/* Montant de l'intervention — visible admin et conseil uniquement */}
         {(isAdmin || currentRole === "conseil") && intervention.status === "termine" && (
           <View style={styles.amountCard}>
@@ -2118,4 +2343,81 @@ const styles = StyleSheet.create({
   amountSaveBtnText: { color: "#fff", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   amountCancel: { fontSize: 13, color: COLORS.textMuted, fontFamily: "Inter_400Regular" },
   amountLockNote: { fontSize: 11, color: "#7BA8BE", fontFamily: "Inter_400Regular", marginTop: 8 },
+
+  // ─── Carnet d'entretien ─────────────────────────────────────────────────────
+  carnetCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    gap: 10,
+  },
+  carnetCardHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  carnetCardTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#15803D" },
+  carnetCardHint: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+    lineHeight: 18,
+  },
+  carnetBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#16A34A",
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  carnetBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  carnetDoneRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  carnetDoneText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#16A34A" },
+
+  // Carnet modal
+  carnetModalRoot: { flex: 1, backgroundColor: COLORS.background },
+  carnetModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 14,
+    backgroundColor: COLORS.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  carnetModalClose: {
+    width: 34, height: 34, borderRadius: 10,
+    backgroundColor: COLORS.surfaceAlt,
+    alignItems: "center", justifyContent: "center",
+  },
+  carnetModalTitle: { flex: 1, fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  carnetModalSave: {
+    backgroundColor: "#16A34A", borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 8,
+    minWidth: 70, alignItems: "center",
+  },
+  carnetModalSaveText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  carnetModalBody: { padding: 16, gap: 10, paddingBottom: 48 },
+  carnetModalHint: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 4 },
+  carnetEmpty: { alignItems: "center", paddingVertical: 32, gap: 10 },
+  carnetEmptyText: {
+    fontSize: 13, fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted, textAlign: "center", lineHeight: 20,
+  },
+  carnetItem: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: COLORS.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border, padding: 14,
+  },
+  carnetItemActive: { borderColor: COLORS.primary, backgroundColor: "#EFF6FF" },
+  carnetItemLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  carnetItemSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  carnetVisitPreview: {
+    backgroundColor: "#F0FDF4", borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "#BBF7D0", marginTop: 4, gap: 4,
+  },
+  carnetVisitPreviewTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#15803D", marginBottom: 4 },
+  carnetVisitPreviewRow: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.text, lineHeight: 18 },
 });

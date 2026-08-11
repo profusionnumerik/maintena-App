@@ -1,15 +1,17 @@
-export type SubscriptionPlan = "starter" | "pro" | "business";
+export type SubscriptionPlan = "benevole" | "starter" | "pro" | "business";
 
 export const PLAN_COPRO_LIMITS: Record<SubscriptionPlan, number> = {
-  starter: 5,
+  benevole: 1,
+  starter: 4,
   pro: 15,
   business: 30,
 };
 
 export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: number; label: string }> = {
-  starter:  { monthly: 7.99, annual: 79,  label: "Starter" },
-  pro:      { monthly: 14.99, annual: 149, label: "Pro" },
-  business: { monthly: 19.99, annual: 199, label: "Business" },
+  benevole: { monthly: 4.99, annual: 49,  label: "Bénévole" },
+  starter:  { monthly: 9.99,  annual: 99,  label: "Starter" },
+  pro:      { monthly: 19.99, annual: 199, label: "Pro" },
+  business: { monthly: 34.99, annual: 349, label: "Business" },
 };
 
 export interface UserSubscription {
@@ -234,13 +236,20 @@ export interface CoPro {
   latitude?: number;
   longitude?: number;
   locationRadius?: number;
+  requireOnsiteCheck?: boolean;
   disabledCategories?: Category[];
   categoryInviteCodes?: Partial<Record<Category, string>>;
+  trialEndsAt?: string;
   alertEmailEnabled?: boolean;
   buildingConfig?: BuildingConfig;
   tresorierUid?: string | null;
   conseilVote?: ConseilVote | null;
   revoteRequest?: RevoteRequest | null;
+  // Informations légales du syndic (pour les documents officiels)
+  syndicCompanyName?: string; // Nom de la société syndic (si différent du nom résidence)
+  syndicSiret?: string;       // SIRET du syndicat des copropriétaires ou du syndic
+  syndicPhone?: string;       // Téléphone du syndic
+  syndicLegalForm?: string;   // Forme juridique (SARL, SAS, bénévole…)
 }
 
 export interface Member {
@@ -392,6 +401,9 @@ export interface Signalement {
   read: boolean;
   acknowledged: boolean;
   acknowledgedAt?: string;
+  category?: Category;
+  urgency?: "normal" | "urgent";
+  devisDemandeId?: string;
 }
 
 export type AnnouncementType = "info" | "eau" | "chauffage" | "travaux" | "urgent";
@@ -521,6 +533,7 @@ export interface Expense {
   amount: number;
   category: ExpenseCategory;
   date: string;
+  invoiceNumber?: string;
   description?: string;
   interventionId?: string;
   buildingId?: string; // "commun" | building name
@@ -551,4 +564,171 @@ export interface AnnualBudget {
   createdBy: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ProviderContact {
+  id: string;
+  coProId: string;
+  coProName?: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  company: string;
+  specialty?: string; // métier / fonction (plombier, électricien…)
+  createdAt: string;
+}
+
+export interface DevisOffer {
+  id: string;
+  contactId: string;
+  contactName: string;
+  contactCompany: string;
+  contactEmail: string;
+  token: string; // token unique pour le formulaire public
+  signatureToken?: string; // token unique pour la signature électronique
+  priceTTC?: number;
+  description?: string;
+  devisFileUrl?: string; // URL du document devis uploadé
+  signatureUrl?: string; // URL de la signature électronique (prestataire)
+  signedAt?: string;
+  adminSignatureUrl?: string; // URL de la signature du syndic/admin
+  adminSignedAt?: string;
+  finalDevisUrl?: string; // PDF final avec signatures apposées
+  submittedAt?: string;
+  submitted: boolean;
+}
+
+// ─── Module Suivi d'entretien ──────────────────────────────────────────────
+
+export type EntretienPeriodicite = "mensuel" | "trimestriel" | "semestriel" | "annuel" | "biennal";
+
+export const ENTRETIEN_PERIODICITE_LABELS: Record<EntretienPeriodicite, string> = {
+  mensuel:     "Mensuel",
+  trimestriel: "Trimestriel",
+  semestriel:  "Semestriel",
+  annuel:      "Annuel",
+  biennal:     "Tous les 2 ans",
+};
+
+export const ENTRETIEN_PERIODICITE_DAYS: Record<EntretienPeriodicite, number> = {
+  mensuel:     30,
+  trimestriel: 91,
+  semestriel:  182,
+  annuel:      365,
+  biennal:     730,
+};
+
+export type EntretienEquipement =
+  | "ascenseur"
+  | "vmc"
+  | "chaufferie"
+  | "portail"
+  | "interphone"
+  | "extincteurs"
+  | "desenfumage"
+  | "toiture"
+  | "facade"
+  | "espaces_verts"
+  | "piscine"
+  | "video_surveillance"
+  | "divers";
+
+export const ENTRETIEN_EQUIPEMENT_LABELS: Record<EntretienEquipement, string> = {
+  ascenseur:        "Ascenseur",
+  vmc:              "VMC / Ventilation",
+  chaufferie:       "Chaufferie",
+  portail:          "Portail / Accès",
+  interphone:       "Interphone / Visiophone",
+  extincteurs:      "Extincteurs",
+  desenfumage:      "Désenfumage",
+  toiture:          "Toiture",
+  facade:           "Façade",
+  espaces_verts:    "Espaces verts",
+  piscine:          "Piscine",
+  video_surveillance: "Vidéo-surveillance",
+  divers:           "Équipement divers",
+};
+
+export const ENTRETIEN_EQUIPEMENT_ICONS: Record<EntretienEquipement, string> = {
+  ascenseur:        "arrow-up-circle-outline",
+  vmc:              "partly-sunny-outline",
+  chaufferie:       "flame-outline",
+  portail:          "enter-outline",
+  interphone:       "call-outline",
+  extincteurs:      "alert-circle-outline",
+  desenfumage:      "cloud-outline",
+  toiture:          "home-outline",
+  facade:           "business-outline",
+  espaces_verts:    "leaf-outline",
+  piscine:          "water-outline",
+  video_surveillance: "videocam-outline",
+  divers:           "construct-outline",
+};
+
+export interface EntretienVisit {
+  id: string;
+  date: string;          // ISO date
+  technicianName?: string;
+  notes?: string;
+  addedBy: string;
+  addedByName: string;
+  createdAt: string;
+}
+
+export interface Entretien {
+  id: string;
+  coProId: string;
+  equipement: EntretienEquipement;
+  label: string;             // Nom personnalisé (ex: "Ascenseur bat. A")
+  prestataire?: string;      // Nom de la société prestataire
+  prestatairePhone?: string;
+  periodicite: EntretienPeriodicite;
+  lastVisitDate?: string;    // ISO date
+  nextVisitDate?: string;    // ISO date (calculée ou manuelle)
+  notes?: string;            // Notes générales sur l'équipement
+  visits: EntretienVisit[];  // Historique des visites
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type EntretienStatut = "ok" | "bientot" | "retard" | "inconnu";
+
+/** Calcule le statut visuel d'un équipement basé sur nextVisitDate */
+export function getEntretienStatut(entretien: Entretien): EntretienStatut {
+  if (!entretien.nextVisitDate) return "inconnu";
+  const now = Date.now();
+  const next = new Date(entretien.nextVisitDate).getTime();
+  const diff = next - now;
+  const days = diff / 86_400_000;
+  if (days < 0) return "retard";
+  if (days <= 30) return "bientot";
+  return "ok";
+}
+
+export const ENTRETIEN_STATUT_CONFIG: Record<EntretienStatut, { label: string; color: string; bg: string; icon: string }> = {
+  ok:      { label: "À jour",       color: "#10B981", bg: "rgba(16,185,129,0.1)",  icon: "checkmark-circle" },
+  bientot: { label: "Bientôt dû",   color: "#F59E0B", bg: "rgba(245,158,11,0.1)",  icon: "time" },
+  retard:  { label: "En retard",    color: "#EF4444", bg: "rgba(239,68,68,0.1)",   icon: "warning" },
+  inconnu: { label: "Non planifié", color: "#94A3B8", bg: "rgba(148,163,184,0.1)", icon: "help-circle" },
+};
+
+export type DemandeDevisStatus = "open" | "devis_demandes" | "devis_recus" | "cloture";
+
+export interface DemandeDevis {
+  id: string;
+  coProId: string;
+  title: string;
+  description: string;
+  category: Category;
+  urgency: "normal" | "urgent";
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  status: DemandeDevisStatus;
+  devis: DevisOffer[];
+  selectedDevisId?: string | null;
+  closedAt?: string;
 }

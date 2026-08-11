@@ -354,7 +354,7 @@ export default function InterventionsScreen() {
   const isAdmin        = currentRole === "admin";
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
-  const canAdd         = isAdmin || isPrestataire;
+  const canAdd         = isAdmin;
   const hasMultipleCopros     = isAdmin && copros.length > 1;
   const isFilteredPrestataire = isPrestataire && !!categoryFilter;
 

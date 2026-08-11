@@ -104,6 +104,22 @@ function getStripe(): Stripe | null {
   });
 }
 
+const PLAN_LIMITS: Record<string, number> = {
+  benevole: 1,
+  starter: 4,
+  pro: 15,
+  business: 30,
+  trialing: 1,
+};
+
+function getPlanFromPriceId(priceId: string): string {
+  if (priceId === (process.env.STRIPE_PRICE_ID_BENEVOLE ?? "")) return "benevole";
+  if (priceId === (process.env.STRIPE_PRICE_ID_STARTER ?? "") || priceId === (process.env.STRIPE_PRICE_ID_STARTER_ANNUEL ?? "")) return "starter";
+  if (priceId === (process.env.STRIPE_PRICE_ID_PRO ?? "") || priceId === (process.env.STRIPE_PRICE_ID_PRO_ANNUEL ?? "")) return "pro";
+  if (priceId === (process.env.STRIPE_PRICE_ID_BUSINESS ?? "") || priceId === (process.env.STRIPE_PRICE_ID_BUSINESS_ANNUEL ?? "")) return "business";
+  return "starter";
+}
+
 function getAdminDb() {
   if (getApps().length === 0) {
     const serviceAccountStr = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -277,7 +293,8 @@ const SHARED_CSS = `
   @media (max-width: 600px) { .m-row { grid-template-columns: 1fr; } .m-nav { padding: 0 16px; } .m-card { padding: 24px; } }
 `;
 
-function pageShell(title: string, body: string, backLabel = "← Retour à l'accueil", backHref = "/") {
+function pageShell(title: string, body: string, backLabel = "← Retour à l'accueil", backHref = "/", footerHtml?: string) {
+  const footer = footerHtml ?? `<p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="tel:0668183092">06 68 18 30 92</a> · <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a> · <a href="/privacy-policy">Confidentialité</a></p>`;
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -296,7 +313,7 @@ function pageShell(title: string, body: string, backLabel = "← Retour à l'acc
   </nav>
   ${body}
   <footer class="m-footer">
-    <p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="tel:0668183092">06 68 18 30 92</a> · <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a> · <a href="/privacy-policy">Confidentialité</a></p>
+    ${footer}
   </footer>
 </body>
 </html>`;
@@ -678,6 +695,54 @@ async function sendActivationEmail(
   );
 }
 
+async function sendAdminNotification(params: {
+  type: "trial" | "demo";
+  displayName: string;
+  email: string;
+  coProName: string;
+  demoExpiresInDays?: number | null;
+}): Promise<void> {
+  const adminEmail = process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL;
+  if (!adminEmail) return;
+  let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+  try { resendClient = await getUncachableResendClient(); } catch { return; }
+  const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const isDemo = params.type === "demo";
+  const badge = isDemo
+    ? `<span style="background:#EFF6FF;color:#2563EB;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">🔗 Accès Démo</span>`
+    : `<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">✓ Essai 30 jours</span>`;
+  const expiryLine = isDemo && params.demoExpiresInDays
+    ? `<tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Durée démo</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${params.demoExpiresInDays} jours</td></tr>`
+    : "";
+  const now = new Date().toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" });
+  await resendClient.client.emails.send({
+    from,
+    to: adminEmail,
+    subject: `🆕 Nouvelle inscription — ${params.displayName}`,
+    html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:480px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:24px 28px;">
+      <div style="font-size:22px;font-weight:800;color:#fff;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:2px;">Notification admin</div>
+    </div>
+    <div style="padding:28px;">
+      <div style="margin-bottom:16px;">${badge}</div>
+      <h2 style="font-size:18px;font-weight:700;color:#0F172A;margin:0 0 16px;">Nouvelle inscription</h2>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Nom</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${escapeHtml(params.displayName)}</td></tr>
+        <tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Email</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${escapeHtml(params.email)}</td></tr>
+        <tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Copropriété</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${escapeHtml(params.coProName)}</td></tr>
+        ${expiryLine}
+        <tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Date</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${now}</td></tr>
+      </table>
+    </div>
+  </div>
+</body></html>`,
+  });
+}
+
 async function sendGuestInviteEmail(params: {
   to: string;
   providerName: string;
@@ -824,6 +889,252 @@ async function sendGuestInviteEmail(params: {
   }
 }
 
+async function generateSignedDevisPdf(params: {
+  offer: any;
+  demande: any;
+  coProData: any;
+  coProId: string;
+  demandeId: string;
+  demandeRef: FirebaseFirestore.DocumentReference;
+}): Promise<void> {
+  const { offer, demande, coProData, coProId, demandeId, demandeRef } = params;
+
+  const bucket = getAdminStorage();
+  if (!bucket) return;
+
+  try {
+    console.log(`[pdf] Début génération BON DE COMMANDE pour ${coProId}/${demandeId}/${offer.id}`);
+    const { PDFDocument, rgb, StandardFonts, PageSizes } = await import("pdf-lib");
+
+    const pdfDoc  = await PDFDocument.create();
+    const page    = pdfDoc.addPage(PageSizes.A4);
+    const { width, height } = page.getSize(); // 595 × 842
+
+    const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold    = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const dark   = rgb(0.06, 0.09, 0.16);
+    const gray   = rgb(0.39, 0.45, 0.55);
+    const lgray  = rgb(0.88, 0.90, 0.94);
+    const white  = rgb(1, 1, 1);
+    const purple = rgb(0.42, 0.27, 0.76);
+
+    const M  = 50;        // marges gauche/droite
+    const W  = width - 2 * M; // largeur utile : 495pt
+
+    const fmtDate = (iso: string) =>
+      new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const fmtMontant = (n: number) =>
+      n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+    const trunc = (s: string, n: number) => (s?.length > n ? s.slice(0, n - 1) + "…" : s ?? "");
+
+    // ── HEADER ──────────────────────────────────────────────────────────
+    page.drawRectangle({ x: 0, y: height - 78, width, height: 78, color: purple });
+    page.drawText("BON DE COMMANDE", {
+      x: M, y: height - 44, size: 20, font: bold, color: white,
+    });
+    page.drawText("Maintena — Gestion de copropriété", {
+      x: M, y: height - 62, size: 9, font: regular, color: rgb(0.85, 0.80, 0.95),
+    });
+    const signedAtStr = offer.adminSignedAt ?? new Date().toISOString();
+    page.drawText(`Date : ${fmtDate(signedAtStr)}`, {
+      x: width - M - 145, y: height - 44, size: 9, font: regular, color: white,
+    });
+    page.drawText(`Réf. : ${offer.id.slice(-10).toUpperCase()}`, {
+      x: width - M - 145, y: height - 58, size: 9, font: regular, color: rgb(0.85, 0.80, 0.95),
+    });
+
+    // ── PARTIES ─────────────────────────────────────────────────────────
+    const colW  = (W - 16) / 2;
+    const colX2 = M + colW + 16;
+    let y       = height - 78 - 22;
+
+    // Colonne gauche : DONNEUR D'ORDRE
+    page.drawText("DONNEUR D'ORDRE", { x: M, y, size: 8, font: bold, color: purple });
+    y -= 14;
+    page.drawText("Syndicat des copropriétaires de", { x: M, y, size: 9, font: regular, color: gray });
+    y -= 13;
+    page.drawText(trunc(coProData?.name ?? "", 44), { x: M, y, size: 10, font: bold, color: dark });
+    y -= 13;
+    const addressParts = [
+      coProData?.street,
+      [coProData?.postalCode, coProData?.city].filter(Boolean).join(" "),
+    ].filter(Boolean);
+    if (addressParts.length) {
+      page.drawText(trunc(addressParts.join(", "), 50), { x: M, y, size: 9, font: regular, color: gray });
+      y -= 13;
+    }
+    page.drawText(`Syndic : ${trunc(coProData?.adminEmail ?? "", 38)}`, {
+      x: M, y, size: 9, font: regular, color: gray,
+    });
+    const yAfterLeft = y - 6;
+
+    // Colonne droite : PRESTATAIRE
+    let yR = height - 78 - 22;
+    page.drawText("PRESTATAIRE", { x: colX2, y: yR, size: 8, font: bold, color: purple });
+    yR -= 14;
+    page.drawText(trunc(offer.contactCompany ?? "", 34), { x: colX2, y: yR, size: 10, font: bold, color: dark });
+    yR -= 13;
+    page.drawText(trunc(offer.contactName ?? "", 34), { x: colX2, y: yR, size: 9, font: regular, color: gray });
+    yR -= 13;
+    page.drawText(trunc(offer.contactEmail ?? "", 40), { x: colX2, y: yR, size: 9, font: regular, color: gray });
+    const yAfterRight = yR - 6;
+
+    // Séparateur après les deux colonnes
+    y = Math.min(yAfterLeft, yAfterRight) - 14;
+    page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: lgray });
+
+    // ── OBJET DE LA COMMANDE ─────────────────────────────────────────────
+    y -= 18;
+    page.drawText("OBJET DE LA COMMANDE", { x: M, y, size: 8, font: bold, color: purple });
+    y -= 14;
+
+    const objH = 72;
+    page.drawRectangle({ x: M, y: y - objH, width: W, height: objH, color: rgb(0.97, 0.97, 0.99) });
+
+    const catLabel = CATEGORY_LABELS_SERVER[demande?.category ?? ""] ?? (demande?.category ?? "");
+    page.drawText(`Catégorie : ${catLabel}`, { x: M + 12, y: y - 14, size: 9, font: regular, color: gray });
+    page.drawText(trunc(demande?.title ?? "", 64), { x: M + 12, y: y - 29, size: 11, font: bold, color: dark });
+
+    const devisDate = offer.submittedAt ? fmtDate(offer.submittedAt) : "—";
+    page.drawText(`Devis prestataire accepté du ${devisDate}`, {
+      x: M + 12, y: y - 46, size: 9, font: regular, color: gray,
+    });
+    page.drawText("Le détail des prestations figure dans le devis du prestataire.", {
+      x: M + 12, y: y - 60, size: 8, font: regular, color: gray,
+    });
+
+    y -= objH + 16;
+
+    // ── MONTANT ──────────────────────────────────────────────────────────
+    page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: lgray });
+    y -= 18;
+
+    const priceTTC   = offer.priceTTC ?? 0;
+    const montantStr = `MONTANT TTC :  ${fmtMontant(priceTTC)}`;
+    const montantW   = bold.widthOfTextAtSize(montantStr, 14);
+    page.drawText(montantStr, { x: width - M - montantW, y, size: 14, font: bold, color: dark });
+    y -= 11;
+    page.drawText(
+      "TVA selon taux applicable — se référer au devis du prestataire pour le détail HT/TVA",
+      { x: M, y, size: 7, font: regular, color: gray },
+    );
+    y -= 28;
+    page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: lgray });
+
+    // ── BON POUR ACCORD ──────────────────────────────────────────────────
+    y -= 22;
+    page.drawText("BON POUR ACCORD", { x: M, y, size: 14, font: bold, color: purple });
+    y -= 15;
+    page.drawText(
+      "Le syndic, agissant au nom et pour le compte du syndicat des copropriétaires,",
+      { x: M, y, size: 9, font: regular, color: gray },
+    );
+    y -= 13;
+    page.drawText(
+      "accepte le devis susmentionné dans les termes et conditions qui y figurent.",
+      { x: M, y, size: 9, font: regular, color: gray },
+    );
+    y -= 22;
+
+    // Boîte signature
+    const sigBoxW = 230;
+    const sigBoxH = 110;
+    page.drawRectangle({
+      x: M, y: y - sigBoxH, width: sigBoxW, height: sigBoxH,
+      borderColor: lgray, borderWidth: 0.5, color: rgb(0.98, 0.98, 0.99),
+    });
+
+    // Convertir la signature SVG en PNG
+    let adminSigImage: any = null;
+    if (offer.adminSignatureUrl) {
+      try {
+        const { Resvg } = await import("@resvg/resvg-js");
+        const r = await fetch(offer.adminSignatureUrl);
+        if (r.ok) {
+          const svgText = await r.text();
+          const resvg = new Resvg(svgText, { background: "white" });
+          adminSigImage = await pdfDoc.embedPng(resvg.render().asPng());
+          console.log("[pdf] Signature syndic convertie en PNG");
+        }
+      } catch (e: any) {
+        console.error("[pdf] Erreur SVG→PNG:", e?.message ?? e);
+      }
+    }
+
+    if (adminSigImage) {
+      const dims = adminSigImage.scaleToFit(sigBoxW - 20, sigBoxH - 20);
+      page.drawImage(adminSigImage, {
+        x: M + 10,
+        y: y - sigBoxH + (sigBoxH - dims.height) / 2,
+        width: dims.width,
+        height: dims.height,
+      });
+    }
+
+    page.drawText("Signature du syndic", { x: M, y: y - sigBoxH - 13, size: 8, font: regular, color: gray });
+    page.drawText(`Le ${fmtDate(signedAtStr)}`, { x: M, y: y - sigBoxH - 25, size: 9, font: bold, color: dark });
+
+    // ── PIED DE PAGE (infos légales du syndic) ───────────────────────────
+    page.drawLine({
+      start: { x: M, y: 46 }, end: { x: width - M, y: 46 },
+      thickness: 0.3, color: lgray,
+    });
+
+    // Ligne 1 : nom de la société syndic (ou nom copro par défaut) + forme juridique
+    const footerCompany = coProData?.syndicCompanyName
+      ? trunc(coProData.syndicCompanyName, 70)
+      : `Syndicat des copropriétaires de ${trunc(coProData?.name ?? "", 50)}`;
+    const footerForm = coProData?.syndicLegalForm ? ` — ${coProData.syndicLegalForm}` : "";
+    page.drawText(footerCompany + footerForm, {
+      x: M, y: 34, size: 8, font: bold, color: dark,
+    });
+
+    // Ligne 2 : adresse + SIRET + téléphone
+    const footerParts: string[] = [];
+    const addr = [coProData?.street, [coProData?.postalCode, coProData?.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    if (addr) footerParts.push(addr);
+    if (coProData?.syndicSiret) footerParts.push(`SIRET : ${coProData.syndicSiret}`);
+    if (coProData?.syndicPhone) footerParts.push(`Tél : ${coProData.syndicPhone}`);
+    page.drawText(trunc(footerParts.join("  |  "), 95), {
+      x: M, y: 22, size: 7, font: regular, color: gray,
+    });
+
+    // Mention outil (très discrète)
+    page.drawText("Généré via Maintena — art. 1366 C. civ.", {
+      x: width - M - 165, y: 22, size: 6, font: regular, color: lgray,
+    });
+
+    // ── UPLOAD ────────────────────────────────────────────────────────────
+    const finalPdfBytes = await pdfDoc.save();
+    const { randomBytes: rb } = await import("crypto");
+    const dlToken     = rb(16).toString("hex");
+    const storagePath = `devis/${coProId}/${demandeId}/${offer.id}_bon_commande.pdf`;
+    await bucket.file(storagePath).save(Buffer.from(finalPdfBytes), {
+      metadata: {
+        contentType: "application/pdf",
+        metadata: { firebaseStorageDownloadTokens: dlToken },
+      },
+    });
+    const bucketName    = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+    const finalDevisUrl = makeFirebaseStorageUrl(bucketName, storagePath, dlToken);
+
+    // Mettre à jour Firestore
+    const snap = await demandeRef.get();
+    if (snap.exists) {
+      const devis: any[] = snap.data()!.devis ?? [];
+      const i = devis.findIndex((o: any) => o.id === offer.id);
+      if (i !== -1) {
+        devis[i] = { ...devis[i], finalDevisUrl };
+        await demandeRef.update({ devis });
+        console.log(`[pdf] BON DE COMMANDE généré : ${storagePath}`);
+      }
+    }
+  } catch (e: any) {
+    console.error("[generateSignedDevisPdf] Erreur:", e?.message ?? e);
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
@@ -882,6 +1193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const selectedPlan = String(plan ?? "starter").trim().toLowerCase();
     const priceId =
+      selectedPlan === "benevole"        ? (process.env.STRIPE_PRICE_ID_BENEVOLE        || process.env.STRIPE_PRICE_ID) :
       selectedPlan === "starter-annuel"  ? (process.env.STRIPE_PRICE_ID_STARTER_ANNUEL  || process.env.STRIPE_PRICE_ID) :
       selectedPlan === "pro-annuel"      ? (process.env.STRIPE_PRICE_ID_PRO_ANNUEL      || process.env.STRIPE_PRICE_ID) :
       selectedPlan === "business-annuel" ? (process.env.STRIPE_PRICE_ID_BUSINESS_ANNUEL || process.env.STRIPE_PRICE_ID) :
@@ -894,20 +1206,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
+    // Plan bénévole : 30 jours d'essai gratuit avec carte requise (anti-abus Stripe)
+    const isBenevole = selectedPlan === "benevole";
+
     try {
       const baseUrl = getBaseUrl(req);
 
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
+        payment_method_collection: isBenevole ? "always" : "if_required",
         customer_email: adminEmail ?? undefined,
         line_items: [{ price: priceId, quantity: 1 }],
+        ...(isBenevole ? {
+          subscription_data: {
+            trial_period_days: 30,
+            trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+            metadata: { plan: selectedPlan },
+          },
+        } : {
+          subscription_data: { metadata: { plan: selectedPlan } },
+        }),
         metadata: {
           coProId,
           userId,
           adminEmail: adminEmail ?? "",
           coProName: coProName ?? "",
           inviteCode: inviteCode ?? "",
+          plan: selectedPlan,
         },
         success_url: `${baseUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/payment-cancel`,
@@ -1063,6 +1389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           adminEmail: normalizedEmail,
           coProName: String(coProName).trim(),
           inviteCode,
+          plan: selectedPlan,
         },
         success_url: `${baseUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/payment-cancel`,
@@ -1127,6 +1454,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = new Date().toISOString();
       const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
 
+      // Vérifier si cet email a un accès démo pré-accordé
+      const demoInviteSnap = await db.collection("demoInvites").doc(normalizedEmail).get();
+      const demoInvite = demoInviteSnap.exists ? demoInviteSnap.data()! : null;
+      const isDemo = !!demoInvite && (!demoInvite.expiresAt || new Date(demoInvite.expiresAt) > new Date());
+
       await db.collection("users").doc(userId).set({
         uid: userId,
         email: normalizedEmail,
@@ -1135,8 +1467,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastName: String(lastName).trim(),
         phone: String(phone ?? "").trim(),
         role: "admin",
-        subscriptionStatus: "trialing",
-        trialEndsAt,
+        subscriptionStatus: isDemo ? "active" : "trialing",
+        ...(isDemo ? {
+          accessType: "demo",
+          demoMaxCopros: demoInvite!.maxCopros,
+          demoMaxMembersPerCopro: demoInvite!.maxMembersPerCopro,
+          demoGrantedAt: demoInvite!.grantedAt,
+          ...(demoInvite!.expiresAt ? { demoExpiresAt: demoInvite!.expiresAt } : {}),
+        } : { trialEndsAt }),
         createdAt: now,
         managedCoproIds: [coProRef.id],
       }, { merge: true });
@@ -1149,7 +1487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         adminId: userId,
         adminEmail: normalizedEmail,
         inviteCode,
-        status: "pending",
+        status: isDemo ? "active" : "pending",
         stripePaid: false,
         createdAt: now,
       });
@@ -1168,6 +1506,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: "prestataire",
         createdAt: now,
       });
+
+      // Notification admin
+      try {
+        await sendAdminNotification({ type: "trial", displayName, email: normalizedEmail, coProName: String(coProName).trim() });
+      } catch {}
 
       const baseUrl = getBaseUrl(req);
       return res.json({ ok: true, redirectUrl: `${baseUrl}/trial-success`, userId, coProId: coProRef.id });
@@ -1243,6 +1586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const adminEmail = session.metadata?.adminEmail;
         const coProName = session.metadata?.coProName;
         const inviteCode = session.metadata?.inviteCode;
+        const planFromMeta = session.metadata?.plan ?? "starter";
 
         const customerId =
           typeof session.customer === "string" ? session.customer : "";
@@ -1251,6 +1595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           typeof session.subscription === "string" ? session.subscription : "";
 
         let expiresAtStr: string | null = null;
+        let resolvedPlan = planFromMeta.replace("-annuel", "");
 
         if (subscriptionId) {
           try {
@@ -1259,6 +1604,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (periodEndUnix) {
               expiresAtStr = new Date(periodEndUnix * 1000).toISOString();
             }
+            const priceId = (subscription as any).items?.data?.[0]?.price?.id ?? "";
+            if (priceId) resolvedPlan = getPlanFromPriceId(priceId);
           } catch (e) {
             console.error("subscription retrieve error:", e);
           }
@@ -1266,18 +1613,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const now = new Date().toISOString();
 
+        // Plan bénévole avec trial Stripe : statut "trialing" jusqu'à la fin d'essai
+        const isBenevoleWithTrial =
+          resolvedPlan === "benevole" &&
+          session.status === "complete" &&
+          (session as any).subscription;
+
+        let finalStatus = "active";
+        let trialEndsAtStr: string | null = null;
+        if (isBenevoleWithTrial && subscriptionId) {
+          try {
+            const sub = await stripe.subscriptions.retrieve(subscriptionId);
+            if ((sub as any).status === "trialing" && (sub as any).trial_end) {
+              finalStatus = "trialing";
+              trialEndsAtStr = new Date((sub as any).trial_end * 1000).toISOString();
+            }
+          } catch {}
+        }
+
         if (userId) {
           await db.collection("users").doc(userId).set(
             {
-              subscriptionStatus: "active",
+              subscriptionStatus: finalStatus,
+              subscriptionPlan: resolvedPlan,
               subscriptionActivatedAt: now,
               subscriptionExpiresAt: expiresAtStr,
+              ...(trialEndsAtStr ? { trialEndsAt: trialEndsAtStr } : {}),
               stripeSessionId: session.id,
               stripeCustomerId: customerId || null,
               stripeSubscriptionId: subscriptionId || null,
             },
             { merge: true }
           );
+
+          // Anti-abus : marquer le téléphone comme "trial utilisé" pour plan bénévole
+          if (resolvedPlan === "benevole") {
+            try {
+              const userDoc = await db.collection("users").doc(userId).get();
+              const userPhone = String(userDoc.data()?.phone ?? "").trim();
+              if (userPhone) {
+                await db.collection("phoneIndex").doc(userPhone).set(
+                  { trialClaimed: true, trialClaimedAt: now, uid: userId },
+                  { merge: true }
+                );
+              }
+            } catch {}
+          }
         }
 
         if (coProId) {
@@ -1400,16 +1781,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Votre abonnement est déjà actif." });
       }
 
+      // Anti-abus : vérifier que le numéro de téléphone n'a pas déjà bénéficié d'un essai
+      const userPhone = String(userData.phone ?? "").trim();
+      if (userPhone) {
+        const phoneSnap = await db.collection("phoneIndex").doc(userPhone).get();
+        if (phoneSnap.exists && phoneSnap.data()?.trialClaimed) {
+          return res.status(409).json({
+            error: "Un essai gratuit a déjà été utilisé avec ce numéro de téléphone. Abonnez-vous directement.",
+          });
+        }
+      }
+
       const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+      const now = new Date().toISOString();
+
       await db.collection("users").doc(uid).set(
         { subscriptionStatus: "trialing", trialEndsAt },
         { merge: true }
       );
 
+      // Marquer le numéro comme ayant utilisé son essai
+      if (userPhone) {
+        await db.collection("phoneIndex").doc(userPhone).set(
+          { trialClaimed: true, trialClaimedAt: now, uid },
+          { merge: true }
+        );
+      }
+
       return res.json({ ok: true, trialEndsAt });
     } catch (e: any) {
       console.error("start-trial error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ── Vérification limite copros selon le plan ─────────────────────────────────
+  app.post("/api/check-copro-limit", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) return res.status(401).json({ error: "Non authentifié." });
+
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const userSnap = await db.collection("users").doc(uid).get();
+      const userData = userSnap.data() ?? {};
+
+      let max: number;
+      let maxMembersPerCopro: number = 100;
+      let plan: string;
+
+      if (userData.accessType === "demo") {
+        // Vérifier expiration démo
+        if (userData.demoExpiresAt && new Date(userData.demoExpiresAt) < new Date()) {
+          plan = "expired";
+          max = 0;
+        } else {
+          plan = "demo";
+          max = userData.demoMaxCopros ?? 1;
+          maxMembersPerCopro = userData.demoMaxMembersPerCopro ?? 5;
+        }
+      } else {
+        plan = userData.subscriptionPlan ?? (userData.subscriptionStatus === "trialing" ? "trialing" : "starter");
+        max = PLAN_LIMITS[plan] ?? 1;
+      }
+
+      const coproSnap = await db.collection("copros").where("adminId", "==", uid).get();
+      const current = coproSnap.size;
+
+      return res.json({ allowed: current < max, current, max, plan, maxMembersPerCopro });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ── Changement de plan (upgrade / downgrade) ──────────────────────────────────
+  app.post("/api/change-plan", async (req: Request, res: Response) => {
+    const stripe = getStripe();
+    if (!stripe) return res.status(503).json({ error: "Stripe non configuré." });
+
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) return res.status(401).json({ error: "Non authentifié." });
+
+    const { plan } = req.body as { plan?: string };
+    const validPlans = ["starter", "starter-annuel", "pro", "pro-annuel", "business", "business-annuel"];
+    if (!plan || !validPlans.includes(plan)) {
+      return res.status(400).json({ error: "Plan invalide." });
+    }
+
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase non configuré." });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const userSnap = await db.collection("users").doc(uid).get();
+      const userData = userSnap.data() ?? {};
+
+      const stripeSubscriptionId = userData.stripeSubscriptionId as string | undefined;
+      if (!stripeSubscriptionId) {
+        return res.status(400).json({ error: "Aucun abonnement Stripe actif." });
+      }
+
+      const priceId =
+        plan === "starter-annuel"  ? (process.env.STRIPE_PRICE_ID_STARTER_ANNUEL  || process.env.STRIPE_PRICE_ID) :
+        plan === "pro-annuel"      ? (process.env.STRIPE_PRICE_ID_PRO_ANNUEL      || process.env.STRIPE_PRICE_ID) :
+        plan === "business-annuel" ? (process.env.STRIPE_PRICE_ID_BUSINESS_ANNUEL || process.env.STRIPE_PRICE_ID) :
+        plan === "pro"             ? (process.env.STRIPE_PRICE_ID_PRO             || process.env.STRIPE_PRICE_ID) :
+        plan === "business"        ? (process.env.STRIPE_PRICE_ID_BUSINESS        || process.env.STRIPE_PRICE_ID) :
+                                     (process.env.STRIPE_PRICE_ID_STARTER         || process.env.STRIPE_PRICE_ID);
+
+      if (!priceId) return res.status(503).json({ error: "Configuration Stripe incomplète." });
+
+      const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+      const itemId = (subscription as any).items?.data?.[0]?.id;
+
+      await stripe.subscriptions.update(stripeSubscriptionId, {
+        items: [{ id: itemId, price: priceId }],
+        proration_behavior: "create_prorations",
+      });
+
+      const planName = plan.replace("-annuel", "");
+      await db.collection("users").doc(uid).set(
+        { subscriptionPlan: planName },
+        { merge: true }
+      );
+
+      return res.json({ ok: true, plan: planName, max: PLAN_LIMITS[planName] ?? 1 });
+    } catch (e: any) {
+      console.error("change-plan error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur Stripe" });
     }
   });
 
@@ -1703,7 +2210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p>Les données collectées (nom, email, téléphone, photos) sont utilisées exclusivement dans le cadre du service. Consultez notre <a href="/privacy-policy" style="color:var(--blue);">Politique de confidentialité</a> pour plus d'informations.</p>
 
       <h2>6. Abonnement</h2>
-      <p>L'accès complet au service nécessite un abonnement payant (essai gratuit 30 jours inclus). Tarifs mensuels sans engagement : <strong>Starter 7,99 €/mois</strong> (1–5 copros), <strong>Pro 14,99 €/mois</strong> (jusqu'à 15 copros), <strong>Business 19,99 €/mois</strong> (jusqu'à 30 copros). Offre annuelle : <strong>169 €/an</strong> (engagement 12 mois). L'abonnement mensuel est résiliable à tout moment depuis votre espace client Stripe.</p>
+      <p>L'accès complet au service nécessite un abonnement payant (essai gratuit 30 jours inclus). Tarifs mensuels sans engagement : <strong>Starter 9,99 €/mois</strong> (1–4 copros), <strong>Pro 19,99 €/mois</strong> (jusqu'à 15 copros), <strong>Business 34,99 €/mois</strong> (jusqu'à 30 copros). Offres annuelles : <strong>99 €/an</strong> (Starter), <strong>199 €/an</strong> (Pro), <strong>349 €/an</strong> (Business). L'abonnement mensuel est résiliable à tout moment depuis votre espace client Stripe.</p>
 
       <h2>7. Responsabilité</h2>
       <p>ProFusion Numérik s'engage à maintenir le service disponible et sécurisé, sans garantir une disponibilité ininterrompue. La société ne peut être tenue responsable des dommages indirects liés à l'utilisation du service.</p>
@@ -1842,7 +2349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       </form>
 
       <p style="text-align:center;margin-top:16px;font-size:12px;color:var(--muted);">
-        Après l’essai, à partir de 7,99 €/mois · Résiliable à tout moment<br/>
+        Après l’essai, à partir de 9,99 €/mois · Résiliable à tout moment<br/>
         <a href="/inscription-paiement" style="color:var(--muted);text-decoration:underline;text-underline-offset:2px;">Payer directement sans essai</a>
       </p>
     </div>
@@ -1906,12 +2413,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const validPlans = ["starter","pro","business","starter-annuel","pro-annuel","business-annuel"];
     const initialPlan = validPlans.includes(queryPlan) ? queryPlan : "starter";
     const planLabels: Record<string, string> = {
-      "starter":          "Continuer → 7,99 €/mois",
-      "pro":              "Continuer → 14,99 €/mois",
-      "business":         "Continuer → 19,99 €/mois",
-      "starter-annuel":   "Continuer → 79 €/an",
-      "pro-annuel":       "Continuer → 149 €/an",
-      "business-annuel":  "Continuer → 199 €/an",
+      "starter":          "Continuer → 9,99 €/mois",
+      "pro":              "Continuer → 19,99 €/mois",
+      "business":         "Continuer → 34,99 €/mois",
+      "starter-annuel":   "Continuer → 99 €/an",
+      "pro-annuel":       "Continuer → 199 €/an",
+      "business-annuel":  "Continuer → 349 €/an",
     };
     const html = pageShell("Créer mon espace syndic — Abonnement direct", `
   <style>
@@ -1940,18 +2447,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div class="plan-grid" id="plan-grid">
         <div class="plan-card${initialPlan === "starter" || initialPlan === "starter-annuel" ? " active" : ""}" data-tier="starter">
           <div class="plan-name">Starter</div>
-          <div class="plan-price" id="price-starter">7,99 €/mois</div>
-          <div class="plan-copros">1 à 5 copros</div>
+          <div class="plan-price" id="price-starter">9,99 €/mois</div>
+          <div class="plan-copros">1 à 4 copros</div>
         </div>
         <div class="plan-card${initialPlan === "pro" || initialPlan === "pro-annuel" ? " active" : ""}" data-tier="pro">
           <div class="plan-name">Pro</div>
-          <div class="plan-price" id="price-pro">14,99 €/mois</div>
-          <div class="plan-copros">jusqu’à 15 copros</div>
+          <div class="plan-price" id="price-pro">19,99 €/mois</div>
+          <div class="plan-copros">5 à 15 copros</div>
         </div>
         <div class="plan-card${initialPlan === "business" || initialPlan === "business-annuel" ? " active" : ""}" data-tier="business">
           <div class="plan-name">Business</div>
-          <div class="plan-price" id="price-business">19,99 €/mois</div>
-          <div class="plan-copros">jusqu’à 30 copros</div>
+          <div class="plan-price" id="price-business">34,99 €/mois</div>
+          <div class="plan-copros">16 à 30 copros</div>
         </div>
       </div>
 
@@ -1974,12 +2481,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     var currentTier = "${initialPlan.replace("-annuel", "") || "starter"}";
     var currentBilling = "${initialPlan.includes("annuel") ? "annuel" : "mensuel"}";
 
-    var monthlyPrices = { starter:"7,99 €/mois", pro:"14,99 €/mois", business:"19,99 €/mois" };
-    var annualPrices  = { starter:"79 €/an", pro:"149 €/an", business:"199 €/an" };
+    var monthlyPrices = { starter:"9,99 €/mois", pro:"19,99 €/mois", business:"34,99 €/mois" };
+    var annualPrices  = { starter:"99 €/an", pro:"199 €/an", business:"349 €/an" };
     var btnLabels = {
-      starter:{mensuel:"Continuer → 7,99 €/mois", annuel:"Continuer → 79 €/an"},
-      pro:{mensuel:"Continuer → 14,99 €/mois", annuel:"Continuer → 149 €/an"},
-      business:{mensuel:"Continuer → 19,99 €/mois", annuel:"Continuer → 199 €/an"},
+      starter:{mensuel:"Continuer → 9,99 €/mois", annuel:"Continuer → 99 €/an"},
+      pro:{mensuel:"Continuer → 19,99 €/mois", annuel:"Continuer → 199 €/an"},
+      business:{mensuel:"Continuer → 34,99 €/mois", annuel:"Continuer → 349 €/an"},
     };
 
     var form = document.getElementById("signup-form");
@@ -2203,6 +2710,521 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Accès Démo (Super Admin) ──────────────────────────────────────────────────
+
+  async function verifySuperAdmin(req: Request, db: FirebaseFirestore.Firestore) {
+    const adminAuth = getAdminAuthInstance();
+    if (!adminAuth) throw new Error("Firebase non configuré.");
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) throw new Error("Non authentifié.");
+    const { uid, email } = await adminAuth.verifyIdToken(idToken);
+    const superAdminEmail = process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "";
+    if (!email || email.toLowerCase() !== superAdminEmail.toLowerCase()) throw new Error("Accès refusé.");
+    return { uid, email };
+  }
+
+  app.post("/api/superadmin/grant-demo", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { email, maxCopros = 1, maxMembersPerCopro = 5, expiresInDays } = req.body as {
+        email?: string; maxCopros?: number; maxMembersPerCopro?: number; expiresInDays?: number;
+      };
+      if (!email) return res.status(400).json({ error: "email requis." });
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const now = new Date().toISOString();
+      const expiresAt = expiresInDays
+        ? new Date(Date.now() + expiresInDays * 86400000).toISOString()
+        : null;
+
+      const demoData = {
+        email: normalizedEmail,
+        maxCopros: Math.max(1, Math.min(maxCopros, 30)),
+        maxMembersPerCopro: Math.max(1, Math.min(maxMembersPerCopro, 100)),
+        grantedAt: now,
+        ...(expiresAt ? { expiresAt } : {}),
+      };
+
+      // Stocker dans demoInvites (toujours) pour retrouver la liste
+      await db.collection("demoInvites").doc(normalizedEmail).set(demoData);
+
+      // Appliquer immédiatement si l'utilisateur existe déjà
+      const adminAuth = getAdminAuthInstance();
+      if (adminAuth) {
+        try {
+          const userRecord = await adminAuth.getUserByEmail(normalizedEmail);
+          await db.collection("users").doc(userRecord.uid).set({
+            accessType: "demo",
+            demoMaxCopros: demoData.maxCopros,
+            demoMaxMembersPerCopro: demoData.maxMembersPerCopro,
+            demoGrantedAt: now,
+            ...(expiresAt ? { demoExpiresAt: expiresAt } : {}),
+            subscriptionStatus: "active",
+          }, { merge: true });
+
+          // Activer les copros existantes de cet utilisateur
+          const coprosSnap = await db.collection("copros").where("adminId", "==", userRecord.uid).get();
+          if (!coprosSnap.empty) {
+            const batch = db.batch();
+            coprosSnap.docs.forEach((d) => batch.update(d.ref, { status: "active" }));
+            await batch.commit();
+          }
+        } catch {
+          // Utilisateur pas encore inscrit — l'invite sera appliquée à l'inscription
+        }
+      }
+
+      return res.json({ ok: true, ...demoData });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/superadmin/revoke-demo", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { email } = req.body as { email?: string };
+      if (!email) return res.status(400).json({ error: "email requis." });
+      const normalizedEmail = email.toLowerCase().trim();
+
+      await db.collection("demoInvites").doc(normalizedEmail).delete();
+
+      const adminAuth = getAdminAuthInstance();
+      if (adminAuth) {
+        try {
+          const userRecord = await adminAuth.getUserByEmail(normalizedEmail);
+          await db.collection("users").doc(userRecord.uid).set({
+            accessType: null,
+            demoMaxCopros: null,
+            demoMaxMembersPerCopro: null,
+            demoGrantedAt: null,
+            demoExpiresAt: null,
+            subscriptionStatus: "trialing",
+          }, { merge: true });
+        } catch { /* user not found */ }
+      }
+
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/superadmin/list-demos", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const snap = await db.collection("demoInvites").orderBy("grantedAt", "desc").get();
+      const demos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return res.json({ demos });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Génération de lien démo ────────────────────────────────────────────────
+  app.post("/api/superadmin/generate-demo-link", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { maxCopros = 2, maxMembersPerCopro = 10, demoExpiresInDays = null, usageLimit = 1 } = req.body ?? {};
+      const { randomBytes } = await import("crypto");
+      const token = randomBytes(20).toString("hex");
+      const now = new Date().toISOString();
+      await db.collection("demoLinks").doc(token).set({
+        token,
+        maxCopros: Number(maxCopros),
+        maxMembersPerCopro: Number(maxMembersPerCopro),
+        demoExpiresInDays: demoExpiresInDays ? Number(demoExpiresInDays) : null,
+        usageLimit: Number(usageLimit),
+        usedCount: 0,
+        createdAt: now,
+        createdBy: process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "admin",
+      });
+      const url = `${getBaseUrl(req)}/demo/${token}`;
+      return res.json({ ok: true, url, token });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/superadmin/list-demo-links", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const snap = await db.collection("demoLinks").orderBy("createdAt", "desc").get();
+      return res.json({ links: snap.docs.map((d) => ({ id: d.id, ...d.data() })) });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/superadmin/delete-demo-link/:token", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      await db.collection("demoLinks").doc(String(req.params.token)).delete();
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Page landing démo (/demo/:token) ───────────────────────────────────────
+  app.get("/demo/:token", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).send("Service indisponible.");
+    const token = String(req.params.token);
+    const snap = await db.collection("demoLinks").doc(token).get();
+    if (!snap.exists) return res.status(404).send(pageShell("Lien invalide — Maintena", `<div class="m-container"><div class="m-card" style="text-align:center;"><h1>Lien invalide</h1><p>Ce lien démo n'existe pas ou a expiré.</p><a href="/inscription" class="m-btn" style="display:inline-block;">Créer un compte →</a></div></div>`));
+    const link = snap.data()!;
+    if (link.usedCount >= link.usageLimit) return res.status(410).send(pageShell("Lien expiré — Maintena", `<div class="m-container"><div class="m-card" style="text-align:center;"><h1>Lien déjà utilisé</h1><p>Ce lien démo a atteint sa limite d'utilisation.</p><a href="/inscription" class="m-btn" style="display:inline-block;">Démarrer un essai gratuit →</a></div></div>`));
+
+    const limitText = `${link.maxCopros} copropriété${link.maxCopros > 1 ? "s" : ""} · ${link.maxMembersPerCopro} membres/copro${link.demoExpiresInDays ? ` · ${link.demoExpiresInDays} jours d'accès` : " · Accès illimité"}`;
+
+    const html = pageShell("Accès Démo — Maintena", `
+  <div class="m-container">
+    <div class="m-card">
+      <div style="display:flex;align-items:center;gap:8px;background:rgba(37,99,235,0.08);border:1px solid rgba(37,99,235,0.2);border-radius:10px;padding:10px 14px;margin-bottom:20px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="m9 12 2 2 4-4"/></svg>
+        <span style="font-size:0.88rem;font-weight:600;color:#2563eb;">Accès Démo · ${escapeHtml(limitText)}</span>
+      </div>
+
+      <h1>Créer votre compte démo</h1>
+      <p class="subtitle">Vous avez été invité à tester Maintena. Renseignez vos informations pour accéder à l'application immédiatement.</p>
+
+      <form id="signup-form">
+        <div class="m-row">
+          <div>
+            <label class="m-label" for="firstName">Prénom</label>
+            <input class="m-input" id="firstName" placeholder="Jean" required autocomplete="given-name" />
+          </div>
+          <div>
+            <label class="m-label" for="lastName">Nom</label>
+            <input class="m-input" id="lastName" placeholder="Dupont" required autocomplete="family-name" />
+          </div>
+        </div>
+
+        <label class="m-label" for="email">Email professionnel</label>
+        <input class="m-input" id="email" type="email" placeholder="jean.dupont@syndic.fr" required autocomplete="email" />
+
+        <label class="m-label" for="phone">Téléphone <span style="font-weight:400;color:var(--muted)">(optionnel)</span></label>
+        <input class="m-input" id="phone" type="tel" placeholder="06 00 00 00 00" maxlength="14" autocomplete="tel" />
+
+        <label class="m-label" for="password">Mot de passe <span style="font-weight:400;color:var(--muted)">(min. 6 caractères)</span></label>
+        <input class="m-input" id="password" type="password" minlength="6" required autocomplete="new-password" />
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;" />
+        <p style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px;">Votre première copropriété</p>
+
+        <label class="m-label" for="coProName">Nom de la copropriété</label>
+        <input class="m-input" id="coProName" placeholder="Résidence Les Pins" required />
+
+        <label class="m-label" for="address">Adresse</label>
+        <input class="m-input" id="address" placeholder="12 rue de la Paix" required autocomplete="street-address" />
+
+        <div class="m-row">
+          <div>
+            <label class="m-label" for="postalCode">Code postal</label>
+            <input class="m-input" id="postalCode" placeholder="31000" required autocomplete="postal-code" />
+          </div>
+          <div>
+            <label class="m-label" for="city">Ville</label>
+            <input class="m-input" id="city" placeholder="Toulouse" required autocomplete="address-level2" />
+          </div>
+        </div>
+
+        <button class="m-btn" type="submit" id="submit-btn">
+          Accéder à l'application →
+        </button>
+        <div class="m-error" id="error"></div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    var form = document.getElementById("signup-form");
+    var errorBox = document.getElementById("error");
+    var btn = document.getElementById("submit-btn");
+    var phoneInput = document.getElementById("phone");
+    phoneInput.addEventListener("input", function () {
+      var digits = phoneInput.value.replace(/\\D/g, "").slice(0, 10);
+      phoneInput.value = digits.replace(/(\\d{2})(?=\\d)/g, "$1 ").trim();
+    });
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      errorBox.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = "Création en cours…";
+      try {
+        var r = await fetch("/api/demo-signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: ${JSON.stringify(token)},
+            firstName: document.getElementById("firstName").value.trim(),
+            lastName: document.getElementById("lastName").value.trim(),
+            email: document.getElementById("email").value.trim().toLowerCase(),
+            phone: document.getElementById("phone").value.replace(/\\s/g,"").trim(),
+            password: document.getElementById("password").value,
+            coProName: document.getElementById("coProName").value.trim(),
+            address: document.getElementById("address").value.trim(),
+            postalCode: document.getElementById("postalCode").value.trim(),
+            city: document.getElementById("city").value.trim(),
+          }),
+        });
+        var d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Erreur");
+        window.location.href = d.redirectUrl;
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Accéder à l'application →";
+      }
+    });
+  </script>`);
+    res.send(html);
+  });
+
+  // ── Inscription via lien démo ───────────────────────────────────────────────
+  app.post("/api/demo-signup", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    const { token, firstName, lastName, email, phone, password, coProName, address, postalCode, city } = req.body ?? {};
+    if (!token || !firstName || !lastName || !email || !password || !coProName || !address || !postalCode || !city) {
+      return res.status(400).json({ error: "Champs obligatoires manquants." });
+    }
+    if (String(password).trim().length < 6) {
+      return res.status(400).json({ error: "Le mot de passe doit contenir au moins 6 caractères." });
+    }
+    try {
+      const linkRef = db.collection("demoLinks").doc(String(token));
+      const linkSnap = await linkRef.get();
+      if (!linkSnap.exists) return res.status(404).json({ error: "Lien invalide." });
+      const link = linkSnap.data()!;
+      if (link.usedCount >= link.usageLimit) return res.status(410).json({ error: "Ce lien a déjà été utilisé." });
+
+      const { getAuth } = await import("firebase-admin/auth");
+      const adminAuth = getAuth();
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const displayName = `${String(firstName).trim()} ${String(lastName).trim()}`.trim();
+
+      let userRecord;
+      try {
+        userRecord = await adminAuth.getUserByEmail(normalizedEmail);
+        return res.status(409).json({ error: "Un compte existe déjà avec cet email. Connectez-vous dans l'application." });
+      } catch {
+        userRecord = await adminAuth.createUser({ email: normalizedEmail, password: String(password).trim(), displayName });
+      }
+
+      const userId = userRecord.uid;
+      const inviteCode = await createUniqueInviteCode(db);
+      const coProRef = db.collection("copros").doc();
+      const now = new Date().toISOString();
+      const demoExpiresAt = link.demoExpiresInDays
+        ? new Date(Date.now() + link.demoExpiresInDays * 24 * 60 * 60 * 1000).toISOString()
+        : null;
+
+      await db.collection("users").doc(userId).set({
+        uid: userId, email: normalizedEmail, displayName,
+        firstName: String(firstName).trim(), lastName: String(lastName).trim(),
+        phone: String(phone ?? "").trim(), role: "admin",
+        subscriptionStatus: "active",
+        accessType: "demo",
+        demoMaxCopros: link.maxCopros,
+        demoMaxMembersPerCopro: link.maxMembersPerCopro,
+        demoGrantedAt: now,
+        ...(demoExpiresAt ? { demoExpiresAt } : {}),
+        createdAt: now,
+        managedCoproIds: [coProRef.id],
+      });
+
+      await coProRef.set({
+        name: String(coProName).trim(), address: String(address).trim(),
+        postalCode: String(postalCode).trim(), city: String(city).trim(),
+        adminId: userId, adminEmail: normalizedEmail, inviteCode,
+        status: "active", stripePaid: false, createdAt: now,
+        activatedAt: now,
+      });
+
+      await db.collection("copros").doc(coProRef.id).collection("members").doc(userId).set({
+        uid: userId, email: normalizedEmail, displayName, role: "admin", joinedAt: now,
+      });
+
+      await db.collection("inviteCodes").doc(inviteCode).set({
+        coProId: coProRef.id, coProName: String(coProName).trim(), role: "prestataire", createdAt: now,
+      });
+
+      // Incrémente le compteur d'utilisation
+      await linkRef.update({ usedCount: (link.usedCount ?? 0) + 1 });
+
+      // Email de bienvenue + notification admin
+      try { await sendActivationEmail(normalizedEmail, String(coProName).trim(), inviteCode); } catch {}
+      try {
+        await sendAdminNotification({
+          type: "demo", displayName, email: normalizedEmail,
+          coProName: String(coProName).trim(),
+          demoExpiresInDays: link.demoExpiresInDays ?? null,
+        });
+      } catch {}
+
+      return res.json({ ok: true, redirectUrl: `${getBaseUrl(req)}/trial-success` });
+    } catch (e: any) {
+      console.error("demo-signup error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // Activité récente : dernières inscriptions
+  app.get("/api/superadmin/recent-activity", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const snap = await db.collection("users")
+        .orderBy("createdAt", "desc")
+        .limit(30)
+        .get();
+      const users = snap.docs.map((d) => {
+        const u = d.data();
+        return {
+          uid: d.id,
+          displayName: u.displayName ?? "",
+          email: u.email ?? "",
+          createdAt: u.createdAt ?? "",
+          accessType: u.accessType ?? "trial",
+          subscriptionStatus: u.subscriptionStatus ?? "",
+          managedCoproIds: u.managedCoproIds ?? [],
+        };
+      });
+      return res.json({ users });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // Liste toutes les copros via Admin SDK (bypasse les règles Firestore)
+  app.get("/api/superadmin/list-copros", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const snap = await db.collection("copros").orderBy("createdAt", "desc").get();
+      const copros = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      return res.json({ copros });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // Met à jour le statut d'une copro via Admin SDK
+  app.post("/api/superadmin/update-copro-status", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { coProId, status } = req.body as { coProId?: string; status?: string };
+      if (!coProId || !["pending", "active", "suspended"].includes(status ?? "")) {
+        return res.status(400).json({ error: "coProId et status requis." });
+      }
+      await db.collection("copros").doc(coProId).update({ status });
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // Envoie des rappels aux utilisateurs dont le démo expire dans les 7 prochains jours
+  // Appelé par Cloud Scheduler (cron quotidien) ou manuellement via le panel
+  app.post("/api/cron/demo-reminders", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    // Auth : soit token super admin, soit secret cron
+    const cronSecret = req.headers["x-cron-secret"] ?? "";
+    const isCron = cronSecret !== "" && cronSecret === (process.env.CRON_SECRET ?? "");
+    if (!isCron) {
+      try { await verifySuperAdmin(req, db); } catch (e: any) {
+        return res.status(403).json({ error: "Accès refusé." });
+      }
+    }
+
+    try {
+      let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+      try { resendClient = await getUncachableResendClient(); } catch {
+        return res.status(503).json({ error: "Email non configuré." });
+      }
+
+      const now = new Date();
+      const in7days = new Date(now.getTime() + 7 * 86400000);
+      const snap = await db.collection("demoInvites").get();
+
+      const sent: string[] = [];
+      const skipped: string[] = [];
+
+      for (const d of snap.docs) {
+        const data = d.data();
+        if (!data.expiresAt) { skipped.push(d.id); continue; }
+        const expiry = new Date(data.expiresAt);
+        const daysLeft = Math.ceil((expiry.getTime() - now.getTime()) / 86400000);
+        if (daysLeft <= 0 || daysLeft > 7) { skipped.push(d.id); continue; }
+
+        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        await resendClient.client.emails.send({
+          from: fromAddress,
+          to: d.id,
+          subject: `Votre accès Maintena expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+          html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#FEF3C7;color:#92400E;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;display:inline-block;margin-bottom:20px;">
+        Accès démo bientôt expiré
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">
+        Votre accès démo expire dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Votre période d'essai de <strong>Maintena</strong> se termine le <strong>${expiry.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</strong>.
+        Pour continuer à gérer vos copropriétés sans interruption, souscrivez à un abonnement.
+      </p>
+      <a href="https://maintena-pro.fr/inscription-paiement" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;margin-bottom:24px;">
+        Choisir mon abonnement
+      </a>
+      <p style="color:#94A3B8;font-size:12px;line-height:1.6;margin:0;">
+        Des questions ? Répondez à cet email ou contactez-nous à <a href="mailto:contact@profusionnumerik.com" style="color:#2563EB;">contact@profusionnumerik.com</a>
+      </p>
+    </div>
+    <div style="padding:16px 32px;text-align:center;border-top:1px solid #F1F5F9;">
+      <p style="margin:0;color:#94A3B8;font-size:12px;">© 2026 ProFusion Numérik · <a href="https://maintena-pro.fr" style="color:#2563EB;">maintena-pro.fr</a></p>
+    </div>
+  </div>
+</body></html>`,
+        });
+        sent.push(d.id);
+      }
+
+      return res.json({ ok: true, sent, skipped });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/upload-photo", async (req: Request, res: Response) => {
     try {
       const authHeader = req.headers.authorization ?? "";
@@ -2278,6 +3300,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Push notifications helper ────────────────────────────────────────────────
+  async function sendPushToMembers(
+    coProId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>
+  ): Promise<void> {
+    const db = getAdminDb();
+    if (!db) return;
+
+    // Récupérer les UIDs des membres
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
+    const uids = membersSnap.docs.map((d) => d.id);
+    if (uids.length === 0) return;
+
+    // Récupérer les pushTokens
+    const tokens: string[] = [];
+    await Promise.all(
+      uids.map(async (uid) => {
+        const userDoc = await db.collection("users").doc(uid).get();
+        const token = userDoc.data()?.pushToken;
+        if (token && typeof token === "string" && token.startsWith("ExponentPushToken")) {
+          tokens.push(token);
+        }
+      })
+    );
+    if (tokens.length === 0) return;
+
+    // Envoyer via Expo Push API (chunks de 100)
+    const chunks: string[][] = [];
+    for (let i = 0; i < tokens.length; i += 100) chunks.push(tokens.slice(i, i + 100));
+
+    await Promise.all(
+      chunks.map((chunk) =>
+        fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(
+            chunk.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" }))
+          ),
+        }).catch((e) => console.warn("[push] chunk failed:", e))
+      )
+    );
+  }
+
   app.post("/api/notify-signalement", async (req: Request, res: Response) => {
     try {
       const { adminEmail, coProName, message, senderName, apartmentNumber, photoUrl } =
@@ -2349,6 +3416,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 </body>
 </html>`,
       });
+
+      // Push à l'admin de la copro
+      const coProId = req.body.coProId as string | undefined;
+      if (coProId) {
+        sendPushToMembers(
+          coProId,
+          `🔔 Signalement — ${coProName ?? "Copropriété"}`,
+          `${senderName ?? "Un résident"} : ${message}`,
+          { type: "signalement", coProId }
+        ).catch(() => {});
+      }
 
       return res.json({ sent: true });
     } catch (e: any) {
@@ -2440,6 +3518,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 </body>
 </html>`,
       });
+      // Push à tous les membres de la copro
+      sendPushToMembers(
+        coProId,
+        `📢 ${typeLabel} — ${coProName ?? "Copropriété"}`,
+        title,
+        { type: "announcement", coProId }
+      ).catch(() => {});
+
       return res.json({ sent: ownerEmails.length });
     } catch (e: any) {
       console.error("notify-announcement error:", e);
@@ -2515,6 +3601,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   </div>
 </body></html>`,
       });
+      // Push à tous les membres ciblés
+      if (coProId) {
+        sendPushToMembers(
+          coProId,
+          `📊 Sondage — ${coProName ?? "Copropriété"}`,
+          title,
+          { type: "poll", coProId }
+        ).catch(() => {});
+      }
+
       return res.json({ sent: targetEmails.length });
     } catch (e: any) {
       console.error("notify-poll error:", e);
@@ -3940,6 +5036,1354 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(pageShell("Finaliser mon compte — Maintena", body, "← Retour", "/"));
   });
+
+  // ── Demandes de devis ────────────────────────────────────────────────────────
+
+  app.post("/api/demande-devis/send-requests", async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "");
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+
+      const { coProId, demandeId, contactIds } = req.body as {
+        coProId?: string; demandeId?: string; contactIds?: string[];
+      };
+      if (!coProId || !demandeId || !Array.isArray(contactIds) || contactIds.length === 0) {
+        return res.status(400).json({ error: "coProId, demandeId et contactIds requis" });
+      }
+      if (contactIds.length > 3) return res.status(400).json({ error: "Maximum 3 prestataires" });
+
+      const db = getAdminDb()!;
+      const demandeRef = db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId);
+      const demandeSnap = await demandeRef.get();
+      if (!demandeSnap.exists) return res.status(404).json({ error: "Demande introuvable" });
+      const demande = demandeSnap.data()!;
+
+      // Vérifier que l'utilisateur est admin de cette copro
+      const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(uid).get();
+      if (!memberSnap.exists || !["admin", "conseil"].includes(memberSnap.data()?.role)) {
+        return res.status(403).json({ error: "Non autorisé" });
+      }
+
+      const coProSnap = await db.collection("copros").doc(coProId).get();
+      const coProName = coProSnap.data()?.name ?? "Copropriété";
+      const coProAddress = coProSnap.data()?.address ?? "";
+
+      const crypto = await import("crypto");
+      const baseUrl = getBaseUrl(req);
+
+      // Charger les contacts sélectionnés
+      const contactSnaps = await Promise.all(
+        contactIds.map((id) => db.collection("copros").doc(coProId).collection("providerContacts").doc(id).get())
+      );
+
+      // Construire les nouvelles offres (garder les offres existantes soumises)
+      const existingDevis: any[] = demande.devis ?? [];
+      const newDevis: any[] = existingDevis.filter((o: any) => o.submitted); // garder devis déjà reçus
+
+      const emailsToSend: { to: string; name: string; link: string; token: string; offerId: string }[] = [];
+
+      for (const snap of contactSnaps) {
+        if (!snap.exists) continue;
+        const contact = snap.data()!;
+        if (!contact.email) continue;
+
+        // Si offre déjà soumise pour ce contact, skip
+        const alreadySubmitted = existingDevis.find((o: any) => o.contactId === snap.id && o.submitted);
+        if (alreadySubmitted) { newDevis.push(alreadySubmitted); continue; }
+
+        const token = crypto.default.randomBytes(20).toString("hex");
+        const offerId = snap.id + "_" + Date.now();
+
+        const offer = {
+          id: offerId,
+          contactId: snap.id,
+          contactName: `${contact.firstName} ${contact.lastName}`,
+          contactCompany: contact.company ?? "",
+          contactEmail: contact.email,
+          token,
+          submitted: false,
+        };
+        newDevis.push(offer);
+
+        // Stocker le token dans une collection dédiée pour lookup public
+        await db.collection("devisTokens").doc(token).set({
+          coProId, demandeId, offerId, token,
+          contactName: offer.contactName,
+          contactCompany: offer.contactCompany,
+          createdAt: new Date().toISOString(),
+        });
+
+        emailsToSend.push({
+          to: contact.email,
+          name: `${contact.firstName} ${contact.lastName}`,
+          link: `${baseUrl}/devis-form/${token}`,
+          token, offerId,
+        });
+      }
+
+      await demandeRef.update({ devis: newDevis, status: "devis_demandes" });
+
+      // Envoyer les emails
+      let resendClient: any;
+      try { resendClient = await getUncachableResendClient(); } catch (e: any) {
+        console.warn("[devis] Resend non disponible:", e?.message);
+      }
+
+      if (resendClient) {
+        await Promise.all(emailsToSend.map(({ to, name, link }) =>
+          resendClient.client.emails.send({
+            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            to,
+            subject: `Demande de devis — ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
+            html: `
+<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
+<div style="max-width:580px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+
+  <p style="color:#0f172a;font-size:15px;margin:0 0 6px 0">Bonjour ${escapeHtml(name)},</p>
+
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px 0">
+    Nous vous sollicitons afin d'établir un devis pour la prestation décrite ci-dessous.
+  </p>
+
+  <div style="background:#f1f5f9;border-left:4px solid #2563EB;border-radius:0 10px 10px 0;padding:16px 20px;margin:0 0 24px 0">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(demande.title)}</p>
+    ${demande.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(demande.description)}</p>` : ""}
+    <p style="color:#64748b;font-size:13px;margin:0">
+      Résidence&nbsp;: <strong>${escapeHtml(coProName)}</strong>${coProAddress ? `&nbsp;·&nbsp;${escapeHtml(coProAddress)}` : ""}
+      ${demande.urgency === "urgent" ? `&nbsp;&nbsp;<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">⚡ Urgent</span>` : ""}
+    </p>
+  </div>
+
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 8px 0">
+    Pour nous transmettre votre réponse, merci de cliquer sur le bouton ci-dessous&nbsp;:
+  </p>
+
+  <a href="${link}" style="display:block;background:#2563EB;color:#fff;text-decoration:none;text-align:center;padding:16px;border-radius:12px;font-weight:700;margin:20px 0;font-size:16px;letter-spacing:0.2px">
+    📎&nbsp;&nbsp;Déposer mon devis
+  </a>
+
+  <p style="color:#374151;font-size:14px;line-height:1.7;margin:0 0 16px 0">
+    Lors du dépôt de votre devis, nous vous remercions de&nbsp;:
+  </p>
+  <ul style="color:#374151;font-size:14px;line-height:1.8;margin:0 0 20px 0;padding-left:20px">
+    <li>joindre votre devis au format PDF (ou image&nbsp;: JPG, PNG)&nbsp;;</li>
+    <li>renseigner obligatoirement le <strong>montant TTC</strong> de votre offre.</li>
+  </ul>
+
+  <p style="color:#374151;font-size:14px;margin:0 0 24px 0">
+    Votre devis sera automatiquement enregistré dans notre système.
+  </p>
+
+  <p style="color:#94a3b8;font-size:13px;margin:0 0 6px 0">
+    Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:
+  </p>
+  <p style="color:#2563eb;font-size:12px;word-break:break-all;margin:0 0 24px 0">${link}</p>
+
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 20px 0" />
+  <p style="color:#374151;font-size:14px;margin:0">
+    Nous vous remercions par avance pour votre retour.<br/>
+    <strong>Cordialement,</strong><br/>
+    <span style="color:#64748b">L'équipe Maintena — ${escapeHtml(coProName)}</span>
+  </p>
+
+</div>
+</body></html>`
+          }).then((r: any) => console.log("[devis email] Envoyé à", to, r?.id ?? ""))
+            .catch((e: any) => console.error("[devis email] Échec envoi à", to, ":", e?.message ?? e))
+        ));
+      }
+
+      return res.json({ sent: emailsToSend.length, total: newDevis.length });
+    } catch (e: any) {
+      console.error("/api/demande-devis/send-requests error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ── Retenir un devis + notifier le prestataire par email pour signature ──
+  app.post("/api/demande-devis/retain", async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "");
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+
+      const { coProId, demandeId, offerId } = req.body as { coProId?: string; demandeId?: string; offerId?: string };
+      if (!coProId || !demandeId || !offerId) return res.status(400).json({ error: "coProId, demandeId et offerId requis" });
+
+      const db = getAdminDb()!;
+
+      // Vérifier que l'utilisateur est admin
+      const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(uid).get();
+      if (!memberSnap.exists || memberSnap.data()?.role !== "admin") {
+        return res.status(403).json({ error: "Seul l'administrateur peut valider un devis" });
+      }
+
+      const demandeRef = db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId);
+      const demandeSnap = await demandeRef.get();
+      if (!demandeSnap.exists) return res.status(404).json({ error: "Demande introuvable" });
+      const demande = demandeSnap.data()!;
+
+      const devis: any[] = demande.devis ?? [];
+      const offerIdx = devis.findIndex((o: any) => o.id === offerId);
+      if (offerIdx === -1) return res.status(404).json({ error: "Devis introuvable" });
+      const offer = devis[offerIdx];
+
+      // Générer un token de signature unique
+      const { randomBytes } = await import("crypto");
+      const signatureToken = randomBytes(24).toString("hex");
+
+      // Mettre à jour le devis avec le token de signature
+      devis[offerIdx] = { ...offer, signatureToken };
+      await demandeRef.update({
+        selectedDevisId: offerId,
+        status: "cloture",
+        closedAt: new Date().toISOString(),
+        devis,
+      });
+
+      // Stocker le token de signature
+      await db.collection("devisTokens").doc(signatureToken).set({
+        type: "signature",
+        coProId, demandeId, offerId,
+        contactName: offer.contactName,
+        contactEmail: offer.contactEmail,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Envoyer email de notification au prestataire retenu
+      const coProSnap = await db.collection("copros").doc(coProId).get();
+      const coProName = coProSnap.data()?.name ?? "Résidence";
+      const baseUrl = getBaseUrl(req);
+      const signLink = `${baseUrl}/sign-devis/${signatureToken}`;
+
+      let resendClient: any;
+      try { resendClient = await getUncachableResendClient(); } catch {}
+
+      if (resendClient && offer.contactEmail) {
+        await resendClient.client.emails.send({
+          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          to: offer.contactEmail,
+          subject: `Votre devis a été retenu — ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
+          html: `
+<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
+<div style="max-width:580px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#DCFCE7;border-radius:50%;margin-bottom:12px">
+      <span style="font-size:32px">🏆</span>
+    </div>
+    <h2 style="color:#16A34A;margin:0;font-size:22px">Votre devis a été retenu !</h2>
+  </div>
+
+  <p style="color:#374151;font-size:15px;margin:0 0 8px 0">Bonjour <strong>${escapeHtml(offer.contactName)}</strong>,</p>
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px 0">
+    Nous avons le plaisir de vous informer que votre devis a été <strong>sélectionné</strong> pour la prestation suivante&nbsp;:
+  </p>
+
+  <div style="background:#f1f5f9;border-left:4px solid #16A34A;border-radius:0 10px 10px 0;padding:16px 20px;margin:0 0 24px 0">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(demande.title)}</p>
+    ${demande.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(demande.description)}</p>` : ""}
+    <p style="color:#64748b;font-size:13px;margin:0">
+      Résidence&nbsp;: <strong>${escapeHtml(coProName)}</strong>
+      &nbsp;&nbsp;·&nbsp;&nbsp;Montant retenu&nbsp;: <strong>${offer.priceTTC?.toLocaleString("fr-FR", { style: "currency", currency: "EUR" }) ?? "—"} TTC</strong>
+    </p>
+  </div>
+
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 8px 0">
+    Pour finaliser votre acceptation, merci de <strong>signer électroniquement</strong> le bon de commande en cliquant sur le bouton ci-dessous&nbsp;:
+  </p>
+
+  <a href="${signLink}" style="display:block;background:#16A34A;color:#fff;text-decoration:none;text-align:center;padding:16px;border-radius:12px;font-weight:700;margin:20px 0;font-size:16px">
+    ✍️&nbsp;&nbsp;Signer le bon de commande
+  </a>
+
+  <p style="color:#94a3b8;font-size:13px;margin:0 0 6px 0">
+    Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:
+  </p>
+  <p style="color:#2563eb;font-size:12px;word-break:break-all;margin:0 0 24px 0">${signLink}</p>
+
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 20px 0" />
+  <p style="color:#374151;font-size:14px;margin:0">
+    Nous vous remercions pour votre confiance.<br/>
+    <strong>Cordialement,</strong><br/>
+    <span style="color:#64748b">L'équipe Maintena — ${escapeHtml(coProName)}</span>
+  </p>
+</div>
+</body></html>`
+        }).catch((e: any) => console.error("[signature email] Échec:", e?.message));
+      }
+
+      return res.json({ ok: true, signLink });
+    } catch (e: any) {
+      console.error("/api/demande-devis/retain error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ── Signature admin/syndic (depuis l'app) ──
+  app.post("/api/demande-devis/admin-sign", async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers["authorization"];
+      const idToken = typeof authHeader === "string" ? authHeader.replace(/^Bearer\s+/, "") : "";
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+
+      const { coProId, demandeId, offerId, svgBase64 } = req.body as {
+        coProId: string; demandeId: string; offerId: string; svgBase64: string;
+      };
+      if (!coProId || !demandeId || !offerId || !svgBase64) {
+        return res.status(400).json({ error: "Paramètres manquants" });
+      }
+
+      const db = getAdminDb();
+      if (!db) return res.status(503).json({ error: "Firebase Admin unavailable" });
+
+      const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(uid).get();
+      if (!memberSnap.exists || memberSnap.data()?.role !== "admin") {
+        return res.status(403).json({ error: "Accès réservé à l'administrateur" });
+      }
+
+      const demandeRef = db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId);
+      const demandeSnap = await demandeRef.get();
+      if (!demandeSnap.exists) return res.status(404).json({ error: "Demande introuvable" });
+
+      const devis: any[] = demandeSnap.data()!.devis ?? [];
+      const idx = devis.findIndex((o: any) => o.id === offerId);
+      if (idx === -1) return res.status(404).json({ error: "Devis introuvable" });
+
+      let adminSignatureUrl: string | undefined;
+      const bucket = getAdminStorage();
+      if (bucket) {
+        const { randomBytes } = await import("crypto");
+        const downloadToken = randomBytes(16).toString("hex");
+        const storagePath = `signatures/${coProId}/${demandeId}/${offerId}_admin.svg`;
+        const svgBuffer = Buffer.from(svgBase64, "base64");
+        await bucket.file(storagePath).save(svgBuffer, {
+          metadata: {
+            contentType: "image/svg+xml",
+            metadata: { firebaseStorageDownloadTokens: downloadToken },
+          },
+        });
+        const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+        adminSignatureUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+      }
+
+      const adminSignedAt = new Date().toISOString();
+      devis[idx] = { ...devis[idx], adminSignatureUrl, adminSignedAt };
+      await demandeRef.update({ devis });
+
+      // Récupérer les données copro pour la génération du PDF
+      const coProSnap = await db.collection("copros").doc(coProId).get();
+      const coProData = coProSnap.data() ?? {};
+
+      console.log(`[admin-sign] Devis ${offerId} signé par syndic pour ${coProId}/${demandeId}`);
+
+      // Générer le PDF signé de manière synchrone (Cloud Run throttle le CPU après res.json)
+      await generateSignedDevisPdf({
+        offer: devis[idx],
+        demande: demandeSnap.data()!,
+        coProData,
+        coProId,
+        demandeId,
+        demandeRef,
+      });
+
+      return res.json({ ok: true, adminSignedAt, adminSignatureUrl });
+    } catch (e: any) {
+      console.error("/api/demande-devis/admin-sign error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ── Bon de commande signé (prestataire + syndic) ──
+  app.get("/bon-de-commande/:token", async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    const db = getAdminDb();
+    if (!db) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+
+    const tokenSnap = await db.collection("devisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature") {
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide ou expiré</h1></div></div>`));
+    }
+    const { coProId, demandeId, offerId } = tokenSnap.data()!;
+
+    const [demandeSnap, coProSnap] = await Promise.all([
+      db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId).get(),
+      db.collection("copros").doc(coProId).get(),
+    ]);
+    if (!demandeSnap.exists) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Demande introuvable</h1></div></div>`));
+
+    const demande = demandeSnap.data()!;
+    const copro = coProSnap.data() ?? {};
+    const offer = (demande.devis ?? []).find((o: any) => o.id === offerId);
+    if (!offer) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Devis introuvable</h1></div></div>`));
+
+    const coProAddress = [copro.street, copro.postalCode, copro.city].filter(Boolean).join(", ");
+    const dateAccept = offer.closedAt
+      ? new Date(offer.closedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+      : demande.closedAt
+      ? new Date(demande.closedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+      : new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+    const fmtDate = (iso: string) =>
+      new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const fmtPrice = (n: number) => n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+
+    const bothSigned = !!(offer.signedAt && offer.adminSignedAt);
+
+    const body = `
+<div style="max-width:680px;margin:0 auto;padding:24px 16px;font-family:'Helvetica Neue',Arial,sans-serif">
+
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="font-size:13px;text-transform:uppercase;letter-spacing:2px;color:#64748b;margin-bottom:4px">Document officiel</div>
+    <h1 style="font-size:28px;font-weight:800;color:#0f172a;margin:0">Bon de commande</h1>
+    <div style="font-size:14px;color:#64748b;margin-top:6px">Acceptation de devis · ${escapeHtml(copro.name ?? "")}</div>
+  </div>
+
+  ${bothSigned ? `
+  <div style="background:#DCFCE7;border:2px solid #86EFAC;border-radius:12px;padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;gap:12px">
+    <span style="font-size:22px">✅</span>
+    <div>
+      <div style="font-weight:700;color:#15803D;font-size:15px">Document signé par les deux parties</div>
+      <div style="color:#166534;font-size:13px">Prestataire le ${fmtDate(offer.signedAt)} · Syndic le ${fmtDate(offer.adminSignedAt)}</div>
+    </div>
+  </div>` : `
+  <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:12px;padding:14px 20px;margin-bottom:24px">
+    <div style="font-weight:700;color:#92400E;font-size:14px">⚠️ Document en cours de signature</div>
+    <div style="color:#78350F;font-size:13px;margin-top:4px">
+      ${offer.signedAt ? `Prestataire : signé le ${fmtDate(offer.signedAt)}` : "Prestataire : signature en attente"}
+      &nbsp;·&nbsp;
+      ${offer.adminSignedAt ? `Syndic : signé le ${fmtDate(offer.adminSignedAt)}` : "Syndic : signature en attente"}
+    </div>
+  </div>`}
+
+  <!-- Parties -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:8px">Donneur d'ordre</div>
+      <div style="font-weight:700;font-size:15px;color:#0f172a">${escapeHtml(copro.name ?? "")}</div>
+      ${coProAddress ? `<div style="color:#475569;font-size:13px;margin-top:4px">${escapeHtml(coProAddress)}</div>` : ""}
+      <div style="color:#475569;font-size:13px;margin-top:2px">Syndic / Administrateur</div>
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:8px">Prestataire</div>
+      <div style="font-weight:700;font-size:15px;color:#0f172a">${escapeHtml(offer.contactName ?? "")}</div>
+      ${offer.contactCompany ? `<div style="color:#475569;font-size:13px;margin-top:4px">${escapeHtml(offer.contactCompany)}</div>` : ""}
+      ${offer.contactEmail ? `<div style="color:#475569;font-size:13px;margin-top:2px">${escapeHtml(offer.contactEmail)}</div>` : ""}
+    </div>
+  </div>
+
+  <!-- Objet de la prestation -->
+  <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:10px">Objet de la prestation</div>
+    <div style="font-weight:700;font-size:18px;color:#0f172a;margin-bottom:8px">${escapeHtml(demande.title ?? "")}</div>
+    ${demande.description ? `<div style="color:#475569;font-size:14px;line-height:1.6;margin-bottom:12px">${escapeHtml(demande.description)}</div>` : ""}
+    <div style="display:flex;gap:24px;margin-top:12px;padding-top:12px;border-top:1px solid #f1f5f9">
+      <div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Date d'acceptation</div>
+        <div style="font-weight:600;color:#0f172a;font-size:14px">${dateAccept}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Montant TTC retenu</div>
+        <div style="font-weight:800;color:#0f172a;font-size:22px">${offer.priceTTC !== undefined ? fmtPrice(offer.priceTTC) : "—"}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Devis original -->
+  ${offer.devisFileUrl ? `
+  <div style="margin-bottom:24px">
+    <a href="${escapeHtml(offer.devisFileUrl)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 18px;text-decoration:none;color:#1D4ED8;font-weight:600;font-size:14px">
+      📎 Voir le devis original (PDF)
+    </a>
+  </div>` : ""}
+
+  <!-- Signatures -->
+  <div style="margin-top:8px;margin-bottom:32px">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:12px">Signatures</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+      <!-- Signature prestataire -->
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:12px;color:#64748b;font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Prestataire</div>
+        <div style="font-weight:700;color:#0f172a;margin-bottom:6px">${escapeHtml(offer.contactName ?? "")}</div>
+        ${offer.signatureUrl ? `
+        <div style="border:1px solid #D1FAE5;border-radius:8px;background:#F0FDF4;padding:6px;margin:10px 0">
+          <img src="${escapeHtml(offer.signatureUrl)}" style="max-width:100%;max-height:120px;display:block;margin:0 auto" alt="Signature prestataire" />
+        </div>
+        <div style="font-size:12px;color:#16A34A">Signé le ${fmtDate(offer.signedAt)}</div>` : `
+        <div style="border:1px dashed #D1D5DB;border-radius:8px;padding:20px;color:#9CA3AF;font-size:13px;margin:10px 0">
+          Signature en attente
+        </div>`}
+      </div>
+
+      <!-- Signature syndic -->
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:16px;text-align:center">
+        <div style="font-size:12px;color:#64748b;font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Syndic / Administrateur</div>
+        <div style="font-weight:700;color:#0f172a;margin-bottom:6px">${escapeHtml(copro.name ?? "")}</div>
+        ${offer.adminSignatureUrl ? `
+        <div style="border:1px solid #DDD6FE;border-radius:8px;background:#F5F3FF;padding:6px;margin:10px 0">
+          <img src="${escapeHtml(offer.adminSignatureUrl)}" style="max-width:100%;max-height:120px;display:block;margin:0 auto" alt="Signature syndic" />
+        </div>
+        <div style="font-size:12px;color:#7C3AED">Signé le ${fmtDate(offer.adminSignedAt)}</div>` : `
+        <div style="border:1px dashed #D1D5DB;border-radius:8px;padding:20px;color:#9CA3AF;font-size:13px;margin:10px 0">
+          Signature en attente
+        </div>`}
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-bottom:16px">
+    <button onclick="window.print()" style="background:#0f172a;color:#fff;border:none;border-radius:10px;padding:14px 28px;font-size:15px;font-weight:700;cursor:pointer">
+      🖨️ Imprimer / Enregistrer en PDF
+    </button>
+  </div>
+
+  <div style="text-align:center;color:#94a3b8;font-size:11px;line-height:1.6;margin-top:8px">
+    Document généré par Maintena · Signature électronique conforme à l'article 1366 du Code civil<br/>
+    Ce document constitue un engagement contractuel entre les deux parties.
+  </div>
+</div>
+
+<style>
+@media print {
+  button { display: none !important; }
+  body { background: white; }
+}
+</style>`;
+
+    const syndicName = copro.syndicCompanyName
+      ? escapeHtml(copro.syndicCompanyName)
+      : `Syndicat des copropriétaires de ${escapeHtml(copro.name ?? "")}`;
+    const syndicParts: string[] = [`© 2026 ${syndicName}`];
+    if (copro.syndicSiret) syndicParts.push(`SIRET ${escapeHtml(copro.syndicSiret)}`);
+    if (copro.syndicPhone) syndicParts.push(`<a href="tel:${escapeHtml(copro.syndicPhone.replace(/\s/g, ""))}">${escapeHtml(copro.syndicPhone)}</a>`);
+    syndicParts.push(`Géré via <a href="https://maintena-pro.fr">Maintena</a>`);
+    const syndicFooter = `<p>${syndicParts.join(" · ")}</p>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell(`Bon de commande — ${escapeHtml(demande.title ?? "")}`, body, "← Retour à l'accueil", "/", syndicFooter));
+  });
+
+  // ── Page de signature électronique ──
+  app.get("/sign-devis/:token", async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    const db = getAdminDb();
+    if (!db) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+
+    const tokenSnap = await db.collection("devisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature") {
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide ou expiré</h1></div></div>`));
+    }
+    const { coProId, demandeId, offerId, contactName } = tokenSnap.data()!;
+
+    const demandeSnap = await db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId).get();
+    if (!demandeSnap.exists) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Demande introuvable</h1></div></div>`));
+    const demande = demandeSnap.data()!;
+    const offer = (demande.devis ?? []).find((o: any) => o.id === offerId);
+
+    if (offer?.signedAt) {
+      return res.send(pageShell("Déjà signé", `
+<div class="m-container"><div class="m-card">
+  <h1>✅ Bon de commande déjà signé</h1>
+  <p>Vous avez signé ce bon de commande le <strong>${new Date(offer.signedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</strong>.</p>
+  <p style="margin-top:12px;color:#64748b">Merci pour votre confiance.</p>
+</div></div>`));
+    }
+
+    const coProSnap = await db.collection("copros").doc(coProId).get();
+    const coProName = coProSnap.data()?.name ?? "Résidence";
+    const coProAddress = coProSnap.data()?.address ?? "";
+    const today = new Date().toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+    const body = `
+<div class="m-container">
+  <div class="m-card">
+    <h1>Bon de commande</h1>
+    <p class="subtitle">${escapeHtml(coProName)}${coProAddress ? ` · ${escapeHtml(coProAddress)}` : ""}</p>
+
+    <div style="background:#f1f5f9;border-left:4px solid #16A34A;border-radius:0 10px 10px 0;padding:16px 20px;margin-bottom:24px">
+      <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(demande.title)}</p>
+      ${demande.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(demande.description)}</p>` : ""}
+      <p style="color:#16A34A;font-size:15px;font-weight:700;margin:0">
+        Montant retenu : ${offer?.priceTTC?.toLocaleString("fr-FR", { style: "currency", currency: "EUR" }) ?? "—"} TTC
+      </p>
+    </div>
+
+    <p style="color:#374151;font-size:14px;margin-bottom:6px">Prestataire : <strong>${escapeHtml(contactName)}</strong></p>
+    <p style="color:#374151;font-size:14px;margin-bottom:20px">Date : <strong>${today}</strong></p>
+
+    <p style="color:#374151;font-size:15px;font-weight:600;margin-bottom:10px">Votre signature *</p>
+    <p style="color:#64748b;font-size:13px;margin-bottom:12px">Signez dans le cadre ci-dessous avec votre doigt ou votre souris.</p>
+
+    <div style="position:relative;margin-bottom:8px">
+      <canvas id="sigCanvas" width="520" height="180"
+        style="border:2px solid #2563eb;border-radius:12px;cursor:crosshair;touch-action:none;display:block;max-width:100%;background:#fff">
+      </canvas>
+      <button id="clearBtn" type="button"
+        style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.9);border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#64748b">
+        Effacer
+      </button>
+    </div>
+    <p style="color:#94a3b8;font-size:12px;margin-bottom:20px">En signant, vous acceptez les termes du bon de commande ci-dessus.</p>
+
+    <button id="submitBtn"
+      style="display:block;width:100%;background:#16A34A;color:#fff;border:none;padding:16px;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:0.2px">
+      ✅ Signer et valider
+    </button>
+    <div class="m-error" id="errMsg"></div>
+    <div class="m-success" id="okMsg"></div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById("sigCanvas");
+const ctx = canvas.getContext("2d");
+ctx.strokeStyle = "#1e293b";
+ctx.lineWidth = 2.5;
+ctx.lineCap = "round";
+ctx.lineJoin = "round";
+let drawing = false, isEmpty = true;
+
+function getPos(e) {
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / r.width;
+  const scaleY = canvas.height / r.height;
+  const src = e.touches ? e.touches[0] : e;
+  return { x: (src.clientX - r.left) * scaleX, y: (src.clientY - r.top) * scaleY };
+}
+canvas.addEventListener("mousedown",  (e) => { drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
+canvas.addEventListener("mousemove",  (e) => { if (!drawing) return; isEmpty = false; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); });
+canvas.addEventListener("mouseup",    () => drawing = false);
+canvas.addEventListener("mouseleave", () => drawing = false);
+canvas.addEventListener("touchstart", (e) => { e.preventDefault(); drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
+canvas.addEventListener("touchmove",  (e) => { e.preventDefault(); if (!drawing) return; isEmpty = false; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }, { passive: false });
+canvas.addEventListener("touchend",   () => drawing = false);
+document.getElementById("clearBtn").addEventListener("click", () => { ctx.clearRect(0, 0, canvas.width, canvas.height); isEmpty = true; });
+
+document.getElementById("submitBtn").addEventListener("click", async () => {
+  if (isEmpty) { const e = document.getElementById("errMsg"); e.textContent = "Veuillez signer avant de valider."; e.style.display = "block"; return; }
+  const btn = document.getElementById("submitBtn");
+  const errEl = document.getElementById("errMsg");
+  const okEl = document.getElementById("okMsg");
+  errEl.style.display = "none"; okEl.style.display = "none";
+  btn.disabled = true; btn.textContent = "Envoi en cours…";
+  try {
+    const dataUrl = canvas.toDataURL("image/png");
+    const blob = await (await fetch(dataUrl)).blob();
+    const fd = new FormData();
+    fd.append("signature", blob, "signature.png");
+    const r = await fetch("/sign-devis/${token}", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Erreur");
+    okEl.textContent = "✅ Bon de commande signé avec succès. Merci !";
+    okEl.style.display = "block";
+    document.getElementById("sigCanvas").style.display = "none";
+    document.getElementById("clearBtn").style.display = "none";
+    btn.style.display = "none";
+  } catch(err) {
+    errEl.textContent = err.message;
+    errEl.style.display = "block";
+    btn.disabled = false; btn.textContent = "✅ Signer et valider";
+  }
+});
+</script>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell("Signer le bon de commande — Maintena", body));
+  });
+
+  // ── Traitement de la signature ──
+  const signatureUploadMiddleware = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
+  app.post("/sign-devis/:token", signatureUploadMiddleware.single("signature"), async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Service indisponible" });
+
+    const tokenSnap = await db.collection("devisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature") {
+      return res.status(404).json({ error: "Token invalide" });
+    }
+    const { coProId, demandeId, offerId } = tokenSnap.data()!;
+
+    const demandeRef = db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId);
+    const demandeSnap = await demandeRef.get();
+    if (!demandeSnap.exists) return res.status(404).json({ error: "Demande introuvable" });
+
+    const devis: any[] = demandeSnap.data()!.devis ?? [];
+    const idx = devis.findIndex((o: any) => o.id === offerId);
+    if (idx === -1) return res.status(404).json({ error: "Devis introuvable" });
+    if (devis[idx].signedAt) return res.status(409).json({ error: "Déjà signé" });
+
+    const signatureFile = (req as any).file as Express.Multer.File | undefined;
+    if (!signatureFile) return res.status(400).json({ error: "Signature requise" });
+
+    let signatureUrl: string | undefined;
+    const bucket = getAdminStorage();
+    if (bucket) {
+      const { randomBytes } = await import("crypto");
+      const downloadToken = randomBytes(16).toString("hex");
+      const storagePath = `signatures/${coProId}/${demandeId}/${offerId}.png`;
+      await bucket.file(storagePath).save(signatureFile.buffer, {
+        metadata: {
+          contentType: "image/png",
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
+      });
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      signatureUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+    }
+
+    const signedAt = new Date().toISOString();
+    devis[idx] = { ...devis[idx], signatureUrl, signedAt };
+    await demandeRef.update({ devis });
+    await db.collection("devisTokens").doc(token).update({ signedAt });
+
+    console.log(`[signature] Devis ${offerId} signé pour ${coProId}/${demandeId}`);
+    return res.json({ ok: true, signedAt });
+  });
+
+  // Formulaire public pour les prestataires
+  app.get("/devis-form/:token", async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    const db = getAdminDb();
+    if (!db) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+
+    const tokenSnap = await db.collection("devisTokens").doc(token).get();
+    if (!tokenSnap.exists) {
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide</h1><p>Ce lien de devis est invalide ou a expiré.</p></div></div>`));
+    }
+    const tokenData = tokenSnap.data()!;
+    const { coProId, demandeId } = tokenData;
+
+    const demandeSnap = await db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId).get();
+    if (!demandeSnap.exists) {
+      return res.status(404).send(pageShell("Demande introuvable", `<div class="m-container"><div class="m-card"><h1>Demande introuvable</h1></div></div>`));
+    }
+    const demande = demandeSnap.data()!;
+    const offer = (demande.devis ?? []).find((o: any) => o.token === token);
+    if (!offer) return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide</h1></div></div>`));
+
+    if (offer.submitted) {
+      return res.send(pageShell("Devis déjà soumis", `
+<div class="m-container"><div class="m-card">
+  <h1>✅ Devis déjà soumis</h1>
+  <p>Vous avez déjà soumis un devis de <strong>${offer.priceTTC?.toLocaleString("fr-FR")} € TTC</strong> pour cette demande.</p>
+  <p style="margin-top:12px;color:#64748b">Merci pour votre réponse.</p>
+</div></div>`));
+    }
+
+    const coProSnap = await db.collection("copros").doc(coProId).get();
+    const coProName = coProSnap.data()?.name ?? "Résidence";
+    const coProAddress = coProSnap.data()?.address ?? "";
+
+    const body = `
+<div class="m-container">
+  <div class="m-card">
+    <h1>Demande de devis</h1>
+    <p class="subtitle">${escapeHtml(coProName)}${coProAddress ? ` · ${escapeHtml(coProAddress)}` : ""}</p>
+
+    <div style="background:#f1f5f9;border-radius:12px;padding:16px;margin-bottom:24px">
+      <strong style="font-size:16px;color:#0f172a">${escapeHtml(demande.title)}</strong>
+      ${demande.description ? `<p style="color:#475569;margin-top:8px;font-size:14px">${escapeHtml(demande.description)}</p>` : ""}
+      ${demande.urgency === "urgent" ? `<span style="display:inline-block;margin-top:8px;background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700">⚡ Urgent</span>` : ""}
+    </div>
+
+    <p style="color:#374151;margin-bottom:20px">Bonjour <strong>${escapeHtml(tokenData.contactName)}</strong>, veuillez renseigner votre devis ci-dessous.</p>
+
+    <form id="devisForm" enctype="multipart/form-data">
+      <label class="m-label">Prix TTC *</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <input class="m-input" type="number" id="priceTTC" name="priceTTC" min="0" step="0.01" placeholder="1 250,00" required style="flex:1;margin-bottom:0" />
+        <span style="font-weight:700;font-size:18px;color:#64748b">€</span>
+      </div>
+
+      <label class="m-label">Document devis *<span style="font-size:12px;font-weight:400;color:#94a3b8"> (PDF, image — max 10 Mo)</span></label>
+      <label id="fileLabel" style="display:flex;align-items:center;gap:10px;border:2px dashed #cbd5e1;border-radius:10px;padding:16px;cursor:pointer;background:#f8fafc;margin-bottom:16px;transition:border-color .2s">
+        <span style="font-size:24px">📎</span>
+        <span id="fileName" style="color:#64748b;font-size:14px">Cliquez pour choisir un fichier…</span>
+        <input type="file" id="devisFile" name="devisFile" accept=".pdf,.jpg,.jpeg,.png,.webp" required style="display:none" />
+      </label>
+
+      <label class="m-label">Commentaire / Détail</label>
+      <textarea class="m-input" id="description" name="description" rows="3" placeholder="Matériaux utilisés, délai d'intervention, conditions…" style="resize:vertical"></textarea>
+
+      <button class="m-btn" type="submit">Envoyer mon devis</button>
+    </form>
+    <div class="m-error" id="errMsg"></div>
+    <div class="m-success" id="okMsg"></div>
+  </div>
+</div>
+<script>
+document.getElementById("devisFile").addEventListener("change", function() {
+  document.getElementById("fileName").textContent = this.files[0]?.name ?? "Aucun fichier";
+  document.getElementById("fileLabel").style.borderColor = this.files[0] ? "#2563eb" : "#cbd5e1";
+});
+document.getElementById("devisForm").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  const btn = this.querySelector("button");
+  const errEl = document.getElementById("errMsg");
+  const okEl = document.getElementById("okMsg");
+  errEl.style.display = "none"; okEl.style.display = "none";
+  const price = parseFloat(document.getElementById("priceTTC").value);
+  const file = document.getElementById("devisFile").files[0];
+  if (!price || price <= 0) { errEl.textContent = "Veuillez saisir un montant TTC valide."; errEl.style.display="block"; return; }
+  if (!file) { errEl.textContent = "Veuillez joindre votre document devis."; errEl.style.display="block"; return; }
+  if (file.size > 10 * 1024 * 1024) { errEl.textContent = "Fichier trop volumineux (max 10 Mo)."; errEl.style.display="block"; return; }
+  btn.disabled = true; btn.textContent = "Envoi en cours…";
+  try {
+    const fd = new FormData();
+    fd.append("priceTTC", String(price));
+    fd.append("description", document.getElementById("description").value);
+    fd.append("devisFile", file);
+    const r = await fetch("/devis-form/${escapeHtml(token)}", { method:"POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Erreur");
+    okEl.textContent = "✅ Devis soumis avec succès. Merci !";
+    okEl.style.display = "block";
+    this.style.display = "none";
+  } catch(err) {
+    errEl.textContent = err.message;
+    errEl.style.display = "block";
+    btn.disabled = false; btn.textContent = "Envoyer mon devis";
+  }
+});
+</script>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell("Soumettre mon devis — Maintena", body, "← Accueil", "/"));
+  });
+
+  const devisUploadMiddleware = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/jpg"];
+      cb(null, allowed.includes(file.mimetype));
+    },
+  });
+
+  app.post("/devis-form/:token", devisUploadMiddleware.single("devisFile"), async (req: Request, res: Response) => {
+    const token = req.params.token as string;
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Service indisponible" });
+
+    const tokenSnap = await db.collection("devisTokens").doc(token).get();
+    if (!tokenSnap.exists) return res.status(404).json({ error: "Token invalide" });
+    const { coProId, demandeId, offerId } = tokenSnap.data()!;
+
+    const demandeRef = db.collection("copros").doc(coProId).collection("demandesDevis").doc(demandeId);
+    const demandeSnap = await demandeRef.get();
+    if (!demandeSnap.exists) return res.status(404).json({ error: "Demande introuvable" });
+
+    const devis: any[] = demandeSnap.data()!.devis ?? [];
+    const idx = devis.findIndex((o: any) => o.token === token);
+    if (idx === -1) return res.status(404).json({ error: "Offre introuvable" });
+    if (devis[idx].submitted) return res.status(409).json({ error: "Devis déjà soumis" });
+
+    const priceTTC = parseFloat(req.body.priceTTC);
+    if (isNaN(priceTTC) || priceTTC <= 0) return res.status(400).json({ error: "Prix TTC invalide" });
+
+    const uploadedFile = (req as any).file as Express.Multer.File | undefined;
+    if (!uploadedFile) return res.status(400).json({ error: "Document devis requis" });
+
+    // Upload du fichier dans Firebase Storage
+    let devisFileUrl: string | undefined;
+    const bucket = getAdminStorage();
+    if (bucket) {
+      const ext = uploadedFile.originalname.split(".").pop() ?? "pdf";
+      const storagePath = `devis/${coProId}/${demandeId}/${offerId ?? token}.${ext}`;
+      const { randomBytes } = await import("crypto");
+      const downloadToken = randomBytes(16).toString("hex");
+      const fileRef = bucket.file(storagePath);
+      await fileRef.save(uploadedFile.buffer, {
+        metadata: {
+          contentType: uploadedFile.mimetype,
+          metadata: { firebaseStorageDownloadTokens: downloadToken },
+        },
+      });
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      devisFileUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+    }
+
+    devis[idx] = {
+      ...devis[idx],
+      priceTTC,
+      description: (req.body.description ?? "").trim(),
+      ...(devisFileUrl ? { devisFileUrl } : {}),
+      submitted: true,
+      submittedAt: new Date().toISOString(),
+    };
+
+    const allSubmitted = devis.every((o: any) => o.submitted);
+    const anySubmitted = devis.some((o: any) => o.submitted);
+    const newStatus = allSubmitted ? "devis_recus" : anySubmitted ? "devis_recus" : "devis_demandes";
+
+    await demandeRef.update({ devis, status: newStatus });
+    await db.collection("devisTokens").doc(token).update({ submittedAt: new Date().toISOString() });
+
+    return res.json({ ok: true });
+  });
+
+  // ─── Page d'invitation (rejoindre une copropriété via lien partagé) ──────────
+  app.get("/rejoindre/:code", async (req: Request, res: Response) => {
+    const code = String(req.params.code).toUpperCase().trim();
+    const db = getAdminDb();
+
+    let coProName = "";
+    let role = "";
+    let categoryLabel = "";
+
+    if (db) {
+      try {
+        const codeDoc = await db.collection("inviteCodes").doc(code).get();
+        if (codeDoc.exists) {
+          const data = codeDoc.data()!;
+          coProName = data.coProName || data.coProId || "";
+          role = data.role || "";
+          if (data.category && CATEGORY_LABELS_SERVER[data.category]) {
+            categoryLabel = CATEGORY_LABELS_SERVER[data.category];
+          }
+        }
+      } catch { /* code non trouvé — page générique */ }
+    }
+
+    const isPrestataire = role === "prestataire";
+    const roleLabel = role === "propriétaire" ? "Propriétaire"
+      : role === "conseil" ? "Conseil syndical"
+      : role === "collaborateur" ? "Collaborateur"
+      : isPrestataire ? `Prestataire${categoryLabel ? ` — ${categoryLabel}` : ""}`
+      : "";
+    const roleColor = isPrestataire ? "#7C3AED"
+      : role === "conseil" ? "#0891B2"
+      : role === "propriétaire" ? "#059669"
+      : "#2563EB";
+
+    const webAppUrl = "https://maintena-pro.fr";
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Rejoindre Maintena${coProName ? ` — ${coProName}` : ""}</title>
+  <meta name="description" content="Vous avez été invité à rejoindre${coProName ? ` ${coProName}` : " une copropriété"} sur Maintena.">
+  <meta property="og:title" content="Invitation Maintena${coProName ? ` — ${coProName}` : ""}">
+  <meta property="og:description" content="Votre invitation est prête. Téléchargez l'application et entrez le code pour rejoindre.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --navy: #0B1628; --blue: #2563EB; --blue-light: #EFF6FF;
+      --green: #10B981; --purple: #7C3AED; --amber: #F59E0B;
+      --text: #0f172a; --muted: #64748b; --border: #e2e8f0;
+      --bg: #f4f7ff; --white: #fff;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* NAV */
+    nav {
+      background: var(--navy); padding: 16px 20px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo-circle {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: var(--blue); display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0;
+    }
+    nav span { color: #fff; font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+    nav small { color: rgba(255,255,255,0.45); font-size: 12px; margin-left: auto; }
+
+    /* MAIN */
+    main { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
+
+    /* HERO */
+    .hero {
+      background: var(--navy); border-radius: 20px;
+      padding: 28px 24px; margin-bottom: 16px;
+      text-align: center; color: white;
+    }
+    .hero-icon {
+      width: 64px; height: 64px; border-radius: 20px;
+      background: rgba(37,99,235,0.25); border: 1px solid rgba(37,99,235,0.4);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; margin: 0 auto 16px;
+    }
+    .hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.25; }
+    .hero h1 span { color: rgba(255,255,255,0.55); font-weight: 400; font-size: 16px; display: block; margin-top: 6px; }
+    .role-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-top: 14px; padding: 6px 14px; border-radius: 20px;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.3px;
+    }
+
+    /* CODE CARD */
+    .code-card {
+      background: var(--white); border-radius: 20px;
+      border: 1px solid var(--border); padding: 24px; margin-bottom: 16px;
+      box-shadow: 0 4px 20px rgba(15,23,42,0.07);
+    }
+    .code-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1px; color: var(--muted); text-align: center; margin-bottom: 12px;
+    }
+    .code-display {
+      background: var(--blue-light); border: 2px solid var(--blue);
+      border-radius: 16px; padding: 20px; text-align: center;
+      font-size: 38px; font-weight: 800; letter-spacing: 10px;
+      color: var(--blue); font-family: 'SF Mono', 'Fira Code', monospace;
+      margin-bottom: 12px; cursor: pointer; user-select: all;
+      -webkit-user-select: all;
+    }
+    .copy-btn {
+      width: 100%; padding: 14px; border: none; border-radius: 12px;
+      background: var(--blue); color: white; font-size: 15px; font-weight: 700;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .2s, transform .15s;
+    }
+    .copy-btn:active { transform: scale(0.97); }
+    .copy-btn.copied { background: var(--green); }
+    .copy-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    /* STEPS */
+    .steps { background: var(--white); border-radius: 20px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 16px; }
+    .steps-title { padding: 16px 20px 12px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+    .step {
+      display: flex; align-items: flex-start; gap: 14px;
+      padding: 14px 20px; border-top: 1px solid var(--border);
+    }
+    .step-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--blue); color: #fff; font-size: 13px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+    }
+    .step-content h3 { font-size: 14px; font-weight: 700; color: var(--text); }
+    .step-content p { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+
+    /* CTA BUTTONS */
+    .cta-section { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    .btn-primary {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 17px 20px; border-radius: 16px; border: none; cursor: pointer;
+      font-size: 16px; font-weight: 700; text-decoration: none;
+      background: var(--navy); color: white;
+      transition: opacity .2s, transform .15s;
+    }
+    .btn-primary:active { transform: scale(0.97); }
+    .btn-secondary {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 15px 20px; border-radius: 16px; cursor: pointer;
+      font-size: 15px; font-weight: 600; text-decoration: none;
+      background: var(--white); color: var(--navy);
+      border: 1.5px solid var(--border);
+      transition: border-color .2s;
+    }
+    .btn-icon { font-size: 20px; }
+    .btn-label { display: flex; flex-direction: column; align-items: flex-start; }
+    .btn-label small { font-size: 11px; font-weight: 400; opacity: 0.7; }
+    .btn-label strong { font-size: 15px; }
+
+    /* WHAT IS */
+    .what-is {
+      background: rgba(37,99,235,0.05); border: 1px solid rgba(37,99,235,0.15);
+      border-radius: 16px; padding: 16px 18px; margin-bottom: 16px;
+    }
+    .what-is h3 { font-size: 13px; font-weight: 700; color: var(--blue); margin-bottom: 8px; }
+    .what-is p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .what-is ul { padding-left: 18px; margin-top: 8px; font-size: 13px; color: var(--muted); line-height: 1.8; }
+
+    footer { text-align: center; font-size: 11px; color: var(--muted); padding-top: 8px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo-circle">M</div>
+    <span>Maintena</span>
+    <small>La preuve que votre résidence est entretenue</small>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <div class="hero-icon">🏢</div>
+      <h1>
+        Vous êtes invité${isPrestataire ? "(e)" : "(e)"}
+        ${coProName
+          ? `<span>à rejoindre <strong>${coProName}</strong></span>`
+          : "<span>à rejoindre une copropriété</span>"
+        }
+      </h1>
+      ${roleLabel
+        ? `<div class="role-badge" style="background:${roleColor}22;color:${roleColor};border:1px solid ${roleColor}44">${roleLabel}</div>`
+        : ""
+      }
+    </div>
+
+    <div class="code-card">
+      <div class="code-label">Votre code d'invitation</div>
+      <div class="code-display" id="code" onclick="copyCode()">${code}</div>
+      <button class="copy-btn" id="copy-btn" onclick="copyCode()">
+        <span id="copy-icon">📋</span>
+        <span id="copy-text">Copier le code</span>
+      </button>
+      <p class="copy-hint">Vous aurez besoin de ce code lors de votre inscription</p>
+    </div>
+
+    <div class="steps">
+      <div class="steps-title">Comment rejoindre</div>
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>${isPrestataire ? "Téléchargez Maintena" : "Téléchargez l'application"}</h3>
+          <p>${isPrestataire ? "Disponible sur Android (Google Play) et sur le web" : "Disponible sur Android et directement sur votre navigateur"}</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Créez votre compte</h3>
+          <p>Renseignez votre nom, email et mot de passe. C'est gratuit.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Entrez le code ci-dessus</h3>
+          <p>Une fois connecté, entrez le code <strong>${code}</strong> dans "Rejoindre une résidence".</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-section">
+      <a class="btn-primary" href="${googlePlayUrl}" target="_blank" rel="noopener">
+        <span class="btn-icon">📱</span>
+        <span class="btn-label">
+          <small>Télécharger sur</small>
+          <strong>Google Play (Android)</strong>
+        </span>
+      </a>
+      <a class="btn-secondary" href="${webAppUrl}" target="_blank" rel="noopener">
+        <span class="btn-icon">🌐</span>
+        <span class="btn-label">
+          <small>Ou accéder directement via</small>
+          <strong>Navigateur web</strong>
+        </span>
+      </a>
+    </div>
+
+    <div class="what-is">
+      <h3>Qu'est-ce que Maintena ?</h3>
+      <p>
+        ${isPrestataire
+          ? "Maintena est l'application utilisée par votre client syndic pour suivre et tracer toutes les interventions de la résidence."
+          : "Maintena vous permet de suivre l'entretien de votre résidence : interventions, alertes, signalements et contrôle des comptes."
+        }
+      </p>
+      <ul>
+        ${isPrestataire ? `
+          <li>Recevez vos interventions directement</li>
+          <li>Déclarez votre passage en 30 secondes</li>
+          <li>Photos + rapport = preuve de votre travail</li>
+        ` : `
+          <li>Carnet d'entretien (ascenseur, VMC, portail…)</li>
+          <li>Signalement de problèmes</li>
+          <li>Annonces et alertes de la résidence</li>
+        `}
+      </ul>
+    </div>
+
+    <footer>
+      &copy; ${new Date().getFullYear()} Maintena · Profusion Numérik · <a href="https://maintena-pro.fr" style="color:inherit">maintena-pro.fr</a>
+    </footer>
+  </main>
+
+  <script>
+    function copyCode() {
+      const code = "${code}";
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(code).then(onCopied).catch(fallback);
+      } else { fallback(); }
+      function fallback() {
+        const el = document.getElementById("code");
+        const range = document.createRange();
+        range.selectNode(el);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        document.execCommand("copy");
+        window.getSelection().removeAllRanges();
+        onCopied();
+      }
+      function onCopied() {
+        const btn = document.getElementById("copy-btn");
+        const icon = document.getElementById("copy-icon");
+        const text = document.getElementById("copy-text");
+        btn.classList.add("copied");
+        icon.textContent = "✅";
+        text.textContent = "Code copié !";
+        setTimeout(() => {
+          btn.classList.remove("copied");
+          icon.textContent = "📋";
+          text.textContent = "Copier le code";
+        }, 2500);
+      }
+    }
+  </script>
+</body>
+</html>`;
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  });
+
+  // ─── Page marketing générique pour les prestataires ──────────────────────────
+  app.get("/prestataire", (_req: Request, res: Response) => {
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Maintena · Espace prestataire</title>
+  <meta name="description" content="Maintena est l'application de suivi des interventions utilisée par les syndics. Rejoignez vos clients sur Maintena pour recevoir et déclarer vos interventions facilement.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --navy: #0B1628; --blue: #2563EB; --green: #10B981; --purple: #7C3AED; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --bg: #f4f7ff; --white: #fff; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    nav { background: var(--navy); padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
+    .logo-circle { width: 36px; height: 36px; border-radius: 10px; background: var(--blue); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0; }
+    nav span { color: #fff; font-size: 17px; font-weight: 700; }
+    main { max-width: 480px; margin: 0 auto; padding: 28px 16px 48px; }
+    .hero-card { background: var(--navy); border-radius: 22px; padding: 32px 24px; margin-bottom: 20px; text-align: center; }
+    .hero-badge { display: inline-block; background: rgba(124,58,237,0.25); color: #c084fc; border: 1px solid rgba(124,58,237,0.4); border-radius: 20px; padding: 6px 16px; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 18px; }
+    .hero-card h1 { color: #fff; font-size: 26px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.2; }
+    .hero-card p { color: rgba(255,255,255,0.55); font-size: 14px; margin-top: 12px; line-height: 1.6; }
+    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .stat-card { background: var(--white); border-radius: 16px; border: 1px solid var(--border); padding: 16px 12px; text-align: center; }
+    .stat-num { font-size: 24px; font-weight: 800; color: var(--blue); }
+    .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+    .features { background: var(--white); border-radius: 20px; border: 1px solid var(--border); overflow: hidden; margin-bottom: 20px; }
+    .feature { display: flex; align-items: flex-start; gap: 14px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+    .feature:last-child { border-bottom: none; }
+    .feature-icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+    .feature h3 { font-size: 14px; font-weight: 700; }
+    .feature p { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+    .cta-card { background: linear-gradient(135deg, var(--blue) 0%, #1D4ED8 100%); border-radius: 20px; padding: 24px; text-align: center; margin-bottom: 16px; }
+    .cta-card h2 { color: #fff; font-size: 18px; font-weight: 800; margin-bottom: 8px; }
+    .cta-card p { color: rgba(255,255,255,0.75); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+    .btn-primary { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 20px; border-radius: 14px; font-size: 15px; font-weight: 700; text-decoration: none; background: #fff; color: var(--blue); margin-bottom: 10px; }
+    .btn-secondary { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 20px; border-radius: 14px; font-size: 14px; font-weight: 600; text-decoration: none; background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.9); border: 1px solid rgba(255,255,255,0.25); }
+    .howto { background: var(--white); border-radius: 20px; border: 1px solid var(--border); padding: 20px 18px; margin-bottom: 16px; }
+    .howto h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 14px; }
+    .step { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+    .step:last-child { margin-bottom: 0; }
+    .step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .step p { font-size: 13px; color: var(--text); line-height: 1.5; }
+    .step p strong { color: var(--navy); }
+    footer { text-align: center; font-size: 11px; color: var(--muted); }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo-circle">M</div>
+    <span>Maintena</span>
+  </nav>
+  <main>
+    <div class="hero-card">
+      <div class="hero-badge">ESPACE PRESTATAIRE</div>
+      <h1>Recevez vos interventions directement sur votre téléphone</h1>
+      <p>Votre client syndic utilise Maintena pour suivre les interventions de sa résidence. Rejoignez-le pour déclarer vos passages facilement.</p>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-num">30s</div>
+        <div class="stat-label">Pour déclarer une intervention</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">0€</div>
+        <div class="stat-label">Compte prestataire gratuit</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">100%</div>
+        <div class="stat-label">Vos passages tracés</div>
+      </div>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <span class="feature-icon">📲</span>
+        <div>
+          <h3>Recevez vos missions</h3>
+          <p>Le syndic vous notifie directement via l'application pour chaque nouvelle intervention planifiée.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">📷</span>
+        <div>
+          <h3>Déclarez votre passage en photos</h3>
+          <p>Prenez des photos avant/après et rédigez un bref rapport. La preuve de votre intervention est horodatée automatiquement.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">✅</span>
+        <div>
+          <h3>Clôturez en un tap</h3>
+          <p>Marquez l'intervention comme terminée depuis votre téléphone. Le syndic est notifié instantanément.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <span class="feature-icon">📋</span>
+        <div>
+          <h3>Historique complet</h3>
+          <p>Retrouvez toutes vos interventions passées avec photos, rapports et dates pour justifier votre travail.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-card">
+      <h2>Votre compte prestataire est gratuit</h2>
+      <p>Demandez le code d'invitation à votre client syndic, puis téléchargez l'application.</p>
+      <a class="btn-primary" href="${googlePlayUrl}" target="_blank" rel="noopener">
+        📱 Télécharger sur Google Play
+      </a>
+      <a class="btn-secondary" href="https://maintena-pro.fr" target="_blank" rel="noopener">
+        🌐 Accéder via le navigateur
+      </a>
+    </div>
+
+    <div class="howto">
+      <h3>Comment démarrer</h3>
+      <div class="step">
+        <div class="step-num">1</div>
+        <p><strong>Obtenez votre code</strong> — Demandez le code d'invitation spécifique à votre domaine (ex: code nettoyage, ascenseur…) à votre client syndic.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <p><strong>Téléchargez Maintena</strong> — Sur Android via Google Play ou directement sur le navigateur web.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <p><strong>Créez votre compte</strong> — Gratuit, en 2 minutes. Entrez le code d'invitation pour rejoindre la résidence de votre client.</p>
+      </div>
+    </div>
+
+    <footer>
+      &copy; ${new Date().getFullYear()} Maintena · Profusion Numérik · <a href="https://maintena-pro.fr">maintena-pro.fr</a>
+    </footer>
+  </main>
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   const db = getAdminDb();
   if (db) {

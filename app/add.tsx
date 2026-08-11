@@ -94,11 +94,11 @@ function todayDDMMYYYY(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  return `${dd}-${mm}-${yyyy}`;
 }
 
 function parseDDMMYYYY(str: string): Date | null {
-  const parts = str.split("/");
+  const parts = str.split("-");
   if (parts.length !== 3) return null;
 
   const day = parseInt(parts[0], 10);
@@ -117,8 +117,8 @@ function parseDDMMYYYY(str: string): Date | null {
 function formatDateInput(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
 }
 
 function isTodayOrFuture(date: Date): boolean {
@@ -621,7 +621,7 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    if (!currentCopro?.latitude || !currentCopro?.longitude) {
+    if (!currentCopro?.latitude || !currentCopro?.longitude || !currentCopro?.requireOnsiteCheck) {
       setLocationStatus("no-coords");
       return;
     }
@@ -727,7 +727,7 @@ export default function AddInterventionScreen() {
     const d = parseDDMMYYYY(str);
 
     if (!d) {
-      setDateError("Date invalide. Format : JJ/MM/AAAA");
+      setDateError("Date invalide. Format : JJ-MM-AAAA");
       return null;
     }
 
@@ -1562,7 +1562,7 @@ export default function AddInterventionScreen() {
               style={styles.dateInput}
               value={dateStr}
               onChangeText={handleDateChange}
-              placeholder="JJ/MM/AAAA"
+              placeholder="JJ-MM-AAAA"
               placeholderTextColor={COLORS.textMuted}
               keyboardType="number-pad"
               returnKeyType="done"
