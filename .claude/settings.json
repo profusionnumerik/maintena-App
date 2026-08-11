@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npx expo *)",
-      "Bash(grep -v \"node_modules\\\\|\\\\.js$\")"
+      "Bash(grep -v \"node_modules\\\\|\\\\.js$\")",
+      "Bash(eas update *)"
     ]
   }
 }

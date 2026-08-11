@@ -36,7 +36,9 @@ export async function registerPushToken(uid: string): Promise<void> {
 
   if (finalStatus !== "granted") return;
 
-  const token = (await Notifications.getExpoPushTokenAsync()).data;
+  const token = (await Notifications.getExpoPushTokenAsync({
+    projectId: "f942f5d6-18ac-41c4-89a0-4d9b2fe98138",
+  })).data;
 
   await updateDoc(doc(db, "users", uid), { pushToken: token }).catch(() => {});
 }

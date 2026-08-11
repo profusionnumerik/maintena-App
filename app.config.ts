@@ -57,6 +57,7 @@ const config: ExpoConfig = {
       'ACCESS_COARSE_LOCATION',
       'ACCESS_FINE_LOCATION',
       'CAMERA',
+      'POST_NOTIFICATIONS',
     ],
   },
   web: {
@@ -68,6 +69,7 @@ const config: ExpoConfig = {
     'expo-font',
     'expo-web-browser',
     'expo-updates',
+    'expo-notifications',
     [
       'expo-image-picker',
       {
