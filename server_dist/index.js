@@ -5694,6 +5694,329 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(html);
   });
+  function buildTenantInvitationEmail(p) {
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invitation Maintena</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f7ff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;padding:0 16px 40px;">
+
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="display:inline-block;background:#0B1628;border-radius:16px;padding:12px 20px;">
+        <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:-0.5px;">Maintena</span>
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div style="background:#fff;border-radius:20px;padding:32px 28px;box-shadow:0 4px 24px rgba(11,22,40,0.08);">
+      <p style="color:#64748b;font-size:15px;margin:0 0 8px;">Bonjour ${p.tenantFirstName},</p>
+      <h1 style="color:#0f172a;font-size:22px;font-weight:700;margin:0 0 16px;line-height:1.3;">
+        ${p.landlordName} vous invite \xE0 rejoindre Maintena
+      </h1>
+      <div style="background:#f8fafc;border-radius:12px;padding:14px 16px;border:1px solid #e2e8f0;margin-bottom:24px;">
+        <p style="color:#64748b;font-size:12px;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.5px;">Logement</p>
+        <p style="color:#0f172a;font-size:15px;font-weight:600;margin:0;">\u{1F4CD} ${p.propertyAddress}</p>
+      </div>
+
+      <p style="color:#475569;font-size:14px;margin:0 0 20px;line-height:1.6;">
+        Gr\xE2ce \xE0 Maintena, vous pourrez signaler des probl\xE8mes directement \xE0 votre bailleur, acc\xE9der \xE0 vos documents et suivre l'avancement des interventions.
+      </p>
+
+      <!-- Token -->
+      <div style="background:linear-gradient(135deg,#1e0a3c,#3b0f8c);border-radius:16px;padding:24px;text-align:center;margin-bottom:24px;">
+        <p style="color:rgba(255,255,255,0.6);font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:1px;">Votre code d'invitation</p>
+        <div style="background:rgba(255,255,255,0.12);border-radius:12px;padding:16px 24px;display:inline-block;">
+          <span style="color:#fff;font-size:32px;font-weight:800;letter-spacing:6px;font-family:monospace;">${p.token}</span>
+        </div>
+        <p style="color:rgba(255,255,255,0.5);font-size:11px;margin:12px 0 0;">Valable 30 jours</p>
+      </div>
+
+      <!-- Steps -->
+      <p style="color:#0f172a;font-size:14px;font-weight:600;margin:0 0 12px;">Comment rejoindre :</p>
+      <ol style="color:#475569;font-size:14px;line-height:1.8;margin:0 0 24px;padding-left:20px;">
+        <li>T\xE9l\xE9chargez l'application <strong>Maintena</strong></li>
+        <li>Cr\xE9ez votre compte ou connectez-vous</li>
+        <li>Dans l'onboarding, choisissez <strong>"J'ai une invitation locataire"</strong></li>
+        <li>Saisissez le code ci-dessus : <strong style="font-family:monospace;letter-spacing:2px;">${p.token}</strong></li>
+      </ol>
+
+      <!-- Download buttons -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;">
+        <a href="${p.googlePlayUrl}" style="display:inline-block;background:#0B1628;color:#fff;border-radius:10px;padding:10px 18px;text-decoration:none;font-size:13px;font-weight:600;">
+          \u{1F4F1} Android (Google Play)
+        </a>
+      </div>
+
+      <!-- Web fallback -->
+      <div style="border-top:1px solid #f1f5f9;padding-top:20px;">
+        <p style="color:#94a3b8;font-size:12px;margin:0 0 8px;">Ou directement depuis votre navigateur :</p>
+        <a href="${p.webLink}" style="color:#8B5CF6;font-size:13px;word-break:break-all;">${p.webLink}</a>
+      </div>
+    </div>
+
+    <p style="text-align:center;color:#94a3b8;font-size:12px;margin-top:20px;">
+      Cet email a \xE9t\xE9 envoy\xE9 par ${p.landlordName} via Maintena.<br>
+      Si vous n'attendiez pas cet email, vous pouvez l'ignorer.
+    </p>
+  </div>
+</body>
+</html>`;
+  }
+  app2.post("/api/rental/invite-tenant", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { propertyId, firstName, lastName, email, phone, leaseStartDate, leaseEndDate } = req.body;
+    if (!propertyId || !firstName || !lastName || !email) {
+      return res.status(400).json({ error: "Champs requis manquants" });
+    }
+    const propertyDoc = await db2.collection("properties").doc(propertyId).get();
+    if (!propertyDoc.exists || propertyDoc.data()?.landlordId !== decoded.uid) {
+      return res.status(403).json({ error: "Acc\xE8s refus\xE9" });
+    }
+    const property = propertyDoc.data();
+    const aptSuffix = property.apartmentNumber ? `, Apt. ${property.apartmentNumber}` : "";
+    const propertyAddress = `${property.address}${aptSuffix}, ${property.postalCode} ${property.city}`;
+    const landlordDoc = await db2.collection("users").doc(decoded.uid).get();
+    const landlordName = landlordDoc.exists ? landlordDoc.data()?.displayName ?? "Votre bailleur" : "Votre bailleur";
+    let token = "";
+    for (let attempts = 0; attempts < 5; attempts++) {
+      const candidate = randomBytes(3).toString("hex").toUpperCase();
+      const existing = await db2.collection("rentalInvitations").doc(candidate).get();
+      if (!existing.exists) {
+        token = candidate;
+        break;
+      }
+    }
+    if (!token) return res.status(500).json({ error: "Impossible de g\xE9n\xE9rer un code unique" });
+    const tenantRef = await db2.collection("properties").doc(propertyId).collection("tenants").add({
+      propertyId,
+      landlordId: decoded.uid,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.toLowerCase().trim(),
+      ...phone ? { phone: phone.trim() } : {},
+      ...leaseStartDate ? { leaseStartDate } : {},
+      ...leaseEndDate ? { leaseEndDate } : {},
+      status: "invited",
+      inviteToken: token,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    const expiresAt = /* @__PURE__ */ new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    await db2.collection("rentalInvitations").doc(token).set({
+      token,
+      landlordId: decoded.uid,
+      landlordName,
+      propertyId,
+      tenantId: tenantRef.id,
+      propertyAddress,
+      tenantEmail: email.toLowerCase().trim(),
+      tenantFirstName: firstName.trim(),
+      tenantLastName: lastName.trim(),
+      status: "pending",
+      expiresAt: expiresAt.toISOString(),
+      createdAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    try {
+      const resendClient = await getUncachableResendClient();
+      const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const baseUrl = process.env.EXPO_PUBLIC_APP_DOWNLOAD_URL ?? "https://maintena-pro.fr";
+      const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+      await resendClient.client.emails.send({
+        from,
+        to: [email.toLowerCase().trim()],
+        subject: `${landlordName} vous invite \xE0 rejoindre Maintena`,
+        html: buildTenantInvitationEmail({
+          tenantFirstName: firstName.trim(),
+          landlordName,
+          propertyAddress,
+          token,
+          webLink: `${baseUrl}/rejoindre-location/${token}`,
+          googlePlayUrl
+        })
+      });
+    } catch (emailErr) {
+      console.warn("[RENTAL] Email invitation non envoy\xE9:", emailErr);
+    }
+    return res.json({ ok: true, token, tenantId: tenantRef.id });
+  });
+  app2.get("/api/rental/invitation/:token", async (req, res) => {
+    const token = String(req.params.token).toUpperCase().trim();
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    try {
+      const invDoc = await db2.collection("rentalInvitations").doc(token).get();
+      if (!invDoc.exists) return res.status(404).json({ error: "Invitation introuvable" });
+      const inv = invDoc.data();
+      if (inv.status === "accepted") return res.status(410).json({ error: "Invitation d\xE9j\xE0 utilis\xE9e" });
+      if (new Date(inv.expiresAt) < /* @__PURE__ */ new Date()) return res.status(410).json({ error: "Invitation expir\xE9e" });
+      return res.json({
+        ok: true,
+        propertyAddress: inv.propertyAddress,
+        landlordName: inv.landlordName,
+        tenantFirstName: inv.tenantFirstName,
+        tenantLastName: inv.tenantLastName,
+        tenantEmail: inv.tenantEmail,
+        propertyId: inv.propertyId,
+        tenantId: inv.tenantId
+      });
+    } catch (e) {
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.post("/api/rental/accept-invitation", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "Token manquant" });
+    const tokenUpper = String(token).toUpperCase().trim();
+    try {
+      const invDoc = await db2.collection("rentalInvitations").doc(tokenUpper).get();
+      if (!invDoc.exists) return res.status(404).json({ error: "Invitation introuvable" });
+      const inv = invDoc.data();
+      if (inv.status === "accepted") return res.status(410).json({ error: "Invitation d\xE9j\xE0 utilis\xE9e" });
+      if (new Date(inv.expiresAt) < /* @__PURE__ */ new Date()) return res.status(410).json({ error: "Invitation expir\xE9e" });
+      const aptSuffix = inv.propertyAddress ?? "";
+      const batch = db2.batch();
+      const tenantRef = db2.collection("properties").doc(inv.propertyId).collection("tenants").doc(inv.tenantId);
+      batch.update(tenantRef, {
+        userId: decoded.uid,
+        status: "active",
+        acceptedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      batch.update(db2.collection("rentalInvitations").doc(tokenUpper), {
+        status: "accepted",
+        acceptedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      batch.update(db2.collection("users").doc(decoded.uid), {
+        userType: "tenant",
+        rentalInfo: {
+          propertyId: inv.propertyId,
+          tenantId: inv.tenantId,
+          landlordId: inv.landlordId,
+          propertyAddress: aptSuffix
+        },
+        hasRentalSetup: true
+      });
+      await batch.commit();
+      return res.json({ ok: true, propertyId: inv.propertyId });
+    } catch (e) {
+      console.error("[RENTAL] accept-invitation error:", e);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.get("/rejoindre-location/:token", async (req, res) => {
+    const token = String(req.params.token).toUpperCase().trim();
+    const db2 = getAdminDb();
+    let propertyAddress = "";
+    let landlordName = "";
+    let tenantFirstName = "";
+    let isValid = false;
+    if (db2) {
+      try {
+        const invDoc = await db2.collection("rentalInvitations").doc(token).get();
+        if (invDoc.exists) {
+          const inv = invDoc.data();
+          if (inv.status === "pending" && new Date(inv.expiresAt) > /* @__PURE__ */ new Date()) {
+            propertyAddress = inv.propertyAddress ?? "";
+            landlordName = inv.landlordName ?? "";
+            tenantFirstName = inv.tenantFirstName ?? "";
+            isValid = true;
+          }
+        }
+      } catch {
+      }
+    }
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Invitation locataire \u2014 Maintena</title>
+  <meta name="description" content="Vous avez \xE9t\xE9 invit\xE9 \xE0 rejoindre votre location sur Maintena.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+           background: #f4f7ff; color: #0f172a; min-height: 100vh; }
+    nav { background: #0B1628; padding: 16px 20px; display: flex; align-items: center; gap: 10px; }
+    .logo { background: #8B5CF6; width: 36px; height: 36px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0; }
+    nav span { color: #fff; font-size: 17px; font-weight: 700; }
+    main { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
+    .card { background: #fff; border-radius: 20px; padding: 28px 24px;
+            box-shadow: 0 4px 24px rgba(11,22,40,0.08); margin-bottom: 16px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px;
+             background: rgba(139,92,246,0.1); border-radius: 20px;
+             padding: 6px 14px; color: #8B5CF6; font-size: 12px; font-weight: 600;
+             margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 700; line-height: 1.3; margin-bottom: 12px; }
+    .addr { background: #f8fafc; border-radius: 10px; padding: 12px 14px;
+            border: 1px solid #e2e8f0; font-size: 14px; color: #475569; margin-bottom: 20px; }
+    .token-box { background: linear-gradient(135deg,#1e0a3c,#3b0f8c);
+                 border-radius: 16px; padding: 24px; text-align: center; margin: 20px 0; }
+    .token-label { color: rgba(255,255,255,0.6); font-size: 11px; text-transform: uppercase;
+                   letter-spacing: 1px; margin-bottom: 8px; }
+    .token { color: #fff; font-size: 36px; font-weight: 800; letter-spacing: 8px;
+             font-family: monospace; background: rgba(255,255,255,0.12);
+             border-radius: 10px; padding: 14px 20px; display: inline-block; }
+    .token-exp { color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 10px; }
+    ol { padding-left: 20px; color: #475569; font-size: 14px; line-height: 2; }
+    .btn { display: block; background: #8B5CF6; color: #fff; border-radius: 12px;
+           padding: 14px 20px; text-align: center; text-decoration: none;
+           font-size: 15px; font-weight: 600; margin-top: 20px; }
+    .btn:hover { background: #7C3AED; }
+    .muted { color: #94a3b8; font-size: 12px; text-align: center; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo">M</div>
+    <span>Maintena</span>
+  </nav>
+  <main>
+    <div class="card">
+      <div class="badge">\u{1F511} Invitation locataire</div>
+      ${isValid ? `
+        <h1>Bonjour ${tenantFirstName || ""} !<br>${landlordName} vous invite</h1>
+        <div class="addr">\u{1F4CD} ${propertyAddress}</div>
+        <div class="token-box">
+          <p class="token-label">Votre code d'invitation</p>
+          <div class="token">${token}</div>
+          <p class="token-exp">Valable 30 jours \u2014 \xE0 saisir dans l'application</p>
+        </div>
+        <p style="font-size:14px;color:#475569;font-weight:600;margin-bottom:8px;">Comment rejoindre :</p>
+        <ol>
+          <li>T\xE9l\xE9chargez <strong>Maintena</strong> sur Android</li>
+          <li>Cr\xE9ez votre compte</li>
+          <li>Choisissez <strong>"J'ai une invitation locataire"</strong></li>
+          <li>Saisissez le code <strong style="font-family:monospace;letter-spacing:2px;">${token}</strong></li>
+        </ol>
+        <a class="btn" href="${googlePlayUrl}">\u{1F4F1} T\xE9l\xE9charger sur Android</a>
+      ` : `
+        <h1>Invitation introuvable ou expir\xE9e</h1>
+        <p style="color:#64748b;font-size:14px;margin-top:8px;">
+          Ce lien n'est plus valide. Demandez \xE0 votre bailleur de vous envoyer une nouvelle invitation.
+        </p>
+      `}
+    </div>
+    <p class="muted">Maintena \u2014 Application de gestion immobili\xE8re</p>
+  </main>
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  });
   const db = getAdminDb();
   if (db) {
     console.log("[Firebase Admin] Firestore OK \u2014 Admin Storage uploads enabled");
