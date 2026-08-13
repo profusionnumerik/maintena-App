@@ -1,0 +1,243 @@
+/**
+ * Drawer navigation latéral pour le module Location.
+ * S'affiche au-dessus de toutes les pages (positionné dans le layout).
+ */
+import {
+  Animated, Pressable, StyleSheet, Text, View,
+  Platform, useWindowDimensions,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter, usePathname } from "expo-router";
+import { useEffect, useRef } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "@/context/AuthContext";
+import { useRentalNav } from "@/context/RentalNavContext";
+import { COLORS } from "@/constants/colors";
+
+// ─── Entrées du menu ───────────────────────────────────────────────────────────
+
+const NAV_ITEMS = [
+  { route: "/(rental)",              label: "Logements",      icon: "home",          segment: "(rental)" },
+  { route: "/(rental)/signalements", label: "Signalements",   icon: "alert-circle",  segment: "signalements" },
+  { route: "/(rental)/interventions",label: "Interventions",  icon: "construct",     segment: "interventions" },
+  { route: "/(rental)/quittances",   label: "Quittances",     icon: "document-text", segment: "quittances" },
+  { route: "/(rental)/etats-des-lieux", label: "États des lieux", icon: "clipboard", segment: "etats-des-lieux" },
+  { route: "/(rental)/professionnels", label: "Professionnels", icon: "people",      segment: "professionnels" },
+] as const;
+
+// ─── Composant ─────────────────────────────────────────────────────────────────
+
+export function RentalDrawer() {
+  const { isOpen, close } = useRentalNav();
+  const { user } = useAuth();
+  const router   = useRouter();
+  const pathname = usePathname();
+  const insets   = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+
+  const DRAWER_WIDTH = Math.min(width * 0.78, 300);
+
+  const translateX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isOpen) {
+      Animated.parallel([
+        Animated.spring(translateX, {
+          toValue: 0,
+          damping: 22, stiffness: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1, duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(translateX, {
+          toValue: -DRAWER_WIDTH, duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropOpacity, {
+          toValue: 0, duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isOpen, DRAWER_WIDTH]);
+
+  if (!isOpen && (translateX as any)._value === -DRAWER_WIDTH) return null;
+
+  const navigateTo = (route: string) => {
+    close();
+    router.push(route as any);
+  };
+
+  const isActive = (segment: string) => {
+    if (segment === "(rental)") {
+      // Actif seulement si on est exactement sur la page logements
+      return pathname === "/" || pathname === "/index" || pathname === "/(rental)";
+    }
+    return pathname.includes(segment);
+  };
+
+  const initials = user?.displayName
+    ? user.displayName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+    : "B";
+  const displayName = user?.displayName ?? "Bailleur";
+
+  return (
+    <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+      {/* Backdrop */}
+      <Animated.View
+        style={[StyleSheet.absoluteFillObject, styles.backdrop, { opacity: backdropOpacity }]}
+        pointerEvents={isOpen ? "auto" : "none"}
+      >
+        <Pressable style={StyleSheet.absoluteFillObject} onPress={close} />
+      </Animated.View>
+
+      {/* Drawer panel */}
+      <Animated.View
+        style={[
+          styles.drawer,
+          {
+            width: DRAWER_WIDTH,
+            paddingTop: insets.top + 12,
+            paddingBottom: insets.bottom + 20,
+            transform: [{ translateX }],
+          },
+        ]}
+      >
+        {/* Profil bailleur */}
+        <View style={styles.profile}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
+            <Text style={styles.profileRole}>Bailleur</Text>
+          </View>
+          <Pressable onPress={close} hitSlop={12}>
+            <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+          </Pressable>
+        </View>
+
+        <View style={styles.divider} />
+
+        {/* Navigation */}
+        <View style={styles.nav}>
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(item.segment);
+            return (
+              <Pressable
+                key={item.route}
+                style={[styles.navItem, active && styles.navItemActive]}
+                onPress={() => navigateTo(item.route)}
+              >
+                <View style={[styles.navIcon, active && styles.navIconActive]}>
+                  <Ionicons
+                    name={item.icon as any}
+                    size={20}
+                    color={active ? COLORS.primary : COLORS.textSecondary}
+                  />
+                </View>
+                <Text style={[styles.navLabel, active && styles.navLabelActive]}>
+                  {item.label}
+                </Text>
+                {active && <View style={styles.activeDot} />}
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={styles.divider} />
+
+        {/* Profil & paramètres */}
+        <Pressable
+          style={styles.navItem}
+          onPress={() => {
+            close();
+            router.push("/profile" as any);
+          }}
+        >
+          <View style={styles.navIcon}>
+            <Ionicons name="settings-outline" size={20} color={COLORS.textSecondary} />
+          </View>
+          <Text style={styles.navLabel}>Paramètres</Text>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
+
+// ─── Bouton hamburger ─────────────────────────────────────────────────────────
+
+export function HamburgerButton({ color = COLORS.text }: { color?: string }) {
+  const { open } = useRentalNav();
+  return (
+    <Pressable
+      onPress={open}
+      hitSlop={12}
+      style={styles.hamburger}
+    >
+      <Ionicons name="menu" size={26} color={color} />
+    </Pressable>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  backdrop: {
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  drawer: {
+    position: "absolute",
+    top: 0, left: 0, bottom: 0,
+    backgroundColor: "#fff",
+    paddingHorizontal: 0,
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 6, height: 0 },
+    elevation: 12,
+  },
+  profile: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 20, gap: 12, marginBottom: 16,
+  },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: COLORS.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  avatarText: { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
+  profileName: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
+  profileRole: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+
+  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 10, marginHorizontal: 16 },
+
+  nav: { paddingHorizontal: 10, gap: 2 },
+  navItem: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    paddingHorizontal: 12, paddingVertical: 12,
+    borderRadius: 12,
+  },
+  navItemActive: { backgroundColor: `${COLORS.primary}10` },
+  navIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center", justifyContent: "center",
+  },
+  navIconActive: { backgroundColor: `${COLORS.primary}18` },
+  navLabel: { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.text, flex: 1 },
+  navLabelActive: { fontFamily: "Inter_700Bold", color: COLORS.primary },
+  activeDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: COLORS.primary,
+  },
+  hamburger: {
+    width: 38, height: 38, alignItems: "center", justifyContent: "center",
+  },
+});

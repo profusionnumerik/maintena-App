@@ -1,35 +1,90 @@
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator, FlatList, Platform, Pressable,
+  ActivityIndicator, Alert, FlatList, Platform, Pressable,
   StyleSheet, Text, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-  collection, collectionGroup, getDocs, onSnapshot,
-  orderBy, query, where,
+  collection, getDocs, orderBy, query, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import {
-  InventoryReport,
+  InventoryReport, InventoryRoom,
   INVENTORY_TYPE_LABELS,
   INVENTORY_TYPE_ICONS,
   INVENTORY_TYPE_COLORS,
   INVENTORY_STATUS_LABELS,
   INVENTORY_STATUS_COLORS,
 } from "@/shared/types";
+import { HamburgerButton } from "@/components/rental/RentalDrawer";
+import { generateInventoryHtml } from "@/lib/inventoryPdf";
+
+// ─── Helpers PDF ───────────────────────────────────────────────────────────────
+
+async function shareInventoryPdf(report: InventoryReport, rooms: InventoryRoom[]) {
+  const html = generateInventoryHtml(report, rooms);
+
+  if (Platform.OS === "web") {
+    const w = window.open("", "_blank");
+    if (w) { w.document.write(html); w.document.close(); }
+    else Alert.alert("Bloqué", "Autorisez les pop-ups pour afficher le PDF.");
+    return;
+  }
+
+  try {
+    const Print   = await import("expo-print");
+    const Sharing = await import("expo-sharing");
+    const { uri } = await Print.printToFileAsync({ html, base64: false });
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(uri, {
+        mimeType: "application/pdf",
+        dialogTitle: "Partager l'état des lieux",
+        UTI: "com.adobe.pdf",
+      });
+    } else {
+      Alert.alert("PDF généré", `Fichier disponible : ${uri}`);
+    }
+  } catch {
+    Alert.alert("Erreur", "Impossible de générer le PDF.");
+  }
+}
 
 // ─── Carte rapport ─────────────────────────────────────────────────────────────
 
 function ReportCard({ report }: { report: InventoryReport }) {
-  const router     = useRouter();
-  const typeColor  = INVENTORY_TYPE_COLORS[report.type];
-  const typeIcon   = INVENTORY_TYPE_ICONS[report.type] as any;
+  const router      = useRouter();
+  const typeColor   = INVENTORY_TYPE_COLORS[report.type];
+  const typeIcon    = INVENTORY_TYPE_ICONS[report.type] as any;
   const statusColor = INVENTORY_STATUS_COLORS[report.status];
-  const snap       = report.propertySnapshot;
+  const snap        = report.propertySnapshot;
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const handlePdf = async () => {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const rSnap = await getDocs(
+        query(
+          collection(db, "properties", report.propertyId, "inventoryReports", report.id, "rooms"),
+          orderBy("order", "asc")
+        )
+      );
+      const rooms: InventoryRoom[] = rSnap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<InventoryRoom, "id">),
+      }));
+      await shareInventoryPdf(report, rooms);
+    } catch {
+      Alert.alert("Erreur", "Impossible de charger les données du rapport.");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   return (
     <Pressable
@@ -74,19 +129,31 @@ function ReportCard({ report }: { report: InventoryReport }) {
           </Text>
         </View>
 
-        {/* Signatures */}
-        {report.status !== "draft" && (
-          <View style={s.sigRow}>
-            <SigChip
-              label="Bailleur"
-              signed={report.signatures?.landlord?.status === "signed"}
-            />
-            <SigChip
-              label="Locataire"
-              signed={report.signatures?.tenant?.status === "signed"}
-            />
-          </View>
-        )}
+        {/* Signatures + PDF */}
+        <View style={s.cardActions}>
+          {report.status !== "draft" && (
+            <View style={s.sigRow}>
+              <SigChip label="Bailleur"   signed={report.signatures?.landlord?.status === "signed"} />
+              <SigChip label="Locataire"  signed={report.signatures?.tenant?.status === "signed"} />
+            </View>
+          )}
+          {report.status !== "draft" && (
+            <Pressable
+              style={[s.pdfBtn, pdfLoading && { opacity: 0.6 }]}
+              onPress={handlePdf}
+              disabled={pdfLoading}
+            >
+              {pdfLoading ? (
+                <ActivityIndicator size="small" color="#8B5CF6" />
+              ) : (
+                <>
+                  <Ionicons name="share-outline" size={13} color="#8B5CF6" />
+                  <Text style={s.pdfBtnText}>PDF</Text>
+                </>
+              )}
+            </Pressable>
+          )}
+        </View>
       </View>
     </Pressable>
   );
@@ -117,21 +184,17 @@ export default function EtatsDesLieux() {
   const [reports, setReports] = useState<InventoryReport[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Charge les rapports en passant par chaque logement du bailleur
-  // → pas d'index collectionGroup requis, fonctionne immédiatement
   useEffect(() => {
     if (!user?.uid) return;
     let cancelled = false;
 
     const loadAll = async () => {
       try {
-        // 1. Récupérer tous les logements du bailleur
         const propsSnap = await getDocs(
           query(collection(db, "properties"), where("landlordId", "==", user.uid))
         );
         if (cancelled) return;
 
-        // 2. Pour chaque logement, récupérer ses rapports
         const allReports: InventoryReport[] = [];
         await Promise.all(
           propsSnap.docs.map(async (propDoc) => {
@@ -148,7 +211,6 @@ export default function EtatsDesLieux() {
         );
         if (cancelled) return;
 
-        // 3. Tri global par date décroissante
         allReports.sort((a, b) =>
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
@@ -161,7 +223,6 @@ export default function EtatsDesLieux() {
     };
 
     loadAll();
-    // Refresh toutes les 30s pour refléter les mises à jour
     const interval = setInterval(loadAll, 30_000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [user?.uid]);
@@ -172,7 +233,8 @@ export default function EtatsDesLieux() {
     <View style={s.root}>
       {/* Header */}
       <View style={[s.header, { paddingTop }]}>
-        <View>
+        <HamburgerButton />
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={s.title}>États des lieux</Text>
           {!loading && (
             <Text style={s.subtitle}>
@@ -227,13 +289,14 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
 
   header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingBottom: 16,
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 12, paddingBottom: 14,
     backgroundColor: "#fff",
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
+    gap: 6,
   },
-  title:    { fontSize: 22, fontFamily: "Inter_700Bold", color: COLORS.text },
-  subtitle: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  title:    { fontSize: 20, fontFamily: "Inter_700Bold", color: COLORS.text },
+  subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
 
   addBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -300,10 +363,19 @@ const s = StyleSheet.create({
   footerText:  { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   footerDate:  { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 
-  sigRow: { flexDirection: "row", gap: 6 },
+  cardActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sigRow: { flexDirection: "row", gap: 6, flex: 1 },
   sigChip: {
     flexDirection: "row", alignItems: "center", gap: 4,
     borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
   },
   sigLabel: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+
+  pdfBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: "#8B5CF6",
+    backgroundColor: "#F5F3FF",
+  },
+  pdfBtnText: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#8B5CF6" },
 });

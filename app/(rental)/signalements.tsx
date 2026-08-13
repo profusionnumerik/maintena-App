@@ -3,6 +3,7 @@ import {
   Pressable, Modal, TextInput, Alert, ActivityIndicator,
 } from "react-native";
 import { notifyTenantReportUpdated } from "@/lib/notifications";
+import { HamburgerButton } from "@/components/rental/RentalDrawer";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffect, useState, useCallback } from "react";
@@ -284,7 +285,8 @@ export default function RentalSignalements() {
     <View style={[styles.root, { paddingTop }]}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <HamburgerButton />
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={styles.title}>Signalements</Text>
           <Text style={styles.subtitle}>
             {loading

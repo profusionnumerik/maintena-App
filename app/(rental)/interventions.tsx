@@ -13,6 +13,7 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import type { RentalProperty, PropertyIntervention, RentalInterventionStatus } from "@/shared/types";
+import { HamburgerButton } from "@/components/rental/RentalDrawer";
 import {
   RENTAL_INTERVENTION_STATUS_LABELS,
   RENTAL_INTERVENTION_STATUS_COLORS,
@@ -515,7 +516,8 @@ export default function RentalInterventions() {
     <View style={[styles.root, { paddingTop }]}>
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <HamburgerButton />
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={styles.title}>Interventions</Text>
           <Text style={styles.subtitle}>
             {loading ? "Chargement…" : `${activeCount} en cours · ${interventions.length} total`}

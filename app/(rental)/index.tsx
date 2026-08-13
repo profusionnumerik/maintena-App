@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { HamburgerButton } from "@/components/rental/RentalDrawer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -284,7 +285,8 @@ export default function RentalDashboard() {
     <View style={styles.root}>
       {/* Header */}
       <View style={[styles.header, { paddingTop }]}>
-        <View style={{ flex: 1 }}>
+        <HamburgerButton />
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={styles.title}>Mes logements</Text>
           {!loading && (
             <Text style={styles.subtitle}>
@@ -294,25 +296,12 @@ export default function RentalDashboard() {
             </Text>
           )}
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <Pressable
-            style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => setShowModal(true)}
-          >
-            <Ionicons name="add" size={22} color="#fff" />
-            <Text style={styles.addBtnText}>Ajouter</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
-              { text: "Annuler", style: "cancel" },
-              { text: "Se déconnecter", style: "destructive", onPress: logout },
-            ])}
-            style={styles.logoutIconBtn}
-            hitSlop={10}
-          >
-            <Ionicons name="log-out-outline" size={22} color={COLORS.textMuted} />
-          </Pressable>
-        </View>
+        <Pressable
+          style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
+          onPress={() => setShowModal(true)}
+        >
+          <Ionicons name="add" size={22} color="#fff" />
+        </Pressable>
       </View>
 
       {/* Contenu */}
