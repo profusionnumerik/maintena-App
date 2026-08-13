@@ -9,6 +9,8 @@ import { useRouter } from "expo-router";
 import {
   collection, getDocs, orderBy, query, where,
 } from "firebase/firestore";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
@@ -35,22 +37,16 @@ async function shareInventoryPdf(report: InventoryReport, rooms: InventoryRoom[]
     return;
   }
 
-  try {
-    const Print   = await import("expo-print");
-    const Sharing = await import("expo-sharing");
-    const { uri } = await Print.printToFileAsync({ html, base64: false });
-    const canShare = await Sharing.isAvailableAsync();
-    if (canShare) {
-      await Sharing.shareAsync(uri, {
-        mimeType: "application/pdf",
-        dialogTitle: "Partager l'état des lieux",
-        UTI: "com.adobe.pdf",
-      });
-    } else {
-      Alert.alert("PDF généré", `Fichier disponible : ${uri}`);
-    }
-  } catch {
-    Alert.alert("Erreur", "Impossible de générer le PDF.");
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(uri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Partager l'état des lieux",
+      UTI: "com.adobe.pdf",
+    });
+  } else {
+    Alert.alert("PDF généré", `Fichier disponible : ${uri}`);
   }
 }
 
@@ -68,19 +64,18 @@ function ReportCard({ report }: { report: InventoryReport }) {
     if (pdfLoading) return;
     setPdfLoading(true);
     try {
+      // Charger les pièces (sans orderBy pour éviter un index composite)
       const rSnap = await getDocs(
-        query(
-          collection(db, "properties", report.propertyId, "inventoryReports", report.id, "rooms"),
-          orderBy("order", "asc")
-        )
+        collection(db, "properties", report.propertyId, "inventoryReports", report.id, "rooms")
       );
-      const rooms: InventoryRoom[] = rSnap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Omit<InventoryRoom, "id">),
-      }));
+      const rooms: InventoryRoom[] = rSnap.docs
+        .map((d) => ({ id: d.id, ...(d.data() as Omit<InventoryRoom, "id">) }))
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
       await shareInventoryPdf(report, rooms);
-    } catch {
-      Alert.alert("Erreur", "Impossible de charger les données du rapport.");
+    } catch (err) {
+      console.error("PDF état des lieux:", err);
+      Alert.alert("Erreur PDF", String(err instanceof Error ? err.message : err));
     } finally {
       setPdfLoading(false);
     }

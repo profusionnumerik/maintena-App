@@ -11,7 +11,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
   addDoc, collection, doc, getDocs,
-  onSnapshot, orderBy, query, serverTimestamp,
+  onSnapshot, orderBy, query, serverTimestamp, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -211,6 +211,142 @@ const modal = StyleSheet.create({
   submitText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" },
 });
 
+// ─── Types signalements locataire ────────────────────────────────────────────
+
+type MyReportStatus = "pending" | "in_progress" | "resolved";
+type MyReportCategory =
+  | "plomberie" | "electricite" | "chauffage" | "serrurerie"
+  | "menage" | "nuisible" | "structure" | "autre";
+
+interface MyReport {
+  id:               string;
+  category:         MyReportCategory;
+  description:      string;
+  status:           MyReportStatus;
+  landlordResponse?: string;
+  createdAt:        string;
+  updatedAt:        string;
+}
+
+const MY_STATUS_CFG: Record<MyReportStatus, { label: string; color: string; bg: string; icon: string }> = {
+  pending:     { label: "Nouveau",   color: "#EF4444", bg: "rgba(239,68,68,0.14)",   icon: "time-outline" },
+  in_progress: { label: "En cours", color: "#F59E0B", bg: "rgba(245,158,11,0.14)",  icon: "construct-outline" },
+  resolved:    { label: "Résolu",   color: "#10B981", bg: "rgba(16,185,129,0.14)",  icon: "checkmark-circle-outline" },
+};
+
+const MY_CAT_ICONS: Record<MyReportCategory, string> = {
+  plomberie:   "water-outline",
+  electricite: "flash-outline",
+  chauffage:   "flame-outline",
+  serrurerie:  "key-outline",
+  menage:      "brush-outline",
+  nuisible:    "bug-outline",
+  structure:   "home-outline",
+  autre:       "ellipsis-horizontal-outline",
+};
+
+const MY_CAT_LABELS: Record<MyReportCategory, string> = {
+  plomberie:   "Plomberie",
+  electricite: "Électricité",
+  chauffage:   "Chauffage / Clim",
+  serrurerie:  "Serrurerie",
+  menage:      "Propreté / Ménage",
+  nuisible:    "Nuisibles",
+  structure:   "Murs / Structure",
+  autre:       "Autre",
+};
+
+function SignalementCard({ report }: { report: MyReport }) {
+  const cfg = MY_STATUS_CFG[report.status];
+  const catIcon = MY_CAT_ICONS[report.category] ?? "alert-circle-outline";
+  const catLabel = MY_CAT_LABELS[report.category] ?? "Autre";
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Pressable
+      style={sigS.card}
+      onPress={() => setExpanded((v) => !v)}
+    >
+      {/* Ligne principale */}
+      <View style={sigS.row}>
+        <View style={[sigS.iconBox, { backgroundColor: cfg.bg }]}>
+          <Ionicons name={catIcon as any} size={16} color={cfg.color} />
+        </View>
+        <View style={sigS.info}>
+          <Text style={sigS.catLabel}>{catLabel}</Text>
+          <Text style={sigS.desc} numberOfLines={expanded ? undefined : 1}>
+            {report.description}
+          </Text>
+          <Text style={sigS.date}>
+            {new Date(report.createdAt).toLocaleDateString("fr-FR", {
+              day: "numeric", month: "long", year: "numeric",
+            })}
+          </Text>
+        </View>
+        <View style={[sigS.badge, { backgroundColor: cfg.bg }]}>
+          <Ionicons name={cfg.icon as any} size={11} color={cfg.color} />
+          <Text style={[sigS.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+        </View>
+      </View>
+
+      {/* Réponse bailleur */}
+      {report.landlordResponse ? (
+        <View style={sigS.response}>
+          <View style={sigS.responseHeader}>
+            <Ionicons name="chatbubble-ellipses" size={12} color="#8B5CF6" />
+            <Text style={sigS.responseLabel}>Réponse de votre bailleur</Text>
+          </View>
+          <Text style={sigS.responseText}>{report.landlordResponse}</Text>
+        </View>
+      ) : report.status === "pending" ? (
+        <View style={sigS.waiting}>
+          <Ionicons name="hourglass-outline" size={12} color="rgba(255,255,255,0.3)" />
+          <Text style={sigS.waitingText}>En attente de traitement</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+const sigS = StyleSheet.create({
+  card: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    padding: 14, gap: 10,
+  },
+  row:     { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  iconBox: {
+    width: 34, height: 34, borderRadius: 10,
+    alignItems: "center", justifyContent: "center", flexShrink: 0,
+  },
+  info:     { flex: 1, gap: 2 },
+  catLabel: { fontSize: 12, fontFamily: "Inter_700Bold", color: "#fff" },
+  desc:     { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.55)", lineHeight: 15 },
+  date:     { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.3)", marginTop: 2 },
+  badge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4,
+    flexShrink: 0, alignSelf: "flex-start",
+  },
+  badgeText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+
+  response: {
+    backgroundColor: "rgba(139,92,246,0.1)",
+    borderRadius: 8, padding: 10, gap: 4,
+    borderLeftWidth: 2, borderLeftColor: "#8B5CF6",
+  },
+  responseHeader: { flexDirection: "row", alignItems: "center", gap: 5 },
+  responseLabel:  { fontSize: 10, fontFamily: "Inter_700Bold", color: "#8B5CF6", textTransform: "uppercase", letterSpacing: 0.5 },
+  responseText:   { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.75)", lineHeight: 17 },
+
+  waiting: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingTop: 2,
+  },
+  waitingText: { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.3)" },
+});
+
 // ─── Carte logement ───────────────────────────────────────────────────────────
 
 function PropertyInfoCard({ property }: { property: RentalProperty }) {
@@ -383,6 +519,7 @@ export default function TenantHome() {
   const [propLoading, setPropLoading]   = useState(true);
   const [reports, setReports]           = useState<InventoryReport[]>([]);
   const [rptLoading, setRptLoading]     = useState(false);
+  const [myReports, setMyReports]       = useState<MyReport[]>([]);
   const [showReportModal, setShowReportModal] = useState(false);
 
   // Écoute du logement
@@ -397,6 +534,21 @@ export default function TenantHome() {
       () => setPropLoading(false)
     );
   }, [rentalInfo?.propertyId]);
+
+  // Écoute en temps réel des signalements du locataire
+  useEffect(() => {
+    if (!rentalInfo?.propertyId || !user?.uid) return;
+    const q = query(
+      collection(db, "properties", rentalInfo.propertyId, "tenantReports"),
+      where("tenantUserId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+    return onSnapshot(q, (snap) => {
+      setMyReports(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() } as MyReport))
+      );
+    }, () => {});
+  }, [rentalInfo?.propertyId, user?.uid]);
 
   // Charge les états des lieux
   useEffect(() => {
@@ -545,6 +697,35 @@ export default function TenantHome() {
             </View>
           )}
         </View>
+
+        {/* Mes signalements */}
+        <View style={s.section}>
+          <View style={s.sectionHeader}>
+            <Text style={s.sectionTitle}>Mes signalements</Text>
+            <Pressable
+              style={s.sectionAction}
+              onPress={() => setShowReportModal(true)}
+            >
+              <Ionicons name="add" size={14} color={COLORS.teal} />
+              <Text style={s.sectionActionText}>Nouveau</Text>
+            </Pressable>
+          </View>
+
+          {myReports.length === 0 ? (
+            <View style={s.missingCard}>
+              <Ionicons name="checkmark-circle-outline" size={22} color="rgba(255,255,255,0.3)" />
+              <Text style={s.missingText}>
+                Aucun signalement en cours.{"\n"}Tout va bien !
+              </Text>
+            </View>
+          ) : (
+            <View style={s.reportsList}>
+              {myReports.map((r) => (
+                <SignalementCard key={r.id} report={r} />
+              ))}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* Modal signalement */}
@@ -588,10 +769,18 @@ const s = StyleSheet.create({
   title: { fontSize: 22, fontFamily: "Inter_700Bold", color: "#fff" },
 
   section:      { gap: 10 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: {
     fontSize: 11, fontFamily: "Inter_600SemiBold",
     color: "rgba(255,255,255,0.35)", letterSpacing: 1, textTransform: "uppercase",
   },
+  sectionAction: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(14,186,170,0.12)", borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: "rgba(14,186,170,0.2)",
+  },
+  sectionActionText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.teal },
 
   actionsRow: { flexDirection: "row", gap: 10 },
   actionCard: {

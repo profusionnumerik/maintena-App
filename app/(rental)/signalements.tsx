@@ -30,7 +30,8 @@ interface TenantReport {
   category: ReportCategory;
   description: string;
   status: ReportStatus;
-  landlordNote?: string;
+  landlordNote?:     string;  // Note interne (bailleur uniquement)
+  landlordResponse?: string;  // Réponse visible par le locataire
   createdAt: string;
   updatedAt: string;
   // hydrated client-side
@@ -87,8 +88,9 @@ function DetailModal({
   onUpdated: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [note, setNote] = useState(report.landlordNote ?? "");
-  const [saving, setSaving] = useState(false);
+  const [note, setNote]           = useState(report.landlordNote ?? "");
+  const [response, setResponse]   = useState(report.landlordResponse ?? "");
+  const [saving, setSaving]       = useState(false);
   const cfg = STATUS_CONFIG[report.status];
   const cat = CATEGORIES[report.category] ?? CATEGORIES.autre;
   const nextStatus = STATUS_NEXT[report.status];
@@ -97,7 +99,8 @@ function DetailModal({
     setSaving(true);
     try {
       const updates: Record<string, unknown> = {
-        landlordNote: note.trim(),
+        landlordNote:     note.trim(),
+        landlordResponse: response.trim(),
         updatedAt: new Date().toISOString(),
       };
       if (newStatus) updates.status = newStatus;
@@ -156,17 +159,39 @@ function DetailModal({
             })}
           </Text>
 
-          {/* Note bailleur */}
-          <Text style={detail.noteLabel}>Note interne (visible uniquement par vous)</Text>
-          <TextInput
-            style={detail.noteInput}
-            placeholder="Ajoutez une note, action prévue, contact…"
-            placeholderTextColor={COLORS.textMuted}
-            value={note}
-            onChangeText={setNote}
-            multiline
-            numberOfLines={3}
-          />
+          {/* Réponse au locataire */}
+          <View style={detail.fieldGroup}>
+            <View style={detail.fieldLabelRow}>
+              <Ionicons name="chatbubble-outline" size={13} color="#8B5CF6" />
+              <Text style={detail.fieldLabel}>Réponse au locataire</Text>
+            </View>
+            <TextInput
+              style={detail.noteInput}
+              placeholder="Saisissez une réponse visible par le locataire…"
+              placeholderTextColor={COLORS.textMuted}
+              value={response}
+              onChangeText={setResponse}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
+
+          {/* Note interne */}
+          <View style={detail.fieldGroup}>
+            <View style={detail.fieldLabelRow}>
+              <Ionicons name="lock-closed-outline" size={13} color={COLORS.textMuted} />
+              <Text style={[detail.fieldLabel, { color: COLORS.textMuted }]}>Note interne (bailleur uniquement)</Text>
+            </View>
+            <TextInput
+              style={detail.noteInput}
+              placeholder="Action prévue, contact artisan…"
+              placeholderTextColor={COLORS.textMuted}
+              value={note}
+              onChangeText={setNote}
+              multiline
+              numberOfLines={2}
+            />
+          </View>
 
           {/* Boutons */}
           <View style={detail.actions}>
@@ -494,6 +519,9 @@ const detail = StyleSheet.create({
   date: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 16 },
 
   noteLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 6 },
+  fieldGroup: { marginBottom: 12 },
+  fieldLabelRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
+  fieldLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   noteInput: {
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 10,

@@ -11,13 +11,16 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
-import { collection, query, onSnapshot, where, orderBy } from "firebase/firestore";
+import { collection, query, onSnapshot, where, orderBy, getDocs } from "firebase/firestore";
 import { useRouter } from "expo-router";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import {
   InventoryReport,
+  InventoryRoom,
   PropertyDocument,
   INVENTORY_TYPE_LABELS,
   INVENTORY_STATUS_LABELS,
@@ -26,8 +29,6 @@ import {
   PROPERTY_DOCUMENT_TYPE_ICONS,
 } from "@/shared/types";
 import { generateInventoryHtml } from "@/lib/inventoryPdf";
-import type { InventoryRoom } from "@/shared/types";
-import { getDocs } from "firebase/firestore";
 
 // ─── Helper PDF ───────────────────────────────────────────────────────────────
 
@@ -38,21 +39,15 @@ async function sharePdf(html: string): Promise<void> {
     else Alert.alert("Bloqué", "Autorisez les pop-ups pour afficher le PDF.");
     return;
   }
-  try {
-    const Print   = await import("expo-print");
-    const Sharing = await import("expo-sharing");
-    const { uri } = await Print.printToFileAsync({ html, base64: false });
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, {
-        mimeType: "application/pdf",
-        dialogTitle: "Partager l'état des lieux",
-        UTI: "com.adobe.pdf",
-      });
-    } else {
-      Alert.alert("PDF généré", `Fichier : ${uri}`);
-    }
-  } catch {
-    Alert.alert("Erreur", "Impossible de générer le PDF.");
+  const { uri } = await Print.printToFileAsync({ html, base64: false });
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(uri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Partager l'état des lieux",
+      UTI: "com.adobe.pdf",
+    });
+  } else {
+    Alert.alert("PDF généré", `Fichier : ${uri}`);
   }
 }
 
