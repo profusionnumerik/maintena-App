@@ -34,6 +34,12 @@ service cloud.firestore {
       return isSuperAdmin() || isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
     }
 
+    /** Vérifie si l'utilisateur est locataire du logement (via rentalInfo stocké dans son profil) */
+    function isTenantOf(propertyId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.rentalInfo.propertyId == propertyId;
+    }
+
     match /users/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }
@@ -181,6 +187,180 @@ service cloud.firestore {
     match /appConfig/{docId} {
       allow read: if true;           // public — tous les clients lisent le flag maintenance
       allow write: if isSuperAdmin(); // seul le superadmin peut activer/désactiver
+    }
+
+    // ── Module Location ──────────────────────────────────────────────────────
+
+    // Logements — bailleur propriétaire + locataire peut lire son propre logement
+    match /properties/{propertyId} {
+      allow read: if isSignedIn() && (
+        isSuperAdmin() ||
+        resource.data.landlordId == request.auth.uid ||
+        isTenantOf(propertyId)
+      );
+      allow create: if isSignedIn() &&
+        request.resource.data.landlordId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (
+        isSuperAdmin() ||
+        resource.data.landlordId == request.auth.uid
+      );
+
+      // Locataires du logement
+      match /tenants/{tenantId} {
+        allow read: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+          resource.data.userId == request.auth.uid
+        );
+        allow create, update, delete: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+
+      // Signalements locataire
+      match /issues/{issueId} {
+        allow read: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+          resource.data.tenantUserId == request.auth.uid
+        );
+        allow create: if isSignedIn(); // locataire peut signaler un problème
+        allow update, delete: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+
+      // Interventions du logement
+      match /interventions/{interventionId} {
+        allow read: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+        allow create, update, delete: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+
+      // Documents (bail, état des lieux, DPE…)
+      // Le locataire peut lire les documents marqués visibleToTenant = true
+      match /documents/{docId} {
+        allow read: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+          (isTenantOf(propertyId) && resource.data.visibleToTenant == true)
+        );
+        allow create, update, delete: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+
+      // Quittances de loyer
+      match /quittances/{quittanceId} {
+        allow read, create: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+        allow update, delete: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+
+      // Carnet d'entretien / historique du logement
+      match /history/{eventId} {
+        allow read, write: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+      }
+    }
+
+    // Professionnels — pool partagé entre les modules
+    match /professionals/{professionalId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        request.resource.data.createdByUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && (
+        isSuperAdmin() ||
+        resource.data.createdByUid == request.auth.uid
+      );
+    }
+
+    // Liens bailleur ↔ professionnel (carnet personnel, notes privées)
+    match /professionalLinks/{linkId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Invitations locataires (lien magique) — écriture Admin SDK uniquement
+    match /rentalInvitations/{token} {
+      allow read: if true;   // lien magique accessible sans authentification
+      allow write: if false; // Admin SDK (Cloud Run) uniquement
+    }
+
+    // ── Signalements locataire ───────────────────────────────────────────────
+
+    match /properties/{propertyId}/tenantReports/{reportId} {
+      // Locataire : peut créer + voir ses propres signalements
+      allow create: if isSignedIn() && isTenantOf(propertyId) &&
+        request.resource.data.tenantUserId == request.auth.uid;
+      allow read: if isSignedIn() && (
+        isTenantOf(propertyId) ||
+        get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+      );
+      // Bailleur : lecture + mise à jour statut
+      allow update: if isSignedIn() &&
+        get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid;
+    }
+
+    // ── Module État des lieux ────────────────────────────────────────────────
+
+    match /properties/{propertyId}/inventoryReports/{reportId} {
+      // Bailleur : accès complet à ses logements
+      allow read, write: if isSignedIn() && (
+        isSuperAdmin() ||
+        get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+      );
+
+      // Locataire : lecture si c'est son logement (tenantUserId peut être null si créé avant inscription)
+      allow read: if isSignedIn() && isTenantOf(propertyId);
+
+      // Locataire : peut mettre à jour ses observations + signature + statut (signed)
+      allow update: if isSignedIn() &&
+        isTenantOf(propertyId) &&
+        resource.data.status in ["ready_for_signature", "partially_signed"] &&
+        request.resource.data.status in ["ready_for_signature", "partially_signed", "signed"] &&
+        request.resource.data.diff(resource.data)
+          .affectedKeys().hasOnly(["signatures", "tenantObservations", "updatedAt", "status", "lastSharedAt"]);
+
+      // Pièces — sous-collection du rapport
+      match /rooms/{roomId} {
+        // Bailleur : accès complet
+        allow read, write: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+
+        // Locataire : lecture + ajout de ses observations sur les pièces
+        allow read: if isSignedIn() &&
+          isTenantOf(propertyId) &&
+          get(/databases/$(database)/documents/properties/$(propertyId)/inventoryReports/$(reportId))
+            .data.tenantUserId == request.auth.uid;
+
+        allow update: if isSignedIn() &&
+          isTenantOf(propertyId) &&
+          get(/databases/$(database)/documents/properties/$(propertyId)/inventoryReports/$(reportId))
+            .data.status in ["draft", "ready_for_signature", "partially_signed"] &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(["tenantObservation", "updatedAt"]);
+      }
     }
   }
 }

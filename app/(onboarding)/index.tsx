@@ -1,8 +1,9 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { Image, Pressable, StyleSheet, Text, View, Platform, Alert } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View, Platform, Alert, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
@@ -10,10 +11,22 @@ import { useCoPro } from "@/context/CoProContext";
 export default function OnboardingIndex() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { logout, user } = useAuth();
+  const { logout, user, setUserType } = useAuth();
   const { loadError, refreshCoPros, isLoading } = useCoPro();
+  const [landlordLoading, setLandlordLoading] = useState(false);
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const handleLandlordChoice = async () => {
+    setLandlordLoading(true);
+    try {
+      await setUserType("landlord");
+      // _layout.tsx détecte userType = "landlord" et redirige automatiquement
+    } catch {
+      Alert.alert("Erreur", "Impossible de configurer votre compte. Réessayez.");
+      setLandlordLoading(false);
+    }
+  };
 
   const showErrorDetails = () => {
     Alert.alert(
@@ -129,6 +142,52 @@ export default function OnboardingIndex() {
           )}
         </View>
 
+        {/* ── Module Location — Bailleur & Locataire ───────────────────── */}
+        <View style={styles.dividerRow}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerLabel}>ou</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <View style={styles.locationCards}>
+          <Pressable
+            style={({ pressed }) => [styles.card, styles.landlordCard, pressed && styles.cardPressed]}
+            onPress={handleLandlordChoice}
+            disabled={landlordLoading}
+          >
+            <View style={[styles.cardIcon, { backgroundColor: "rgba(139,92,246,0.12)" }]}>
+              {landlordLoading
+                ? <ActivityIndicator size="small" color="#8B5CF6" />
+                : <Ionicons name="key" size={28} color="#8B5CF6" />
+              }
+            </View>
+            <View style={styles.cardText}>
+              <Text style={styles.cardTitle}>Je suis bailleur</Text>
+              <Text style={styles.cardDesc}>
+                Je mets des logements en location et je veux suivre mes locataires et interventions
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.card, styles.tenantCard, pressed && styles.cardPressed]}
+            onPress={() => router.push("/(onboarding)/join-rental")}
+          >
+            <View style={[styles.cardIcon, { backgroundColor: "rgba(234,179,8,0.12)" }]}>
+              <Ionicons name="mail-open" size={28} color="#D97706" />
+            </View>
+            <View style={styles.cardText}>
+              <Text style={styles.cardTitle}>J'ai une invitation</Text>
+              <Text style={styles.cardDesc}>
+                Mon bailleur m'a envoyé un code — je veux accéder à mon espace locataire
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
+          </Pressable>
+        </View>
+        {/* ─────────────────────────────────────────────────────────────── */}
+
         <Pressable style={styles.logoutBtn} onPress={logout}>
           <Text style={styles.logoutText}>Se déconnecter</Text>
         </Pressable>
@@ -215,5 +274,25 @@ const styles = StyleSheet.create({
   logoutText: {
     fontSize: 13, fontFamily: "Inter_500Medium",
     color: "rgba(255,255,255,0.35)",
+  },
+  // ── Bailleur / Locataire ──
+  locationCards: { gap: 10 },
+  tenantCard: {
+    borderColor: "rgba(234,179,8,0.2)",
+    backgroundColor: "rgba(234,179,8,0.05)",
+  },
+  dividerRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4,
+  },
+  dividerLine: {
+    flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  dividerLabel: {
+    fontSize: 12, fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.3)",
+  },
+  landlordCard: {
+    borderColor: "rgba(139,92,246,0.2)",
+    backgroundColor: "rgba(139,92,246,0.05)",
   },
 });

@@ -732,3 +732,720 @@ export interface DemandeDevis {
   selectedDevisId?: string | null;
   closedAt?: string;
 }
+
+// ─── Module Location — Types partagés ─────────────────────────────────────────
+
+export type UserType = "copro" | "landlord" | "tenant" | "both";
+
+// ── Professionnels (partagés Copropriété + Location) ─────────────────────────
+
+export type ProfessionalSpecialty =
+  | "plomberie"
+  | "electricite"
+  | "chauffage"
+  | "serrurerie"
+  | "menuiserie"
+  | "peinture"
+  | "maconnerie"
+  | "nettoyage"
+  | "jardinage"
+  | "toiture"
+  | "climatisation"
+  | "ascenseur"
+  | "divers";
+
+export const PROFESSIONAL_SPECIALTY_LABELS: Record<ProfessionalSpecialty, string> = {
+  plomberie:     "Plomberie",
+  electricite:   "Électricité",
+  chauffage:     "Chauffage",
+  serrurerie:    "Serrurerie",
+  menuiserie:    "Menuiserie / Vitrerie",
+  peinture:      "Peinture / Décoration",
+  maconnerie:    "Maçonnerie / Carrelage",
+  nettoyage:     "Nettoyage",
+  jardinage:     "Jardinage / Espaces verts",
+  toiture:       "Toiture / Étanchéité",
+  climatisation: "Climatisation / VMC",
+  ascenseur:     "Ascenseur",
+  divers:        "Divers",
+};
+
+export const PROFESSIONAL_SPECIALTY_ICONS: Record<ProfessionalSpecialty, string> = {
+  plomberie:     "water",
+  electricite:   "flash",
+  chauffage:     "flame",
+  serrurerie:    "key",
+  menuiserie:    "construct",
+  peinture:      "brush",
+  maconnerie:    "cube",
+  nettoyage:     "sparkles",
+  jardinage:     "leaf",
+  toiture:       "home",
+  climatisation: "partly-sunny",
+  ascenseur:     "arrow-up-circle",
+  divers:        "ellipsis-horizontal-circle",
+};
+
+export interface Professional {
+  id: string;
+  name: string;
+  company?: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  specialty: ProfessionalSpecialty;
+  createdByUid: string;
+  createdAt: string;
+}
+
+/** Lien bailleur ↔ professionnel : notes privées, droits locataire, favoris */
+export interface ProfessionalLink {
+  id: string;
+  professionalId: string;
+  ownerUid: string;
+  ownerType: "landlord" | "copro";
+  ownerId: string;
+  canTenantContact: boolean;
+  notes?: string;
+  isFavorite: boolean;
+  addedAt: string;
+}
+
+// ── Logements ─────────────────────────────────────────────────────────────────
+
+export type PropertyType = "apartment" | "house" | "studio" | "room" | "other";
+export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
+  apartment: "Appartement",
+  house:     "Maison",
+  studio:    "Studio",
+  room:      "Chambre",
+  other:     "Autre",
+};
+export const PROPERTY_TYPE_ICONS: Record<PropertyType, string> = {
+  apartment: "business",
+  house:     "home",
+  studio:    "bed",
+  room:      "person",
+  other:     "cube-outline",
+};
+
+export type PropertyStatus = "vacant" | "rented" | "maintenance";
+export const PROPERTY_STATUS_LABELS: Record<PropertyStatus, string> = {
+  vacant:      "Vacant",
+  rented:      "Loué",
+  maintenance: "En travaux",
+};
+export const PROPERTY_STATUS_COLORS: Record<PropertyStatus, string> = {
+  vacant:      "#F59E0B",
+  rented:      "#10B981",
+  maintenance: "#8B5CF6",
+};
+
+export type TenantStatus = "invited" | "active" | "departed";
+export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
+  invited:  "Invitation envoyée",
+  active:   "Actif",
+  departed: "Parti",
+};
+export const TENANT_STATUS_COLORS: Record<TenantStatus, string> = {
+  invited:  "#F59E0B",
+  active:   "#10B981",
+  departed: "#94A3B8",
+};
+
+// ── Signalements locataire ────────────────────────────────────────────────────
+
+export type RentalIssueCategory =
+  | "plomberie"
+  | "electricite"
+  | "chauffage"
+  | "serrurerie"
+  | "menuiserie"
+  | "vitrage"
+  | "peinture"
+  | "humidite"
+  | "nuisibles"
+  | "equipements"
+  | "divers";
+
+export const RENTAL_ISSUE_CATEGORY_LABELS: Record<RentalIssueCategory, string> = {
+  plomberie:   "Plomberie / Fuite",
+  electricite: "Électricité",
+  chauffage:   "Chauffage / Eau chaude",
+  serrurerie:  "Serrurerie / Accès",
+  menuiserie:  "Menuiserie / Fenêtres",
+  vitrage:     "Vitrage / Isolation",
+  peinture:    "Peinture / Murs",
+  humidite:    "Humidité / Moisissures",
+  nuisibles:   "Nuisibles / Insectes",
+  equipements: "Équipements (four, hotte…)",
+  divers:      "Divers",
+};
+
+export const RENTAL_ISSUE_CATEGORY_ICONS: Record<RentalIssueCategory, string> = {
+  plomberie:   "water",
+  electricite: "flash",
+  chauffage:   "flame",
+  serrurerie:  "key",
+  menuiserie:  "construct",
+  vitrage:     "square-outline",
+  peinture:    "brush",
+  humidite:    "rainy",
+  nuisibles:   "bug",
+  equipements: "hardware-chip",
+  divers:      "ellipsis-horizontal-circle",
+};
+
+export type IssuePriority = "low" | "normal" | "high" | "urgent";
+export const ISSUE_PRIORITY_LABELS: Record<IssuePriority, string> = {
+  low:    "Faible",
+  normal: "Normal",
+  high:   "Élevé",
+  urgent: "Urgent",
+};
+export const ISSUE_PRIORITY_COLORS: Record<IssuePriority, string> = {
+  low:    "#94A3B8",
+  normal: "#3B82F6",
+  high:   "#F59E0B",
+  urgent: "#EF4444",
+};
+
+export type IssueResponsibility = "landlord" | "tenant" | "to_review" | "unknown";
+export const ISSUE_RESPONSIBILITY_LABELS: Record<IssueResponsibility, string> = {
+  landlord:  "À la charge du bailleur",
+  tenant:    "À la charge du locataire",
+  to_review: "À examiner",
+  unknown:   "Indéterminé",
+};
+
+export type RentalIssueStatus = "new" | "review" | "in_progress" | "resolved" | "closed";
+export const RENTAL_ISSUE_STATUS_LABELS: Record<RentalIssueStatus, string> = {
+  new:         "Nouveau",
+  review:      "En examen",
+  in_progress: "En cours",
+  resolved:    "Résolu",
+  closed:      "Clôturé",
+};
+export const RENTAL_ISSUE_STATUS_COLORS: Record<RentalIssueStatus, string> = {
+  new:         "#EF4444",
+  review:      "#F59E0B",
+  in_progress: "#3B82F6",
+  resolved:    "#10B981",
+  closed:      "#94A3B8",
+};
+
+export type RentalInterventionStatus =
+  | "new" | "assigned" | "scheduled" | "in_progress" | "completed" | "cancelled";
+export const RENTAL_INTERVENTION_STATUS_LABELS: Record<RentalInterventionStatus, string> = {
+  new:         "Nouvelle",
+  assigned:    "Assignée",
+  scheduled:   "Planifiée",
+  in_progress: "En cours",
+  completed:   "Terminée",
+  cancelled:   "Annulée",
+};
+export const RENTAL_INTERVENTION_STATUS_COLORS: Record<RentalInterventionStatus, string> = {
+  new:         "#EF4444",
+  assigned:    "#F97316",
+  scheduled:   "#3B82F6",
+  in_progress: "#8B5CF6",
+  completed:   "#10B981",
+  cancelled:   "#94A3B8",
+};
+
+export type PropertyDocumentType = "lease" | "inventory" | "dpe" | "invoice" | "quote" | "other";
+export const PROPERTY_DOCUMENT_TYPE_LABELS: Record<PropertyDocumentType, string> = {
+  lease:     "Bail",
+  inventory: "État des lieux",
+  dpe:       "DPE",
+  invoice:   "Facture",
+  quote:     "Devis",
+  other:     "Autre document",
+};
+export const PROPERTY_DOCUMENT_TYPE_ICONS: Record<PropertyDocumentType, string> = {
+  lease:     "document-text",
+  inventory: "clipboard",
+  dpe:       "leaf",
+  invoice:   "receipt",
+  quote:     "calculator",
+  other:     "document",
+};
+
+// ── Interfaces Firestore — Module Location ────────────────────────────────────
+
+export interface RentalProperty {
+  id: string;
+  landlordId: string;
+  address: string;
+  postalCode: string;
+  city: string;
+  apartmentNumber?: string;
+  building?: string;
+  floor?: string;
+  propertyType: PropertyType;
+  surface?: number;
+  numberOfRooms?: number;
+  constructionYear?: number;
+  status: PropertyStatus;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface PropertyTenant {
+  id: string;
+  propertyId: string;
+  landlordId: string;
+  userId?: string;        // Firebase uid si le locataire a créé son compte
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  leaseStartDate?: string;
+  leaseEndDate?: string;
+  status: TenantStatus;
+  inviteToken?: string;
+  createdAt: string;
+}
+
+export interface PropertyIssue {
+  id: string;
+  propertyId: string;
+  landlordId: string;
+  tenantId: string;       // PropertyTenant.id (auto-généré)
+  tenantUserId?: string;  // Firebase uid du locataire (si inscrit)
+  title: string;
+  description: string;
+  category: RentalIssueCategory;
+  priority: IssuePriority;
+  location?: string;      // ex: "salle de bain"
+  photos?: string[];
+  responsibility: IssueResponsibility;
+  status: RentalIssueStatus;
+  landlordNote?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface PropertyIntervention {
+  id: string;
+  propertyId: string;
+  landlordId: string;
+  issueId?: string;
+  tenantId?: string;
+  professionalId?: string;
+  professionalLinkId?: string;
+  status: RentalInterventionStatus;
+  title: string;
+  description: string;
+  priority: IssuePriority;
+  scheduledDate?: string;
+  completedDate?: string;
+  estimatedCost?: number;
+  finalCost?: number;
+  beforePhotos?: string[];
+  afterPhotos?: string[];
+  report?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface PropertyDocument {
+  id: string;
+  propertyId: string;
+  landlordId: string;
+  type: PropertyDocumentType;
+  label: string;
+  url: string;
+  visibleToTenant: boolean;
+  uploadedBy: string;
+  fileSize?: number;
+  mimeType?: string;
+  createdAt: string;
+}
+
+export type PropertyHistoryEventType =
+  | "intervention" | "issue" | "document" | "tenant_change" | "note";
+
+export interface PropertyHistoryEvent {
+  id: string;
+  propertyId: string;
+  type: PropertyHistoryEventType;
+  label: string;
+  date: string;
+  cost?: number;
+  professionalName?: string;
+  interventionId?: string;
+  issueId?: string;
+  createdAt: string;
+}
+
+/** Données de location stockées sur users/{uid} pour les locataires */
+export interface RentalInfo {
+  propertyId:      string;
+  tenantId:        string;
+  landlordId:      string;
+  propertyAddress?: string;
+}
+
+export interface RentalInvitation {
+  id: string;
+  token: string;
+  landlordId: string;
+  propertyId: string;
+  tenantId: string;
+  tenantEmail: string;
+  tenantFirstName: string;
+  tenantLastName: string;
+  status: "pending" | "accepted" | "expired";
+  expiresAt: string;
+  createdAt: string;
+}
+
+// ─── Module État des lieux ─────────────────────────────────────────────────────
+
+export type InventoryType = "entry" | "exit" | "intermediate";
+export const INVENTORY_TYPE_LABELS: Record<InventoryType, string> = {
+  entry:        "État des lieux d'entrée",
+  exit:         "État des lieux de sortie",
+  intermediate: "État des lieux intermédiaire",
+};
+export const INVENTORY_TYPE_ICONS: Record<InventoryType, string> = {
+  entry:        "log-in",
+  exit:         "log-out",
+  intermediate: "swap-horizontal",
+};
+export const INVENTORY_TYPE_COLORS: Record<InventoryType, string> = {
+  entry:        "#10B981",
+  exit:         "#EF4444",
+  intermediate: "#F59E0B",
+};
+
+export type InventoryStatus =
+  | "draft"
+  | "ready_for_signature"
+  | "partially_signed"
+  | "signed"
+  | "archived";
+
+export const INVENTORY_STATUS_LABELS: Record<InventoryStatus, string> = {
+  draft:               "Brouillon",
+  ready_for_signature: "En attente de signature",
+  partially_signed:    "Partiellement signé",
+  signed:              "Signé",
+  archived:            "Archivé",
+};
+export const INVENTORY_STATUS_COLORS: Record<InventoryStatus, string> = {
+  draft:               "#94A3B8",
+  ready_for_signature: "#F59E0B",
+  partially_signed:    "#8B5CF6",
+  signed:              "#10B981",
+  archived:            "#64748B",
+};
+
+// ── État des éléments ─────────────────────────────────────────────────────────
+
+export type ElementCondition =
+  | "new" | "excellent" | "good" | "fair"
+  | "poor" | "damaged" | "not_checked" | "absent" | "other";
+
+export const ELEMENT_CONDITION_LABELS: Record<ElementCondition, string> = {
+  new:         "Neuf",
+  excellent:   "Très bon état",
+  good:        "Bon état",
+  fair:        "État moyen",
+  poor:        "Mauvais état",
+  damaged:     "Dégradé",
+  not_checked: "Non vérifié",
+  absent:      "Non présent",
+  other:       "Autre état",
+};
+export const ELEMENT_CONDITION_COLORS: Record<ElementCondition, string> = {
+  new:         "#10B981",
+  excellent:   "#34D399",
+  good:        "#6EE7B7",
+  fair:        "#F59E0B",
+  poor:        "#FB923C",
+  damaged:     "#EF4444",
+  not_checked: "#94A3B8",
+  absent:      "#CBD5E1",
+  other:       "#8B5CF6",
+};
+
+// ── Pièces ────────────────────────────────────────────────────────────────────
+
+export type RoomType =
+  | "entree" | "sejour" | "salon" | "cuisine" | "chambre"
+  | "salle_bains" | "salle_eau" | "wc" | "couloir" | "dressing"
+  | "bureau" | "buanderie" | "cellier" | "custom";
+
+export const ROOM_TYPE_LABELS: Record<RoomType, string> = {
+  entree:      "Entrée",
+  sejour:      "Séjour",
+  salon:       "Salon",
+  cuisine:     "Cuisine",
+  chambre:     "Chambre",
+  salle_bains: "Salle de bains",
+  salle_eau:   "Salle d'eau",
+  wc:          "WC",
+  couloir:     "Couloir",
+  dressing:    "Dressing",
+  bureau:      "Bureau",
+  buanderie:   "Buanderie",
+  cellier:     "Cellier",
+  custom:      "Pièce personnalisée",
+};
+export const ROOM_TYPE_ICONS: Record<RoomType, string> = {
+  entree:      "enter",
+  sejour:      "tv",
+  salon:       "cafe",
+  cuisine:     "restaurant",
+  chambre:     "bed",
+  salle_bains: "water",
+  salle_eau:   "water-outline",
+  wc:          "ellipsis-horizontal-circle-outline",
+  couloir:     "git-commit-outline",
+  dressing:    "shirt-outline",
+  bureau:      "laptop-outline",
+  buanderie:   "color-wand-outline",
+  cellier:     "cube-outline",
+  custom:      "add-circle-outline",
+};
+
+// ── Annexes ───────────────────────────────────────────────────────────────────
+
+export type AnnexType =
+  | "garage" | "parking" | "cave" | "grenier" | "balcon"
+  | "terrasse" | "jardin" | "cour" | "dependance" | "local" | "autre";
+
+export const ANNEX_TYPE_LABELS: Record<AnnexType, string> = {
+  garage:     "Garage",
+  parking:    "Parking",
+  cave:       "Cave",
+  grenier:    "Grenier",
+  balcon:     "Balcon",
+  terrasse:   "Terrasse",
+  jardin:     "Jardin",
+  cour:       "Cour",
+  dependance: "Dépendance",
+  local:      "Local",
+  autre:      "Annexe (autre)",
+};
+export const ANNEX_TYPE_ICONS: Record<AnnexType, string> = {
+  garage:     "car-outline",
+  parking:    "car",
+  cave:       "archive-outline",
+  grenier:    "home-outline",
+  balcon:     "partly-sunny-outline",
+  terrasse:   "sunny-outline",
+  jardin:     "leaf-outline",
+  cour:       "leaf",
+  dependance: "business-outline",
+  local:      "cube-outline",
+  autre:      "add-circle-outline",
+};
+
+// ── Éléments par pièce ────────────────────────────────────────────────────────
+
+export interface PhotoRecord {
+  url:      string;
+  caption?: string;
+  takenAt:  string;
+}
+
+export interface RoomItem {
+  id:             string;
+  name:           string;
+  condition:      ElementCondition;
+  observation?:   string;
+  conditionNote?: string;   // si condition === "other"
+  photos:         PhotoRecord[];
+}
+
+export interface InventoryRoom {
+  id:                  string;
+  reportId:            string;
+  name:                string;
+  type:                RoomType | AnnexType;
+  isAnnex:             boolean;
+  order:               number;
+  generalCondition?:   ElementCondition;
+  observation?:        string;
+  tenantObservation?:  string;
+  photos:              PhotoRecord[];
+  items:               RoomItem[];   // embarqués — pas de sous-collection
+  createdAt:           string;
+  updatedAt:           string;
+}
+
+// ── Compteurs ─────────────────────────────────────────────────────────────────
+
+export type MeterType = "electricity" | "gas" | "water_cold" | "water_hot" | "other";
+export const METER_TYPE_LABELS: Record<MeterType, string> = {
+  electricity: "Électricité",
+  gas:         "Gaz",
+  water_cold:  "Eau froide",
+  water_hot:   "Eau chaude (ECS)",
+  other:       "Autre",
+};
+export const METER_TYPE_ICONS: Record<MeterType, string> = {
+  electricity: "flash",
+  gas:         "flame",
+  water_cold:  "water",
+  water_hot:   "thermometer",
+  other:       "speedometer-outline",
+};
+export const METER_TYPE_UNITS: Record<MeterType, string> = {
+  electricity: "kWh",
+  gas:         "m³",
+  water_cold:  "m³",
+  water_hot:   "m³",
+  other:       "",
+};
+
+export interface MeterReading {
+  id:       string;
+  type:     MeterType;
+  number?:  string;
+  index:    string;
+  unit:     string;
+  date:     string;
+  photoUrl?: string;
+  comment?:  string;
+}
+
+// ── Clés et accès ─────────────────────────────────────────────────────────────
+
+export type KeyItemType =
+  | "apartment" | "mailbox" | "badge" | "garage_remote"
+  | "parking_badge" | "basement" | "other";
+
+export const KEY_ITEM_TYPE_LABELS: Record<KeyItemType, string> = {
+  apartment:     "Clés logement",
+  mailbox:       "Clés boîte aux lettres",
+  badge:         "Badge / Digicode",
+  garage_remote: "Télécommande garage",
+  parking_badge: "Badge parking",
+  basement:      "Clés cave",
+  other:         "Autre",
+};
+export const KEY_ITEM_TYPE_ICONS: Record<KeyItemType, string> = {
+  apartment:     "key",
+  mailbox:       "mail",
+  badge:         "card",
+  garage_remote: "car",
+  parking_badge: "card-outline",
+  basement:      "archive",
+  other:         "ellipsis-horizontal-circle",
+};
+
+export interface KeyItem {
+  id:           string;
+  type:         KeyItemType;
+  quantity:     number;
+  description?: string;
+  observation?: string;
+}
+
+// ── Équipements ───────────────────────────────────────────────────────────────
+
+export type EquipmentCategory =
+  | "appliance" | "heating" | "cooling" | "furniture" | "lighting" | "detector" | "other";
+
+export const EQUIPMENT_CATEGORY_LABELS: Record<EquipmentCategory, string> = {
+  appliance: "Électroménager",
+  heating:   "Chauffage",
+  cooling:   "Climatisation",
+  furniture: "Mobilier",
+  lighting:  "Éclairage",
+  detector:  "Détecteurs",
+  other:     "Divers",
+};
+export const EQUIPMENT_CATEGORY_ICONS: Record<EquipmentCategory, string> = {
+  appliance: "hardware-chip-outline",
+  heating:   "flame-outline",
+  cooling:   "snow-outline",
+  furniture: "bed-outline",
+  lighting:  "bulb-outline",
+  detector:  "shield-checkmark-outline",
+  other:     "cube-outline",
+};
+
+export interface EquipmentItem {
+  id:            string;
+  name:          string;
+  category:      EquipmentCategory;
+  condition:     ElementCondition;
+  serialNumber?: string;
+  observation?:  string;
+}
+
+// ── Signatures ────────────────────────────────────────────────────────────────
+
+export type SignatureProviderType = "local" | "yousign" | "docusign";
+
+export interface SignatureRecord {
+  status:            "pending" | "signed" | "declined";
+  providerType:      SignatureProviderType;
+  transactionId?:    string;
+  signerUid:         string;
+  signerEmail:       string;
+  signerName:        string;
+  signedAt?:         string;
+  signatureImageUrl?: string;  // V1 : PNG dans Firebase Storage
+  ipAddress?:         string;
+  proofBundleUrl?:    string;  // V2/V3 : fichier d'audit prestataire
+  documentHash?:      string;
+}
+
+// ── Snapshot du logement ──────────────────────────────────────────────────────
+
+export interface InventoryPropertySnapshot {
+  address:           string;
+  postalCode:        string;
+  city:              string;
+  apartmentNumber?:  string;
+  propertyType:      PropertyType;
+  surface?:          number;
+  numberOfRooms?:    number;
+  floor?:            string;
+  constructionYear?: number;
+  tenantFirstName:   string;
+  tenantLastName:    string;
+  tenantEmail:       string;
+  landlordName:      string;
+  landlordEmail?:    string;
+}
+
+// ── Rapport principal ─────────────────────────────────────────────────────────
+
+export interface InventoryReport {
+  id:                    string;
+  propertyId:            string;
+  landlordId:            string;
+  tenantId:              string;   // PropertyTenant.id
+  tenantUserId?:         string;   // Firebase uid du locataire
+  type:                  InventoryType;
+  status:                InventoryStatus;
+  linkedEntryReportId?:  string;   // pour exit : réf à l'entry
+
+  propertySnapshot:      InventoryPropertySnapshot;
+  generalObservations?:  string;
+  tenantObservations?:   string;   // réserves du locataire
+
+  meterReadings:         MeterReading[];
+  keyItems:              KeyItem[];
+  equipment:             EquipmentItem[];
+
+  signatures: {
+    landlord?: SignatureRecord;
+    tenant?:   SignatureRecord;
+  };
+
+  pdfUrl?:          string;
+  signedPdfUrl?:    string;
+  pdfGeneratedAt?:  string;
+
+  createdAt:   string;
+  updatedAt:   string;
+  finalizedAt?: string;
+}

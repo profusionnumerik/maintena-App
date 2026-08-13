@@ -64,7 +64,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { user, isLoading: authLoading, isSuperAdmin } = useAuth();
+  const { user, isLoading: authLoading, isSuperAdmin, userType, hasRentalSetup } = useAuth();
   const { currentCopro, isLoading: coProLoading, isSubscribed } = useCoPro();
   const segments = useSegments();
   const router = useRouter();
@@ -82,18 +82,24 @@ function RootLayoutNav() {
   // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    // authLoading inclut désormais le chargement userType depuis Firestore
     if (authLoading || coProLoading) return;
 
-    const inAuth = segmentsSafe[0] === "(auth)";
-    const inOnboarding = segmentsSafe[0] === "(onboarding)";
-    const inBlocked = segmentsSafe[0] === "(blocked)";
-    const inApp = segmentsSafe[0] === "(app)";
-    const inSuperAdmin = segmentsSafe[0] === "(superadmin)";
-    const inLegal = segmentsSafe[0] === "(legal)";
-    const inMaintenance = segmentsSafe[0] === "maintenance";
-    const inModal = segmentsSafe[0] === "add" || segmentsSafe[0] === "intervention";
-    const secondSegment = segmentsSafe[1];
-    const inCreateCopro = inOnboarding && secondSegment === "create";
+    const inAuth             = segmentsSafe[0] === "(auth)";
+    const inOnboarding       = segmentsSafe[0] === "(onboarding)";
+    const inBlocked          = segmentsSafe[0] === "(blocked)";
+    const inApp              = segmentsSafe[0] === "(app)";
+    const inSuperAdmin       = segmentsSafe[0] === "(superadmin)";
+    const inLegal            = segmentsSafe[0] === "(legal)";
+    const inMaintenance      = segmentsSafe[0] === "maintenance";
+    const inModal            = segmentsSafe[0] === "add" || segmentsSafe[0] === "intervention";
+    const inRentalOnboarding = segmentsSafe[0] === "(rental-onboarding)";
+    const inRental           = segmentsSafe[0] === "(rental)";
+    const inTenant           = segmentsSafe[0] === "(tenant)";
+    const inProperty         = segmentsSafe[0] === "property";
+    const inInventory        = segmentsSafe[0] === "inventory";
+    const secondSegment      = segmentsSafe[1];
+    const inCreateCopro      = inOnboarding && secondSegment === "create";
 
     // Maintenance : redirige tout le monde sauf le superadmin
     if (isMaintenance && !isSuperAdmin) {
@@ -106,11 +112,13 @@ function RootLayoutNav() {
       return;
     }
 
+    // Non authentifié
     if (!user) {
       if (!inAuth && !inLegal) router.replace("/(auth)");
       return;
     }
 
+    // Super admin
     if (isSuperAdmin) {
       if (!inSuperAdmin && !inApp && !inModal && !inLegal) {
         router.replace("/(superadmin)");
@@ -118,6 +126,26 @@ function RootLayoutNav() {
       return;
     }
 
+    // ── MODULE LOCATION — Bailleur ─────────────────────────────────────────
+    if (userType === "landlord") {
+      if (!hasRentalSetup) {
+        // Premier lancement : créer son premier logement
+        if (!inRentalOnboarding) router.replace("/(rental-onboarding)");
+      } else {
+        // Dashboard bailleur (+ détail logement + état des lieux)
+        if (!inRental && !inRentalOnboarding && !inProperty && !inInventory) router.replace("/(rental)");
+      }
+      return;
+    }
+
+    // ── MODULE LOCATION — Locataire ────────────────────────────────────────
+    if (userType === "tenant") {
+      // Autorise aussi les routes inventory (accès aux états des lieux)
+      if (!inTenant && !inInventory) router.replace("/(tenant)");
+      return;
+    }
+
+    // ── MODULE COPROPRIÉTÉ — flux existant (copro / undefined / both) ──────
     if (!currentCopro) {
       if (!inOnboarding) router.replace("/(onboarding)");
       return;
@@ -140,6 +168,8 @@ function RootLayoutNav() {
     isSuperAdmin,
     isSubscribed,
     isMaintenance,
+    userType,
+    hasRentalSetup,
     segments,
     router,
   ]);
@@ -153,8 +183,23 @@ function RootLayoutNav() {
       <Stack.Screen name="(superadmin)" />
       <Stack.Screen name="(legal)" />
       <Stack.Screen name="maintenance" />
+      {/* ── Module Location ── */}
+      <Stack.Screen name="(rental-onboarding)" />
+      <Stack.Screen name="(rental)" />
+      <Stack.Screen name="(tenant)" />
+      {/* ── Modals partagés ── */}
       <Stack.Screen name="add" options={{ presentation: "modal", headerShown: false }} />
       <Stack.Screen name="intervention/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="property/[id]" options={{ headerShown: false }} />
+      {/* ── Module État des lieux ── */}
+      <Stack.Screen name="inventory/create" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/rooms" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/room/[roomId]" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/meters" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/keys" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/equipment" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory/[id]/summary" options={{ headerShown: false }} />
     </Stack>
   );
 }

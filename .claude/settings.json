@@ -4,7 +4,12 @@
       "Bash(npx expo *)",
       "Bash(grep -v \"node_modules\\\\|\\\\.js$\")",
       "Bash(eas update *)",
-      "Bash(eas build *)"
+      "Bash(eas build *)",
+      "Bash(mkdir -p /Users/bijourobert/maintena_publish/app/inventory/\\\\[id\\\\]/room)",
+      "Bash(npx eas *)"
+    ],
+    "additionalDirectories": [
+      "/Users/bijourobert/maintena_publish/app/inventory/[id]"
     ]
   }
 }

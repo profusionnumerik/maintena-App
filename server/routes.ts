@@ -6959,6 +6959,118 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     );
   }
 
+  // ─── Notifications module Location ────────────────────────────────────────
+
+  /**
+   * POST /api/rental/notify-signalement
+   * Notifie le bailleur qu'un locataire vient de signaler un problème.
+   * Body: { propertyId, category, description, tenantName }
+   */
+  app.post("/api/rental/notify-signalement", async (req: Request, res: Response) => {
+    const { propertyId, category, description, tenantName } = req.body as {
+      propertyId?: string; category?: string; description?: string; tenantName?: string;
+    };
+    if (!propertyId) return res.status(400).json({ error: "propertyId requis" });
+
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+
+    try {
+      const propDoc = await adminDb.collection("properties").doc(propertyId).get();
+      if (!propDoc.exists) return res.status(404).json({ error: "Logement introuvable" });
+
+      const landlordId = propDoc.data()!.landlordId as string;
+      const categoryMap: Record<string, string> = {
+        plomberie: "Plomberie", electricite: "Électricité", chauffage: "Chauffage",
+        serrurerie: "Serrurerie", menage: "Propreté", nuisible: "Nuisibles",
+        structure: "Murs / Structure", autre: "Autre",
+      };
+      const catLabel = categoryMap[category ?? ""] ?? category ?? "Problème";
+      const short = (description ?? "").length > 60
+        ? (description ?? "").substring(0, 60) + "…"
+        : (description ?? "");
+
+      await sendPushToUser(
+        landlordId,
+        `🔔 Signalement — ${catLabel}`,
+        `${tenantName ?? "Votre locataire"} : ${short}`,
+        { type: "tenant_signalement", propertyId }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-signalement]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+
+  /**
+   * POST /api/rental/notify-report-updated
+   * Notifie le locataire que le bailleur a mis à jour son signalement.
+   * Body: { propertyId, tenantUserId, status, landlordNote? }
+   */
+  app.post("/api/rental/notify-report-updated", async (req: Request, res: Response) => {
+    const { tenantUserId, status, propertyId } = req.body as {
+      tenantUserId?: string; status?: string; propertyId?: string;
+    };
+    if (!tenantUserId || !status) return res.status(400).json({ error: "tenantUserId et status requis" });
+
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+
+    const statusLabels: Record<string, string> = {
+      in_progress: "votre signalement est pris en charge",
+      resolved:    "votre signalement est résolu",
+    };
+    const msg = statusLabels[status] ?? `statut mis à jour : ${status}`;
+
+    try {
+      await sendPushToUser(
+        tenantUserId,
+        "📬 Mise à jour de votre signalement",
+        `Votre bailleur vous informe que ${msg}.`,
+        { type: "signalement_updated", propertyId: propertyId ?? "" }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-report-updated]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+
+  /**
+   * POST /api/rental/notify-inventory-shared
+   * Notifie le locataire qu'un état des lieux est prêt pour signature.
+   * Body: { tenantUserId, reportType, propertyAddress }
+   */
+  app.post("/api/rental/notify-inventory-shared", async (req: Request, res: Response) => {
+    const { tenantUserId, reportType, propertyAddress } = req.body as {
+      tenantUserId?: string; reportType?: string; propertyAddress?: string;
+    };
+    if (!tenantUserId) return res.status(400).json({ error: "tenantUserId requis" });
+
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+
+    const typeLabel = reportType === "entry" ? "d'entrée"
+      : reportType === "exit" ? "de sortie"
+      : "intermédiaire";
+
+    try {
+      await sendPushToUser(
+        tenantUserId,
+        `📋 État des lieux ${typeLabel} à signer`,
+        propertyAddress
+          ? `Votre bailleur vous invite à signer l'état des lieux de ${propertyAddress}.`
+          : "Votre bailleur vous invite à signer votre état des lieux.",
+        { type: "inventory_to_sign" }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-inventory-shared]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+
   // SPA fallback — serve Expo web app index.html for unknown GET routes
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
   if (fs.existsSync(staticBuildIndex)) {

@@ -14,6 +14,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
@@ -31,6 +32,7 @@ import React, {
 import { auth, db } from "@/lib/firebase";
 import { apiRequest } from "@/lib/query-client";
 import { registerPushToken } from "@/lib/notifications";
+import type { UserType, RentalInfo } from "@/shared/types";
 
 const SUPER_ADMIN_EMAIL =
   process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "admin@example.com";
@@ -49,6 +51,13 @@ interface AuthContextValue {
   user: any | null;
   isLoading: boolean;
   isSuperAdmin: boolean;
+  // ── Module Location ──────────────────────────────
+  userType: UserType | null;
+  hasRentalSetup: boolean;
+  rentalInfo: RentalInfo | null;
+  setUserType: (type: UserType) => Promise<void>;
+  markRentalSetup: () => Promise<void>;
+  // ────────────────────────────────────────────────
   error: string | null;
   clearError: () => void;
   login: (email: string, password: string) => Promise<void>;
@@ -108,17 +117,62 @@ async function activateInvitedMember(
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  // Démarre à true : évite le bref window où authReady=true mais userType pas encore chargé
+  // → isLoading reste true jusqu'à ce que Firestore ait répondu (ou user non connecté)
+  const [userDataLoading, setUserDataLoading] = useState(true);
+  const [userType, setUserTypeState] = useState<UserType | null>(null);
+  const [hasRentalSetup, setHasRentalSetup] = useState(false);
+  const [rentalInfo, setRentalInfo] = useState<RentalInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // isLoading reste true tant que Firebase Auth OU les données Firestore ne sont pas prêtes
+  const isLoading = !authReady || userDataLoading;
+
+  // Effet 1 : surveillance de l'état d'authentification Firebase
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setIsLoading(false);
+      setAuthReady(true);
+      if (!u) {
+        // Utilisateur déconnecté : réinitialiser les données locales
+        setUserTypeState(null);
+        setHasRentalSetup(false);
+        setRentalInfo(null);
+        setUserDataLoading(false);
+      }
       if (u?.uid) registerPushToken(u.uid).catch(() => {});
     });
     return unsub;
   }, []);
+
+  // Effet 2 : chargement en temps réel de userType et hasRentalSetup depuis Firestore
+  useEffect(() => {
+    if (!authReady || !user?.uid) {
+      if (authReady && !user?.uid) setUserDataLoading(false);
+      return;
+    }
+
+    setUserDataLoading(true);
+    const unsub = onSnapshot(
+      doc(db, "users", user.uid),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setUserTypeState((data.userType as UserType) ?? null);
+          setHasRentalSetup(data.hasRentalSetup === true);
+          setRentalInfo((data.rentalInfo as RentalInfo) ?? null);
+        }
+        setUserDataLoading(false);
+      },
+      () => {
+        // En cas d'erreur Firestore : ne pas bloquer l'app
+        setUserDataLoading(false);
+      }
+    );
+
+    return () => unsub();
+  }, [user?.uid, authReady]);
 
   const isSuperAdmin = useMemo(
     () => !!user && user.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase(),
@@ -283,11 +337,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── Module Location ─────────────────────────────────────────────────────────
+
+  /** Définit le type d'utilisateur (copro, landlord, tenant, both) dans Firestore */
+  const setUserType = useCallback(async (type: UserType) => {
+    if (!user?.uid) return;
+    await setDoc(doc(db, "users", user.uid), { userType: type }, { merge: true });
+    // Pas besoin d'appeler setUserTypeState : onSnapshot le met à jour automatiquement
+  }, [user?.uid]);
+
+  /** Marque le module Location comme configuré (premier logement créé) */
+  const markRentalSetup = useCallback(async () => {
+    if (!user?.uid) return;
+    await setDoc(doc(db, "users", user.uid), { hasRentalSetup: true }, { merge: true });
+  }, [user?.uid]);
+
+  // ────────────────────────────────────────────────────────────────────────────
+
   const value = useMemo(
     () => ({
       user,
       isLoading,
       isSuperAdmin,
+      userType,
+      hasRentalSetup,
+      rentalInfo,
       error,
       clearError,
       login,
@@ -295,8 +369,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       deleteAccount,
       resetPassword,
+      setUserType,
+      markRentalSetup,
     }),
-    [user, isLoading, isSuperAdmin, error, clearError, login, register, logout, deleteAccount, resetPassword]
+    [
+      user, isLoading, isSuperAdmin,
+      userType, hasRentalSetup, rentalInfo,
+      error, clearError, login, register, logout, deleteAccount, resetPassword,
+      setUserType, markRentalSetup,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

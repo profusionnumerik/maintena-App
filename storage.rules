@@ -16,5 +16,23 @@ service firebase.storage {
       allow write: if isSignedIn() && request.auth.uid == uid
                    && request.resource.size < 1 * 1024 * 1024;
     }
+
+    // ── Module État des lieux — photos pièces, compteurs, PDF ──────────────
+    match /properties/{propertyId}/inventory/{allPaths=**} {
+      // Lecture : bailleur du logement ou locataire du logement
+      allow read: if isSignedIn() && (
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+          .data.rentalInfo.propertyId == propertyId
+      );
+
+      // Écriture : bailleur uniquement, max 20 Mo, images ou PDF
+      allow write: if isSignedIn() &&
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid &&
+        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.contentType.matches("image/.*|application/pdf");
+    }
   }
 }
