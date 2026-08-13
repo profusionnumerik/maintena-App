@@ -443,12 +443,7 @@ export default function TenantHome() {
       icon:    "document-text-outline",
       label:   "Mes documents",
       color:   "#3B82F6",
-      onPress: () =>
-        Alert.alert(
-          "Documents",
-          "Vos documents (bail, quittances, etc.) seront disponibles ici prochainement.\n\nContactez votre bailleur directement pour les obtenir.",
-          [{ text: "OK" }]
-        ),
+      onPress: () => router.push("/documents" as any),
     },
     {
       icon:    "construct-outline",

@@ -16,13 +16,16 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   onSnapshot,
   orderBy,
   query,
   updateDoc,
+  where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -31,14 +34,19 @@ import { apiRequest } from "@/lib/query-client";
 import {
   RentalProperty,
   PropertyTenant,
+  PropertyDocument,
+  PropertyDocumentType,
   PropertyStatus,
   PROPERTY_TYPE_LABELS,
   PROPERTY_TYPE_ICONS,
   PROPERTY_STATUS_LABELS,
   PROPERTY_STATUS_COLORS,
+  PROPERTY_DOCUMENT_TYPE_LABELS,
+  PROPERTY_DOCUMENT_TYPE_ICONS,
   TENANT_STATUS_LABELS,
   TENANT_STATUS_COLORS,
 } from "@/shared/types";
+import { Linking } from "react-native";
 
 // ─── Petit badge statut ───────────────────────────────────────────────────────
 
@@ -59,6 +67,309 @@ const badgeS = StyleSheet.create({
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
   label: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+});
+
+// ─── Gestion documents ─────────────────────────────────────────────────────────
+
+const DOC_TYPES: PropertyDocumentType[] = ["lease", "dpe", "invoice", "quote", "other"];
+
+function AddDocModal({
+  propertyId, landlordId, onClose,
+}: { propertyId: string; landlordId: string; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
+  const [type, setType]       = useState<PropertyDocumentType>("other");
+  const [label, setLabel]     = useState("");
+  const [url, setUrl]         = useState("");
+  const [visible, setVisible] = useState(true);
+  const [saving, setSaving]   = useState(false);
+
+  const handleSave = async () => {
+    if (!label.trim()) { Alert.alert("Nom manquant"); return; }
+    if (!url.trim())   { Alert.alert("Lien manquant", "Collez l'URL du document (Google Drive, Dropbox…)"); return; }
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "properties", propertyId, "documents"), {
+        propertyId,
+        landlordId,
+        type,
+        label: label.trim(),
+        url: url.trim(),
+        visibleToTenant: visible,
+        uploadedBy: landlordId,
+        createdAt: new Date().toISOString(),
+      } satisfies Omit<PropertyDocument, "id">);
+      onClose();
+    } catch {
+      Alert.alert("Erreur", "Impossible d'ajouter le document.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal visible transparent animationType="slide">
+      <View style={StyleSheet.absoluteFillObject}>
+        <Pressable
+          style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.5)" }]}
+          onPress={onClose}
+        />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ justifyContent: "flex-end" }}
+        >
+          <View style={[addDoc_.sheet, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={addDoc_.handle} />
+            <Text style={addDoc_.title}>Ajouter un document</Text>
+
+            <Text style={addDoc_.label}>Type de document</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {DOC_TYPES.map((t) => (
+                  <Pressable
+                    key={t}
+                    style={[addDoc_.chip, type === t && addDoc_.chipActive]}
+                    onPress={() => setType(t)}
+                  >
+                    <Ionicons
+                      name={PROPERTY_DOCUMENT_TYPE_ICONS[t] as any}
+                      size={14}
+                      color={type === t ? COLORS.primary : COLORS.textMuted}
+                    />
+                    <Text style={[addDoc_.chipText, type === t && addDoc_.chipTextActive]}>
+                      {PROPERTY_DOCUMENT_TYPE_LABELS[t]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+
+            <Text style={addDoc_.label}>Nom du document *</Text>
+            <TextInput
+              style={addDoc_.input}
+              placeholder="ex : Bail signé 2026"
+              placeholderTextColor={COLORS.textMuted}
+              value={label}
+              onChangeText={setLabel}
+            />
+
+            <Text style={addDoc_.label}>Lien (URL) *</Text>
+            <TextInput
+              style={addDoc_.input}
+              placeholder="https://drive.google.com/…"
+              placeholderTextColor={COLORS.textMuted}
+              value={url}
+              onChangeText={setUrl}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+
+            <Pressable
+              style={addDoc_.toggleRow}
+              onPress={() => setVisible((v) => !v)}
+            >
+              <View style={[addDoc_.toggle, visible && addDoc_.toggleOn]}>
+                <View style={[addDoc_.toggleDot, visible && addDoc_.toggleDotOn]} />
+              </View>
+              <Text style={addDoc_.toggleLabel}>Visible par le locataire</Text>
+            </Pressable>
+
+            <Pressable style={addDoc_.btn} onPress={handleSave} disabled={saving}>
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={addDoc_.btnText}>Ajouter</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
+function DocumentsSection({ propertyId, landlordId }: { propertyId: string; landlordId: string }) {
+  const [docs, setDocs]       = useState<PropertyDocument[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "properties", propertyId, "documents"),
+      orderBy("createdAt", "desc")
+    );
+    return onSnapshot(q, (snap) => {
+      setDocs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PropertyDocument)));
+    });
+  }, [propertyId]);
+
+  const handleDelete = (docId: string, docLabel: string) => {
+    Alert.alert(
+      "Supprimer le document ?",
+      `"${docLabel}" sera supprimé.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: () =>
+            deleteDoc(doc(db, "properties", propertyId, "documents", docId)).catch(() =>
+              Alert.alert("Erreur", "Impossible de supprimer.")
+            ),
+        },
+      ]
+    );
+  };
+
+  const handleOpen = async (url: string) => {
+    try {
+      if (await Linking.canOpenURL(url)) await Linking.openURL(url);
+      else Alert.alert("Lien invalide", url);
+    } catch {
+      Alert.alert("Erreur", "Impossible d'ouvrir le lien.");
+    }
+  };
+
+  const handleToggleVisible = async (d: PropertyDocument) => {
+    await updateDoc(doc(db, "properties", propertyId, "documents", d.id), {
+      visibleToTenant: !d.visibleToTenant,
+    }).catch(() => Alert.alert("Erreur", "Impossible de modifier."));
+  };
+
+  return (
+    <View>
+      <View style={docSec.header}>
+        <Text style={docSec.sectionTitle}>Documents</Text>
+        <Pressable style={docSec.addBtn} onPress={() => setShowAdd(true)}>
+          <Ionicons name="add" size={16} color={COLORS.primary} />
+          <Text style={docSec.addBtnText}>Ajouter</Text>
+        </Pressable>
+      </View>
+
+      {docs.length === 0 ? (
+        <View style={docSec.empty}>
+          <Ionicons name="folder-outline" size={32} color={COLORS.textMuted} style={{ opacity: 0.5 }} />
+          <Text style={docSec.emptyText}>Aucun document</Text>
+          <Text style={docSec.emptyDesc}>Bail, DPE, factures… ajoutez un lien vers vos documents.</Text>
+        </View>
+      ) : (
+        docs.map((d) => (
+          <View key={d.id} style={docSec.row}>
+            <Pressable style={docSec.rowMain} onPress={() => handleOpen(d.url)}>
+              <View style={[docSec.icon, { backgroundColor: d.visibleToTenant ? "#EFF6FF" : "#F8FAFC" }]}>
+                <Ionicons
+                  name={PROPERTY_DOCUMENT_TYPE_ICONS[d.type] as any}
+                  size={18}
+                  color={d.visibleToTenant ? "#3B82F6" : COLORS.textMuted}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={docSec.rowLabel} numberOfLines={1}>{d.label}</Text>
+                <Text style={docSec.rowType}>{PROPERTY_DOCUMENT_TYPE_LABELS[d.type]}</Text>
+              </View>
+              <Ionicons name="open-outline" size={14} color={COLORS.textMuted} />
+            </Pressable>
+
+            <View style={docSec.rowActions}>
+              <Pressable style={docSec.visibleBtn} onPress={() => handleToggleVisible(d)}>
+                <Ionicons
+                  name={d.visibleToTenant ? "eye" : "eye-off-outline"}
+                  size={14}
+                  color={d.visibleToTenant ? "#10B981" : COLORS.textMuted}
+                />
+                <Text style={[docSec.visibleText, d.visibleToTenant && { color: "#10B981" }]}>
+                  {d.visibleToTenant ? "Visible locataire" : "Non visible"}
+                </Text>
+              </Pressable>
+              <Pressable onPress={() => handleDelete(d.id, d.label)} hitSlop={8}>
+                <Ionicons name="trash-outline" size={16} color="#EF4444" />
+              </Pressable>
+            </View>
+          </View>
+        ))
+      )}
+
+      {showAdd && (
+        <AddDocModal
+          propertyId={propertyId}
+          landlordId={landlordId}
+          onClose={() => setShowAdd(false)}
+        />
+      )}
+    </View>
+  );
+}
+
+const addDoc_ = StyleSheet.create({
+  sheet: {
+    backgroundColor: "#fff", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 20, paddingTop: 12,
+  },
+  handle: {
+    width: 36, height: 4, borderRadius: 2, backgroundColor: COLORS.border,
+    alignSelf: "center", marginBottom: 16,
+  },
+  title: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text, marginBottom: 20 },
+  label: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 6 },
+  input: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
+    backgroundColor: "#FAFAFA", marginBottom: 14,
+  },
+  chip: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#F8F8F8",
+  },
+  chipActive: { borderColor: COLORS.primary, backgroundColor: "#EEF2FF" },
+  chipText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  chipTextActive: { color: COLORS.primary },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
+  toggleLabel: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, flex: 1 },
+  toggle: {
+    width: 44, height: 26, borderRadius: 13, backgroundColor: "#E2E8F0",
+    justifyContent: "center", paddingHorizontal: 3,
+  },
+  toggleOn: { backgroundColor: "#10B981" },
+  toggleDot: {
+    width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff",
+  },
+  toggleDotOn: { alignSelf: "flex-end" },
+  btn: {
+    backgroundColor: COLORS.primary, borderRadius: 12,
+    paddingVertical: 14, alignItems: "center",
+  },
+  btnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+});
+
+const docSec = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  addBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderWidth: 1, borderColor: COLORS.primary, borderRadius: 20,
+    paddingHorizontal: 12, paddingVertical: 5,
+  },
+  addBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+  empty: { alignItems: "center", gap: 6, paddingVertical: 20 },
+  emptyText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+  emptyDesc: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center" },
+  row: {
+    backgroundColor: "#fff", borderRadius: 12,
+    marginBottom: 8, overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  rowMain: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
+  icon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  rowLabel: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  rowType: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
+  rowActions: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 12, paddingBottom: 10,
+    borderTopWidth: 1, borderTopColor: "#F0F0F0", paddingTop: 8,
+  },
+  visibleBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  visibleText: { fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
 });
 
 // ─── Carte locataire ──────────────────────────────────────────────────────────
@@ -657,15 +968,12 @@ export default function PropertyDetail() {
           </View>
         )}
 
-        {/* Prochaines phases — placeholders */}
+        {/* Documents */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>Signalements & documents</Text>
-          <View style={s.phaseCard}>
-            <Ionicons name="time-outline" size={20} color={COLORS.textMuted} />
-            <Text style={s.phaseText}>
-              Signalements, interventions et documents — disponibles dans la prochaine phase.
-            </Text>
-          </View>
+          <DocumentsSection
+            propertyId={id ?? ""}
+            landlordId={user?.uid ?? ""}
+          />
         </View>
       </ScrollView>
 

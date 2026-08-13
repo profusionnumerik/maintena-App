@@ -214,6 +214,15 @@ export default function SummaryScreen() {
     setGeneratingPdf(true);
     try {
       const html = generateInventoryHtml(report, rooms);
+
+      // Web : ouvrir dans un nouvel onglet
+      if (Platform.OS === "web") {
+        const w = window.open("", "_blank");
+        if (w) { w.document.write(html); w.document.close(); }
+        else Alert.alert("Bloqué", "Autorisez les pop-ups pour afficher le PDF.");
+        return;
+      }
+
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
@@ -225,7 +234,7 @@ export default function SummaryScreen() {
       } else {
         Alert.alert("PDF généré", `Fichier disponible : ${uri}`);
       }
-    } catch (e) {
+    } catch {
       Alert.alert("Erreur", "Impossible de générer le PDF.");
     } finally {
       setGeneratingPdf(false);

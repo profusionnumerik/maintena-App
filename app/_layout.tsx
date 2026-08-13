@@ -140,8 +140,9 @@ function RootLayoutNav() {
 
     // ── MODULE LOCATION — Locataire ────────────────────────────────────────
     if (userType === "tenant") {
-      // Autorise aussi les routes inventory (accès aux états des lieux)
-      if (!inTenant && !inInventory) router.replace("/(tenant)");
+      // Autorise les routes inventory (états des lieux) et documents locataire
+      const inTenantDocuments = segmentsSafe[0] === "documents";
+      if (!inTenant && !inInventory && !inTenantDocuments) router.replace("/(tenant)");
       return;
     }
 
