@@ -13,12 +13,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import {
-  InventoryRoom, RoomItem, ElementCondition,
+  InventoryRoom, RoomItem, ElementCondition, PhotoRecord,
   ELEMENT_CONDITION_LABELS, ELEMENT_CONDITION_COLORS,
+  MAX_PHOTOS_PER_ROOM, MAX_PHOTOS_PER_ITEM,
 } from "@/shared/types";
 import { ConditionPicker } from "@/components/inventory/ConditionPicker";
+import { PhotoStrip } from "@/components/inventory/PhotoStrip";
 import { getSuggestions, getRoomSuggestions } from "@/lib/observationSuggestions";
 import { v4 as randomUUID } from "uuid";
 
@@ -27,6 +30,20 @@ export default function RoomEditorScreen() {
     useLocalSearchParams<{ id: string; roomId: string; propertyId: string }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  const uid = user?.uid ?? "";
+  const [plan, setPlan] = useState<import("@/shared/types").SubscriptionPlan | undefined>(undefined);
+
+  // Lire le plan d'abonnement de l'utilisateur (une seule fois)
+  useEffect(() => {
+    if (!user?.uid) return;
+    import("firebase/firestore").then(({ getDoc, doc: fsDoc }) =>
+      getDoc(fsDoc(db, "users", user.uid)).then((snap) => {
+        if (snap.exists()) setPlan(snap.data()?.subscription?.plan ?? undefined);
+      }).catch(() => {})
+    );
+  }, [user?.uid]);
 
   const [room, setRoom]       = useState<InventoryRoom | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +51,7 @@ export default function RoomEditorScreen() {
 
   // État local pour l'édition
   const [items, setItems]               = useState<RoomItem[]>([]);
+  const [roomPhotos, setRoomPhotos]     = useState<PhotoRecord[]>([]);
   const [observation, setObservation]   = useState("");
   const [generalCond, setGeneralCond]   = useState<ElementCondition>("not_checked");
   const [generalNote, setGeneralNote]   = useState("");
@@ -59,6 +77,7 @@ export default function RoomEditorScreen() {
           setRoom(data);
           if (!dirty) {
             setItems(data.items ?? []);
+            setRoomPhotos(data.photos ?? []);
             setObservation(data.observation ?? "");
             setGeneralCond(data.generalCondition ?? "not_checked");
             setGeneralNote("");
@@ -79,6 +98,7 @@ export default function RoomEditorScreen() {
         doc(db, "properties", propertyId, "inventoryReports", id, "rooms", roomId),
         {
           items,
+          photos: roomPhotos,
           observation,
           generalCondition: generalCond,
           updatedAt: new Date().toISOString(),
@@ -90,7 +110,7 @@ export default function RoomEditorScreen() {
     } finally {
       setSaving(false);
     }
-  }, [dirty, items, observation, generalCond, propertyId, id, roomId]);
+  }, [dirty, items, roomPhotos, observation, generalCond, propertyId, id, roomId]);
 
   // Auto-save quand on quitte
   const handleBack = async () => {
@@ -245,6 +265,24 @@ export default function RoomEditorScreen() {
             textAlignVertical="top"
           />
 
+          {/* Photos de la pièce */}
+          <View style={s.photosCard}>
+            <Text style={s.photosLabel}>
+              Photos de la pièce
+              <Text style={s.photosHint}> (max {MAX_PHOTOS_PER_ROOM})</Text>
+            </Text>
+            <PhotoStrip
+              photos={roomPhotos}
+              maxPhotos={MAX_PHOTOS_PER_ROOM}
+              target="room"
+              propertyId={propertyId}
+              reportId={id}
+              uid={uid}
+              plan={plan}
+              onChange={(p) => { setRoomPhotos(p); setDirty(true); }}
+            />
+          </View>
+
           {/* Liste des éléments */}
           <View style={s.itemsHeader}>
             <Text style={s.sectionLabel}>Éléments ({total})</Text>
@@ -262,6 +300,10 @@ export default function RoomEditorScreen() {
               onChange={(patch) => updateItem(item.id, patch)}
               onRemove={() => removeItem(item.id)}
               onSuggest={() => openSuggest(item.id, item.condition, item.name)}
+              uid={uid}
+              plan={plan}
+              propertyId={propertyId}
+              reportId={id}
             />
           ))}
 
@@ -342,12 +384,17 @@ export default function RoomEditorScreen() {
 // ─── Ligne d'un élément ───────────────────────────────────────────────────────
 function ItemRow({
   item, onChange, onRemove, onSuggest, isLast,
+  uid, plan, propertyId, reportId,
 }: {
   item: RoomItem;
   onChange: (patch: Partial<RoomItem>) => void;
   onRemove: () => void;
   onSuggest: () => void;
   isLast: boolean;
+  uid: string;
+  plan?: string;
+  propertyId: string;
+  reportId: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const condColor = ELEMENT_CONDITION_COLORS[item.condition];
@@ -393,6 +440,24 @@ function ItemRow({
               <Text style={ir.aiBtnText}>✨</Text>
             </Pressable>
           </View>
+          {/* Photos de l'élément */}
+          <View style={ir.photoSection}>
+            <Text style={ir.photoLabel}>
+              Photos
+              <Text style={ir.photoHint}> (max {MAX_PHOTOS_PER_ITEM})</Text>
+            </Text>
+            <PhotoStrip
+              photos={item.photos ?? []}
+              maxPhotos={MAX_PHOTOS_PER_ITEM}
+              target={`item-${item.id}`}
+              propertyId={propertyId}
+              reportId={reportId}
+              uid={uid}
+              plan={plan as any}
+              onChange={(p) => onChange({ photos: p })}
+            />
+          </View>
+
           <Pressable style={ir.removeBtn} onPress={onRemove}>
             <Ionicons name="trash-outline" size={15} color="#EF4444" />
             <Text style={ir.removeBtnText}>Supprimer</Text>
@@ -434,6 +499,9 @@ const ir = StyleSheet.create({
     backgroundColor: "rgba(239,68,68,0.08)", borderRadius: 8,
   },
   removeBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#EF4444" },
+  photoSection: { gap: 4 },
+  photoLabel:   { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  photoHint:    { fontFamily: "Inter_400Regular", textTransform: "none", letterSpacing: 0 },
 });
 
 const s = StyleSheet.create({
@@ -503,6 +571,17 @@ const s = StyleSheet.create({
   notFound:       { fontSize: 16, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   backBtnAlt:     { backgroundColor: COLORS.surfaceAlt, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
   backBtnAltText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+
+  photosCard: {
+    backgroundColor: "#fff", borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: COLORS.border, marginTop: 12,
+  },
+  photosLabel: {
+    fontSize: 11, fontFamily: "Inter_700Bold",
+    color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  photosHint: { fontFamily: "Inter_400Regular", textTransform: "none", letterSpacing: 0 },
 
   obsHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",

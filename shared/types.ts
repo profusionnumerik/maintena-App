@@ -14,6 +14,22 @@ export const PLAN_PRICES: Record<SubscriptionPlan, { monthly: number; annual: nu
   business: { monthly: 34.99, annual: 349, label: "Business" },
 };
 
+/** Quota stockage photos états des lieux (en octets) par plan */
+export const PLAN_STORAGE_BYTES: Record<SubscriptionPlan, number> = {
+  benevole:  500  * 1024 * 1024,   //  500 MB
+  starter:   2    * 1024 * 1024 * 1024, // 2 GB
+  pro:       10   * 1024 * 1024 * 1024, // 10 GB
+  business:  30   * 1024 * 1024 * 1024, // 30 GB
+};
+
+/** Quota sans abonnement */
+export const STORAGE_BYTES_FREE = 100 * 1024 * 1024; // 100 MB
+
+/** Photos max par pièce */
+export const MAX_PHOTOS_PER_ROOM = 10;
+/** Photos max par élément */
+export const MAX_PHOTOS_PER_ITEM = 5;
+
 export interface UserSubscription {
   status: "none" | "active" | "expired" | "trialing";
   plan?: SubscriptionPlan;
