@@ -39,6 +39,27 @@ ENV EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_51SvmY4Rtzr6Km0bbBeBGsRm74QrYbuXw
 
 RUN npx expo export --platform web --output-dir static-build 2>&1 || true
 
+# Patch l'index.html généré : lang=fr, titre + méta SEO (module locatif)
+RUN node -e " \
+  const fs = require('fs'); \
+  const p = 'static-build/index.html'; \
+  if (!fs.existsSync(p)) { console.log('index.html absent, skip'); process.exit(0); } \
+  let h = fs.readFileSync(p, 'utf8'); \
+  h = h.replace('<html lang=\"en\">', '<html lang=\"fr\">'); \
+  h = h.replace('<title>Maintena</title>', '<title>Maintena — Copropriétés &amp; Gestion locative</title>'); \
+  const metas = [ \
+    '<meta name=\"description\" content=\"Maintena gère vos copropriétés ET votre parc locatif : suivi des interventions, états des lieux, quittances de loyer, signalements locataires. Essai gratuit 30 jours.\" />', \
+    '<meta property=\"og:title\" content=\"Maintena — Copropriétés &amp; Gestion locative\" />', \
+    '<meta property=\"og:description\" content=\"Gérez vos copropriétés et vos locations en un seul endroit. Interventions, états des lieux, quittances, signalements locataires.\" />', \
+    '<meta property=\"og:type\" content=\"website\" />', \
+    '<meta property=\"og:url\" content=\"https://maintena-pro.fr\" />', \
+    '<meta name=\"twitter:card\" content=\"summary\" />', \
+  ].join('\n  '); \
+  h = h.replace('<link rel=\"icon\"', metas + '\n  <link rel=\"icon\"'); \
+  fs.writeFileSync(p, h); \
+  console.log('index.html patched OK'); \
+"
+
 FROM node:20-alpine AS runner
 WORKDIR /app
 COPY package*.json ./
