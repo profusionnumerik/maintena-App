@@ -8,6 +8,15 @@ export default function Root({ children }: PropsWithChildren) {
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Maintena — Copropriétés &amp; Gestion locative</title>
+        <meta name="description" content="Maintena gère vos copropriétés ET votre parc locatif : suivi des interventions, états des lieux, quittances de loyer, signalements locataires. Essai gratuit 30 jours." />
+        <meta property="og:title" content="Maintena — Copropriétés &amp; Gestion locative" />
+        <meta property="og:description" content="Gérez vos copropriétés et vos locations en un seul endroit. Interventions, états des lieux, quittances, signalements. Disponible sur iOS, Android et web." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://maintena-pro.fr" />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Maintena — Copropriétés &amp; Gestion locative" />
+        <meta name="twitter:description" content="Gérez vos copropriétés et vos locations en un seul endroit. Essai gratuit 30 jours." />
         <ScrollViewStyleReset />
         <style dangerouslySetInnerHTML={{
           __html: `

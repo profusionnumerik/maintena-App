@@ -273,7 +273,7 @@ export default function AuthScreen() {
               resizeMode="contain"
             />
             <Text style={styles.appName}>Maintena</Text>
-            <Text style={styles.appTagline}>Gestion de copropriété</Text>
+            <Text style={styles.appTagline}>Copropriétés · Gestion locative</Text>
           </View>
 
           <View style={styles.card}>
