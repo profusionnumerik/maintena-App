@@ -521,6 +521,7 @@ export default function TenantHome() {
   const [rptLoading, setRptLoading]     = useState(false);
   const [myReports, setMyReports]       = useState<MyReport[]>([]);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [signalementsOpen, setSignalementsOpen] = useState(false);
 
   // Écoute du logement
   useEffect(() => {
@@ -701,32 +702,52 @@ export default function TenantHome() {
           )}
         </View>
 
-        {/* Mes signalements */}
+        {/* Mes signalements — section repliable */}
         <View style={s.section}>
-          <View style={s.sectionHeader}>
-            <Text style={s.sectionTitle}>Mes signalements</Text>
-            <Pressable
-              style={s.sectionAction}
-              onPress={() => setShowReportModal(true)}
-            >
-              <Ionicons name="add" size={14} color={COLORS.teal} />
-              <Text style={s.sectionActionText}>Nouveau</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={s.sectionHeader}
+            onPress={() => setSignalementsOpen((v) => !v)}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+              <Text style={s.sectionTitle}>Mes signalements</Text>
+              {myReports.length > 0 && (
+                <View style={s.countBadge}>
+                  <Text style={s.countBadgeText}>{myReports.length}</Text>
+                </View>
+              )}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Pressable
+                style={s.sectionAction}
+                onPress={(e) => { e.stopPropagation?.(); setShowReportModal(true); }}
+                hitSlop={8}
+              >
+                <Ionicons name="add" size={14} color={COLORS.teal} />
+                <Text style={s.sectionActionText}>Nouveau</Text>
+              </Pressable>
+              <Ionicons
+                name={signalementsOpen ? "chevron-up" : "chevron-down"}
+                size={16}
+                color="rgba(255,255,255,0.4)"
+              />
+            </View>
+          </Pressable>
 
-          {myReports.length === 0 ? (
-            <View style={s.missingCard}>
-              <Ionicons name="checkmark-circle-outline" size={22} color="rgba(255,255,255,0.3)" />
-              <Text style={s.missingText}>
-                Aucun signalement en cours.{"\n"}Tout va bien !
-              </Text>
-            </View>
-          ) : (
-            <View style={s.reportsList}>
-              {myReports.map((r) => (
-                <SignalementCard key={r.id} report={r} />
-              ))}
-            </View>
+          {signalementsOpen && (
+            myReports.length === 0 ? (
+              <View style={s.missingCard}>
+                <Ionicons name="checkmark-circle-outline" size={22} color="rgba(255,255,255,0.3)" />
+                <Text style={s.missingText}>
+                  Aucun signalement en cours.{"\n"}Tout va bien !
+                </Text>
+              </View>
+            ) : (
+              <View style={s.reportsList}>
+                {myReports.map((r) => (
+                  <SignalementCard key={r.id} report={r} />
+                ))}
+              </View>
+            )
           )}
         </View>
       </ScrollView>
@@ -784,6 +805,12 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: "rgba(14,186,170,0.2)",
   },
   sectionActionText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.teal },
+  countBadge: {
+    backgroundColor: "rgba(239,68,68,0.2)", borderRadius: 10,
+    paddingHorizontal: 7, paddingVertical: 2,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.35)",
+  },
+  countBadgeText: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#F87171" },
 
   actionsRow: { flexDirection: "row", gap: 10 },
   actionCard: {
