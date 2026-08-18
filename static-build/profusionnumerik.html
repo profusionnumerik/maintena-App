@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profusion Numérik — Solutions numériques professionnelles</title>
+  <meta name="description" content="Profusion Numérik est une entreprise spécialisée dans le développement de solutions numériques pour les professionnels. Éditeur de Maintena, application de gestion de copropriétés." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue: #2563EB;
+      --blue-dark: #1E40AF;
+      --navy: #0B1628;
+      --navy-light: #0F2040;
+      --text: #1E293B;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --white: #FFFFFF;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text);
+      background: var(--white);
+      line-height: 1.6;
+    }
+
+    /* NAV */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(11,22,40,0.97);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 0 32px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    .nav-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      object-fit: contain;
+    }
+    .nav-name { color: white; font-weight: 700; font-size: 17px; }
+    .nav-links { display: flex; gap: 28px; }
+    .nav-links a {
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: white; }
+    .nav-cta {
+      background: var(--blue);
+      color: white !important;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600 !important;
+    }
+    .nav-cta:hover { background: var(--blue-dark); }
+
+    /* HERO */
+    .hero {
+      background: linear-gradient(160deg, var(--navy) 0%, var(--navy-light) 60%, #112060 100%);
+      color: white;
+      padding: 100px 32px 80px;
+      text-align: center;
+    }
+    .hero .eyebrow {
+      display: inline-block;
+      background: rgba(37,99,235,0.2);
+      border: 1px solid rgba(37,99,235,0.4);
+      color: #93C5FD;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      padding: 6px 16px;
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      margin-bottom: 20px;
+    }
+    .hero h1 span { color: #60A5FA; }
+    .hero p {
+      font-size: 18px;
+      color: rgba(255,255,255,0.7);
+      max-width: 560px;
+      margin: 0 auto 40px;
+    }
+    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-block;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      text-decoration: none;
+      transition: all .2s;
+    }
+    .btn-primary { background: var(--blue); color: white; }
+    .btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
+    .btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.14); }
+
+    /* SECTIONS */
+    .section { padding: 80px 32px; }
+    .section-alt { background: #F8FAFC; }
+    .container { max-width: 1080px; margin: 0 auto; width: 100%; }
+    .section-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(22px, 3vw, 32px);
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      color: var(--navy);
+      margin-bottom: 16px;
+      line-height: 1.25;
+    }
+    .section-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 48px;
+    }
+
+    /* GRID */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+
+    /* CARDS */
+    .card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+    }
+    .card-icon {
+      width: 48px;
+      height: 48px;
+      background: #EFF6FF;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 18px;
+    }
+    .card h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; color: var(--navy); }
+    .card p { color: var(--muted); font-size: 15px; }
+
+    /* PRODUCT SECTION */
+    .product-block {
+      background: linear-gradient(135deg, var(--navy) 0%, #112060 100%);
+      border-radius: 24px;
+      padding: 56px;
+      color: white;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .product-block .badge {
+      display: inline-block;
+      background: rgba(37,99,235,0.3);
+      border: 1px solid rgba(37,99,235,0.5);
+      color: #93C5FD;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 14px;
+      border-radius: 999px;
+      margin-bottom: 20px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .product-block h2 { font-size: 36px; font-weight: 800; margin-bottom: 16px; letter-spacing: -0.02em; }
+    .product-block p { color: rgba(255,255,255,0.75); font-size: 16px; margin-bottom: 28px; }
+    .feature-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .feature-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: rgba(255,255,255,0.85);
+      font-size: 15px;
+    }
+    .feature-list li::before {
+      content: "✓";
+      width: 22px;
+      height: 22px;
+      background: rgba(37,99,235,0.4);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: #93C5FD;
+      flex-shrink: 0;
+    }
+    .product-visual {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .mock-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .mock-label { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; }
+    .mock-value { font-size: 14px; color: white; font-weight: 600; }
+    .mock-tag {
+      display: inline-block;
+      background: rgba(16,185,129,0.2);
+      color: #6EE7B7;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-top: 6px;
+    }
+
+    /* STATS */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2px;
+      background: var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      margin-top: 56px;
+    }
+    .stat-item {
+      background: white;
+      padding: 36px 24px;
+      text-align: center;
+    }
+    .stat-number { font-size: 40px; font-weight: 800; color: var(--blue); letter-spacing: -0.02em; }
+    .stat-label { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+    /* CONTACT */
+    .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+    .contact-info h2 { font-size: 32px; font-weight: 800; color: var(--navy); margin-bottom: 16px; }
+    .contact-info p { color: var(--muted); margin-bottom: 32px; }
+    .contact-detail {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 18px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .contact-detail:last-child { border-bottom: none; }
+    .contact-icon {
+      width: 42px;
+      height: 42px;
+      background: #EFF6FF;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .contact-detail strong { display: block; font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+    .contact-detail a, .contact-detail span { color: var(--navy); font-weight: 600; text-decoration: none; font-size: 15px; }
+    .contact-detail a:hover { color: var(--blue); }
+    .contact-box {
+      background: var(--navy);
+      border-radius: 20px;
+      padding: 40px;
+      color: white;
+    }
+    .contact-box h3 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+    .contact-box p { color: rgba(255,255,255,0.65); font-size: 15px; margin-bottom: 28px; }
+    .contact-box .btn-primary { display: block; text-align: center; }
+
+    /* FOOTER */
+    footer {
+      background: var(--navy);
+      color: rgba(255,255,255,0.5);
+      padding: 32px;
+      text-align: center;
+      font-size: 13px;
+    }
+    footer a { color: rgba(255,255,255,0.5); text-decoration: none; }
+    footer a:hover { color: white; }
+    footer .footer-brand { color: white; font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+
+    /* RESPONSIVE */
+    @media (max-width: 768px) {
+      .grid-2, .grid-3, .product-block, .contact-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+      .product-block { padding: 32px 24px; }
+      .stats-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="#" class="nav-brand">
+    <img src="logo.png" alt="Profusion Numérik" class="nav-logo" />
+    <span class="nav-name">Profusion Numérik</span>
+  </a>
+  <div class="nav-links">
+    <a href="#presentation">Présentation</a>
+    <a href="#produit">Nos produits</a>
+    <a href="#contact">Contact</a>
+    <a href="https://maintena-pro.fr" class="nav-cta" target="_blank">Voir Maintena</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <img src="logo.png" alt="Profusion Numérik" style="width:120px;height:120px;object-fit:contain;margin-bottom:24px;filter:drop-shadow(0 8px 24px rgba(0,0,0,0.4));" />
+  <div class="eyebrow">Éditeur d'applications professionnelles</div>
+  <h1>Profusion <span>Numérik</span></h1>
+  <p>Nous concevons des applications métier sur mesure pour répondre aux défis opérationnels des professionnels, quel que soit leur secteur d'activité.</p>
+  <div class="hero-actions">
+    <a href="#produit" class="btn btn-primary">Découvrir Maintena</a>
+    <a href="#contact" class="btn btn-secondary">Nous contacter</a>
+  </div>
+</section>
+
+<!-- PRÉSENTATION -->
+<section class="section section-alt" id="presentation">
+  <div class="container">
+    <div class="section-label">Qui sommes-nous</div>
+    <h2 class="section-title">Une entreprise française spécialisée en solutions numériques</h2>
+    <p class="section-sub">Profusion Numérik conçoit et commercialise des applications professionnelles innovantes pour simplifier les processus métier, améliorer la productivité et digitaliser les organisations — tous secteurs confondus.</p>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-icon">🎯</div>
+        <h3>Expertise métier</h3>
+        <p>Nous analysons les besoins opérationnels réels de chaque secteur pour créer des outils précis, efficaces et immédiatement adoptés par les équipes terrain.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📱</div>
+        <h3>Applications mobiles</h3>
+        <p>Nos solutions sont disponibles sur Android (Google Play) et en version web, pensées pour une utilisation terrain au quotidien.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔒</div>
+        <h3>Sécurité & conformité</h3>
+        <p>Données hébergées en Europe, paiements sécurisés via Stripe, architecture cloud moderne et fiable.</p>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-item">
+        <div class="stat-number">100%</div>
+        <div class="stat-label">Made in France — développé et hébergé en Europe</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">24/7</div>
+        <div class="stat-label">Disponibilité garantie de la plateforme</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">RGPD</div>
+        <div class="stat-label">Conformité et protection des données</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRODUIT MAINTENA -->
+<section class="section" id="produit">
+  <div class="container">
+    <div class="section-label">Notre produit phare</div>
+    <h2 class="section-title">Maintena — Application de gestion de copropriétés</h2>
+    <p class="section-sub">Un premier exemple concret de notre savoir-faire : une application métier complète dédiée à la gestion de copropriétés.</p>
+
+    <div class="product-block">
+      <div>
+        <div class="badge">Application professionnelle</div>
+        <h2>Maintena</h2>
+        <p>La solution tout-en-un pour les syndics et gestionnaires de copropriétés. Planifiez les interventions, coordonnez vos prestataires et gardez un historique complet de l'entretien de vos bâtiments.</p>
+        <ul class="feature-list">
+          <li>Suivi des interventions avec photos et rapports</li>
+          <li>Gestion des prestataires et intervenants</li>
+          <li>Notifications et signalements en temps réel</li>
+          <li>Accès invité pour prestataires sans application</li>
+          <li>Disponible sur Android (Google Play) et version web</li>
+        </ul>
+        <br/>
+        <a href="https://maintena-pro.fr" class="btn btn-primary" target="_blank" style="display:inline-block;margin-top:8px;">Découvrir Maintena →</a>
+      </div>
+
+      <div class="product-visual">
+        <div class="mock-card">
+          <div class="mock-label">INTERVENTION EN COURS</div>
+          <div class="mock-value">Nettoyage cage d'escalier — Bât. A</div>
+          <span class="mock-tag">✓ En cours</span>
+        </div>
+        <div class="mock-card">
+          <div class="mock-label">PRESTATAIRE ASSIGNÉ</div>
+          <div class="mock-value">Société Dupont Propreté</div>
+        </div>
+        <div class="mock-card">
+          <div class="mock-label">PROCHAINE INTERVENTION</div>
+          <div class="mock-value">Révision ascenseur — 15 mai 2026</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section class="section section-alt" id="contact">
+  <div class="container">
+    <div class="contact-grid">
+      <div class="contact-info">
+        <div class="section-label">Contactez-nous</div>
+        <h2>Parlons de votre projet</h2>
+        <p>Pour toute question sur nos produits, une demande de démo ou un renseignement commercial, notre équipe vous répond dans les 24h.</p>
+
+        <div class="contact-detail">
+          <div class="contact-icon">✉️</div>
+          <div>
+            <strong>Email</strong>
+            <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a>
+          </div>
+        </div>
+        <div class="contact-detail">
+          <div class="contact-icon">🌐</div>
+          <div>
+            <strong>Produit</strong>
+            <a href="https://maintena-pro.fr" target="_blank">maintena-pro.fr</a>
+          </div>
+        </div>
+        <div class="contact-detail">
+          <div class="contact-icon">📍</div>
+          <div>
+            <strong>Pays</strong>
+            <span>France</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="contact-box">
+        <h3>Essayez Maintena</h3>
+        <p>Découvrez comment Maintena peut transformer la gestion de vos copropriétés. Abonnement mensuel ou annuel, sans engagement long terme.</p>
+        <a href="https://maintena-pro.fr" class="btn btn-primary" target="_blank">Accéder à Maintena</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">Profusion Numérik</div>
+  <p>Éditeur de solutions numériques professionnelles · France</p>
+  <p style="margin-top:12px;">
+    <a href="https://maintena-pro.fr/privacy-policy">Politique de confidentialité</a>
+    &nbsp;·&nbsp;
+    <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a>
+  </p>
+  <p style="margin-top:12px;">© 2026 Profusion Numérik. Tous droits réservés.</p>
+</footer>
+
+</body>
+</html>
