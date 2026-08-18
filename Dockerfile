@@ -37,28 +37,12 @@ ENV EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=G-BPMPDM3CSS
 ENV EXPO_PUBLIC_SUPER_ADMIN_EMAIL=bijourobert1@gmail.com
 ENV EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_51SvmY4Rtzr6Km0bbBeBGsRm74QrYbuXwD0SJnaBLJNGiszEqCpEVQIR74J5aI4vCVTqSY5XctmNESM6VVl9ROcL100UIxNLUp2
 
-RUN npx expo export --platform web --output-dir static-build 2>&1 || true
-
-# Patch l'index.html généré : lang=fr, titre + méta SEO (module locatif)
-RUN node -e " \
-  const fs = require('fs'); \
-  const p = 'static-build/index.html'; \
-  if (!fs.existsSync(p)) { console.log('index.html absent, skip'); process.exit(0); } \
-  let h = fs.readFileSync(p, 'utf8'); \
-  h = h.replace('<html lang=\"en\">', '<html lang=\"fr\">'); \
-  h = h.replace('<title>Maintena</title>', '<title>Maintena — Copropriétés &amp; Gestion locative</title>'); \
-  const metas = [ \
-    '<meta name=\"description\" content=\"Maintena gère vos copropriétés ET votre parc locatif : suivi des interventions, états des lieux, quittances de loyer, signalements locataires. Essai gratuit 30 jours.\" />', \
-    '<meta property=\"og:title\" content=\"Maintena — Copropriétés &amp; Gestion locative\" />', \
-    '<meta property=\"og:description\" content=\"Gérez vos copropriétés et vos locations en un seul endroit. Interventions, états des lieux, quittances, signalements locataires.\" />', \
-    '<meta property=\"og:type\" content=\"website\" />', \
-    '<meta property=\"og:url\" content=\"https://maintena-pro.fr\" />', \
-    '<meta name=\"twitter:card\" content=\"summary\" />', \
-  ].join('\n  '); \
-  h = h.replace('<link rel=\"icon\"', metas + '\n  <link rel=\"icon\"'); \
-  fs.writeFileSync(p, h); \
-  console.log('index.html patched OK'); \
-"
+COPY scripts/ ./scripts/
+# Copie le static-build engagé comme filet de sécurité si l'export Expo échoue
+COPY static-build/ ./static-build/
+# Tente de rebuilder (écrase si réussi)
+RUN npx expo export --platform web --output-dir static-build 2>&1 || echo "Expo export failed — using committed static-build as fallback"
+RUN node scripts/patch-web-index.js
 
 FROM node:20-alpine AS runner
 WORKDIR /app
