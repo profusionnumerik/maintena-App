@@ -7082,16 +7082,19 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
   });
 
   // SPA fallback — serve Expo web app index.html for unknown GET routes
+  // IMPORTANT Express 5 : "/*path" ne matche pas "/" (le wildcard exige ≥1 car).
+  // On utilise un tableau ["/" , "/*path"] pour couvrir les deux cas.
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
-  if (fs.existsSync(staticBuildIndex)) {
-    // Route explicite /web → point d'entrée principal de l'app web
-    app.get("/web", (_req: Request, res: Response) => res.sendFile(staticBuildIndex));
 
-    app.get("/*path", (req: Request, res: Response) => {
-      if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
-      res.sendFile(staticBuildIndex);
-    });
-  }
+  const sendSPA = (_req: Request, res: Response) => {
+    if (fs.existsSync(staticBuildIndex)) return res.sendFile(staticBuildIndex);
+    return res.status(503).send("App web indisponible — static-build introuvable.");
+  };
+
+  app.get(["/", "/*path"], (req: Request, res: Response) => {
+    if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+    return sendSPA(req, res);
+  });
 
   const httpServer = createServer(app);
   return httpServer;

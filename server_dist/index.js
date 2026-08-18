@@ -1933,6 +1933,9 @@ async function registerRoutes(app2) {
     }
   });
   app2.get("/inscription", (_req, res) => {
+    return res.redirect(302, "/");
+  });
+  app2.get("/inscription-legacy", (_req, res) => {
     const html = pageShell("Cr\xE9er mon espace syndic \u2014 Essai gratuit 30 jours", `
   <div class="m-container">
     <div class="m-card">
@@ -2048,7 +2051,10 @@ async function registerRoutes(app2) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.status(200).send(html);
   });
-  app2.get("/inscription-paiement", (req, res) => {
+  app2.get("/inscription-paiement", (_req, res) => {
+    return res.redirect(302, "/");
+  });
+  app2.get("/inscription-paiement-legacy", (req, res) => {
     const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
     const validPlans = ["starter", "pro", "business", "starter-annuel", "pro-annuel", "business-annuel"];
     const initialPlan = validPlans.includes(queryPlan) ? queryPlan : "starter";
@@ -2075,7 +2081,7 @@ async function registerRoutes(app2) {
   </style>
   <div class="m-container">
     <div class="m-card">
-      <p style="text-align:center;margin-bottom:16px;"><a href="/inscription" style="color:var(--blue);font-size:0.88rem;">\u2190 Retour \xE0 l\u2019essai gratuit</a></p>
+      <p style="text-align:center;margin-bottom:16px;"><a href="/" style="color:var(--blue);font-size:0.88rem;">\u2190 Retour \xE0 l\u2019application</a></p>
       <h1>Abonnement direct</h1>
       <p class="subtitle">Cr\xE9ez votre compte et activez votre abonnement imm\xE9diatement via Stripe.</p>
 
@@ -2193,7 +2199,7 @@ async function registerRoutes(app2) {
       <div style="font-size:56px;margin-bottom:16px;">\u21A9\uFE0F</div>
       <h1>Paiement annul\xE9</h1>
       <p class="subtitle">Le paiement n\u2019a pas \xE9t\xE9 finalis\xE9. Vous pouvez r\xE9essayer \xE0 tout moment sans perdre vos informations.</p>
-      <a href="/inscription" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">R\xE9essayer</a>
+      <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour \xE0 l'application</a>
       <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour \xE0 l\u2019accueil</a>
     </div>
   </div>`));
@@ -6025,14 +6031,90 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       "[Firebase Admin] NOT initialized \u2014 photo uploads will fail. Check FIREBASE_SERVICE_ACCOUNT secret."
     );
   }
+  app2.post("/api/rental/notify-signalement", async (req, res) => {
+    const { propertyId, category, description, tenantName } = req.body;
+    if (!propertyId) return res.status(400).json({ error: "propertyId requis" });
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+    try {
+      const propDoc = await adminDb.collection("properties").doc(propertyId).get();
+      if (!propDoc.exists) return res.status(404).json({ error: "Logement introuvable" });
+      const landlordId = propDoc.data().landlordId;
+      const categoryMap = {
+        plomberie: "Plomberie",
+        electricite: "\xC9lectricit\xE9",
+        chauffage: "Chauffage",
+        serrurerie: "Serrurerie",
+        menage: "Propret\xE9",
+        nuisible: "Nuisibles",
+        structure: "Murs / Structure",
+        autre: "Autre"
+      };
+      const catLabel = categoryMap[category ?? ""] ?? category ?? "Probl\xE8me";
+      const short = (description ?? "").length > 60 ? (description ?? "").substring(0, 60) + "\u2026" : description ?? "";
+      await sendPushToUser(
+        landlordId,
+        `\u{1F514} Signalement \u2014 ${catLabel}`,
+        `${tenantName ?? "Votre locataire"} : ${short}`,
+        { type: "tenant_signalement", propertyId }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-signalement]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+  app2.post("/api/rental/notify-report-updated", async (req, res) => {
+    const { tenantUserId, status, propertyId } = req.body;
+    if (!tenantUserId || !status) return res.status(400).json({ error: "tenantUserId et status requis" });
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+    const statusLabels = {
+      in_progress: "votre signalement est pris en charge",
+      resolved: "votre signalement est r\xE9solu"
+    };
+    const msg = statusLabels[status] ?? `statut mis \xE0 jour : ${status}`;
+    try {
+      await sendPushToUser(
+        tenantUserId,
+        "\u{1F4EC} Mise \xE0 jour de votre signalement",
+        `Votre bailleur vous informe que ${msg}.`,
+        { type: "signalement_updated", propertyId: propertyId ?? "" }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-report-updated]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+  app2.post("/api/rental/notify-inventory-shared", async (req, res) => {
+    const { tenantUserId, reportType, propertyAddress } = req.body;
+    if (!tenantUserId) return res.status(400).json({ error: "tenantUserId requis" });
+    const adminDb = getAdminDb();
+    if (!adminDb) return res.json({ sent: false, reason: "admin_unavailable" });
+    const typeLabel = reportType === "entry" ? "d'entr\xE9e" : reportType === "exit" ? "de sortie" : "interm\xE9diaire";
+    try {
+      await sendPushToUser(
+        tenantUserId,
+        `\u{1F4CB} \xC9tat des lieux ${typeLabel} \xE0 signer`,
+        propertyAddress ? `Votre bailleur vous invite \xE0 signer l'\xE9tat des lieux de ${propertyAddress}.` : "Votre bailleur vous invite \xE0 signer votre \xE9tat des lieux.",
+        { type: "inventory_to_sign" }
+      );
+      return res.json({ sent: true });
+    } catch (err) {
+      console.error("[notify-inventory-shared]", err);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
-  if (fs.existsSync(staticBuildIndex)) {
-    app2.get("/web", (_req, res) => res.sendFile(staticBuildIndex));
-    app2.get("/*path", (req, res) => {
-      if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
-      res.sendFile(staticBuildIndex);
-    });
-  }
+  const sendSPA = (_req, res) => {
+    if (fs.existsSync(staticBuildIndex)) return res.sendFile(staticBuildIndex);
+    return res.status(503).send("App web indisponible \u2014 static-build introuvable.");
+  };
+  app2.get(["/", "/*path"], (req, res) => {
+    if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
+    return sendSPA(req, res);
+  });
   const httpServer = createServer(app2);
   return httpServer;
 }
