@@ -42,7 +42,7 @@ COPY scripts/ ./scripts/
 COPY static-build/ ./static-build/
 # Tente de rebuilder (écrase si réussi)
 RUN npx expo export --platform web --output-dir static-build 2>&1 || echo "Expo export failed — using committed static-build as fallback"
-RUN node scripts/patch-web-index.js
+RUN node scripts/patch-web-index.cjs
 
 FROM node:20-alpine AS runner
 WORKDIR /app

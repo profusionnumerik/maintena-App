@@ -536,18 +536,21 @@ export default function TenantHome() {
   }, [rentalInfo?.propertyId]);
 
   // Écoute en temps réel des signalements du locataire
+  // Pas d'orderBy pour éviter l'exigence d'index composite — tri côté client
   useEffect(() => {
     if (!rentalInfo?.propertyId || !user?.uid) return;
     const q = query(
       collection(db, "properties", rentalInfo.propertyId, "tenantReports"),
-      where("tenantUserId", "==", user.uid),
-      orderBy("createdAt", "desc")
+      where("tenantUserId", "==", user.uid)
     );
     return onSnapshot(q, (snap) => {
-      setMyReports(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() } as MyReport))
-      );
-    }, () => {});
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as MyReport))
+        .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+      setMyReports(list);
+    }, (err) => {
+      console.warn("[tenant] signalements onSnapshot error:", err);
+    });
   }, [rentalInfo?.propertyId, user?.uid]);
 
   // Charge les états des lieux
