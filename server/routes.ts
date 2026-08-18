@@ -2289,7 +2289,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Redirige vers l'application Expo (la SPA gère l'inscription + l'onboarding)
   app.get("/inscription", (_req: Request, res: Response) => {
+    return res.redirect(302, "/");
+  });
+
+  app.get("/inscription-legacy", (_req: Request, res: Response) => {
     const html = pageShell("Créer mon espace syndic — Essai gratuit 30 jours", `
   <div class="m-container">
     <div class="m-card">
@@ -2407,8 +2412,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return res.status(200).send(html);
   });
 
-  // Inscription avec paiement direct (pour ceux qui veulent payer sans essai)
-  app.get("/inscription-paiement", (req: Request, res: Response) => {
+  // Redirige vers l'application Expo (abonnement géré depuis l'app)
+  app.get("/inscription-paiement", (_req: Request, res: Response) => {
+    return res.redirect(302, "/");
+  });
+
+  // Inscription avec paiement direct (legacy — accessible via /inscription-paiement-legacy)
+  app.get("/inscription-paiement-legacy", (req: Request, res: Response) => {
     const queryPlan = String(req.query?.plan ?? "starter").trim().toLowerCase();
     const validPlans = ["starter","pro","business","starter-annuel","pro-annuel","business-annuel"];
     const initialPlan = validPlans.includes(queryPlan) ? queryPlan : "starter";
@@ -2435,7 +2445,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   </style>
   <div class="m-container">
     <div class="m-card">
-      <p style="text-align:center;margin-bottom:16px;"><a href="/inscription" style="color:var(--blue);font-size:0.88rem;">← Retour à l’essai gratuit</a></p>
+      <p style="text-align:center;margin-bottom:16px;"><a href="/" style="color:var(--blue);font-size:0.88rem;">← Retour à l’application</a></p>
       <h1>Abonnement direct</h1>
       <p class="subtitle">Créez votre compte et activez votre abonnement immédiatement via Stripe.</p>
 
@@ -2555,7 +2565,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:56px;margin-bottom:16px;">↩️</div>
       <h1>Paiement annulé</h1>
       <p class="subtitle">Le paiement n’a pas été finalisé. Vous pouvez réessayer à tout moment sans perdre vos informations.</p>
-      <a href="/inscription" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Réessayer</a>
+      <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l'application</a>
       <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour à l’accueil</a>
     </div>
   </div>`));

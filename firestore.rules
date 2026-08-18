@@ -348,11 +348,9 @@ service cloud.firestore {
           get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
 
-        // Locataire : lecture + ajout de ses observations sur les pièces
-        allow read: if isSignedIn() &&
-          isTenantOf(propertyId) &&
-          get(/databases/$(database)/documents/properties/$(propertyId)/inventoryReports/$(reportId))
-            .data.tenantUserId == request.auth.uid;
+        // Locataire : lecture de toutes les pièces si c'est son logement
+        // (tenantUserId peut être null si le rapport a été créé avant l'inscription du locataire)
+        allow read: if isSignedIn() && isTenantOf(propertyId);
 
         allow update: if isSignedIn() &&
           isTenantOf(propertyId) &&

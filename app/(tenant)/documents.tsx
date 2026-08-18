@@ -72,8 +72,8 @@ function InventoryCard({
       const rooms = roomsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryRoom));
       const html = generateInventoryHtml(report, rooms);
       await sharePdf(html);
-    } catch {
-      Alert.alert("Erreur", "Impossible de charger l'état des lieux.");
+    } catch (err) {
+      Alert.alert("Erreur PDF", err instanceof Error ? err.message : String(err));
     } finally {
       setGenerating(false);
     }

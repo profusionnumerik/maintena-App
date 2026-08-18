@@ -19,8 +19,56 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { getApiUrl } from "@/lib/query-client";
+import { PLAN_PRICES } from "@/shared/types";
 
 type Mode = "login" | "register" | "forgot";
+
+// ─── Tarifs rapide ────────────────────────────────────────────────────────────
+
+const PLAN_COPRO_LABELS: Record<string, string> = {
+  benevole: "1 copropriété",
+  starter:  "Jusqu'à 4 copropriétés",
+  pro:      "Jusqu'à 15 copropriétés",
+  business: "Jusqu'à 30 copropriétés",
+};
+
+function PricingSection() {
+  const [open, setOpen] = useState(false);
+  const plans = Object.entries(PLAN_PRICES) as [keyof typeof PLAN_PRICES, typeof PLAN_PRICES[keyof typeof PLAN_PRICES]][];
+
+  return (
+    <View style={pricing.container}>
+      <Pressable
+        style={pricing.toggle}
+        onPress={() => { Haptics.selectionAsync(); setOpen((v) => !v); }}
+      >
+        <Ionicons name="pricetag-outline" size={14} color="rgba(255,255,255,0.55)" />
+        <Text style={pricing.toggleText}>Voir les tarifs</Text>
+        <Ionicons
+          name={open ? "chevron-up" : "chevron-down"}
+          size={13}
+          color="rgba(255,255,255,0.55)"
+        />
+      </Pressable>
+
+      {open && (
+        <View style={pricing.grid}>
+          {plans.map(([plan, info]) => (
+            <View key={plan} style={pricing.planCard}>
+              <Text style={pricing.planName}>{info.label}</Text>
+              <Text style={pricing.planPrice}>{info.monthly.toFixed(2).replace(".", ",")} €/mois</Text>
+              <Text style={pricing.planLimit}>{PLAN_COPRO_LABELS[plan]}</Text>
+            </View>
+          ))}
+          <View style={pricing.note}>
+            <Ionicons name="gift-outline" size={13} color="#6ee7b7" />
+            <Text style={pricing.noteText}>30 jours d'essai gratuit · Sans engagement · Sans carte bancaire</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
 
 function formatPhone(text: string): string {
   const digits = text.replace(/\D/g, "").slice(0, 10);
@@ -514,6 +562,8 @@ export default function AuthScreen() {
               </Text>
             </Pressable>
           </View>
+
+          <PricingSection />
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
@@ -757,5 +807,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_600SemiBold",
     color: "#065F46",
+  },
+});
+
+// ─── Styles Tarifs ────────────────────────────────────────────────────────────
+
+const pricing = StyleSheet.create({
+  container: {
+    marginTop: 8,
+    alignItems: "center",
+    gap: 12,
+  },
+  toggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  toggleText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.55)",
+  },
+  grid: {
+    width: "100%",
+    gap: 8,
+  },
+  planCard: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 4,
+  },
+  planName: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    color: "rgba(255,255,255,0.85)",
+    minWidth: 80,
+  },
+  planPrice: {
+    fontSize: 14,
+    fontFamily: "Inter_700Bold",
+    color: "#FFFFFF",
+  },
+  planLimit: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.45)",
+    width: "100%",
+  },
+  note: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  noteText: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.45)",
+    flex: 1,
   },
 });
