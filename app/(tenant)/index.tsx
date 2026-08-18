@@ -591,11 +591,9 @@ const rptS = StyleSheet.create({
 function AccountSection({
   displayName,
   email,
-  onLogout,
 }: {
   displayName?: string | null;
   email?: string | null;
-  onLogout: () => void;
 }) {
   const initials = displayName
     ? displayName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
@@ -603,11 +601,8 @@ function AccountSection({
 
   return (
     <View style={acc.container}>
-      {/* Titre section */}
       <Text style={acc.sectionLabel}>Mon compte</Text>
-
       <View style={acc.card}>
-        {/* Avatar + identité */}
         <View style={acc.profileRow}>
           <View style={acc.avatar}>
             <Text style={acc.avatarText}>{initials}</Text>
@@ -621,15 +616,6 @@ function AccountSection({
             </View>
           </View>
         </View>
-
-        {/* Séparateur */}
-        <View style={acc.divider} />
-
-        {/* Bouton déconnexion */}
-        <Pressable style={acc.logoutBtn} onPress={onLogout}>
-          <Ionicons name="log-out-outline" size={17} color="#F87171" />
-          <Text style={acc.logoutText}>Se déconnecter</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -666,13 +652,7 @@ const acc = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 3, alignSelf: "flex-start", marginTop: 4,
     borderWidth: 1, borderColor: "rgba(14,186,170,0.2)",
   },
-  roleText:   { fontSize: 10, fontFamily: "Inter_600SemiBold", color: COLORS.teal },
-  divider:    { height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
-  logoutBtn:  {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-    paddingVertical: 14,
-  },
-  logoutText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#F87171" },
+  roleText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: COLORS.teal },
 });
 
 // ─── Section Informations légales ─────────────────────────────────────────────
@@ -786,8 +766,7 @@ export default function TenantHome() {
   const [rptLoading, setRptLoading]     = useState(false);
   const [myReports, setMyReports]       = useState<MyReport[]>([]);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [signalementsOpen, setSignalementsOpen] = useState(false);
-  const [showArchived, setShowArchived]  = useState(false);
+  const [sigFilter, setSigFilter] = useState<"active" | "archived">("active");
 
   // Écoute du logement
   useEffect(() => {
@@ -895,12 +874,17 @@ export default function TenantHome() {
           <View style={s.topBarDot} />
           <Text style={s.topBarTitle}>Espace Locataire</Text>
         </View>
-        {pendingCount > 0 && (
-          <View style={s.alertPill}>
-            <Ionicons name="alert-circle" size={12} color="#F87171" />
-            <Text style={s.alertPillText}>{pendingCount} en attente</Text>
-          </View>
-        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          {pendingCount > 0 && (
+            <View style={s.alertPill}>
+              <Ionicons name="alert-circle" size={12} color="#F87171" />
+              <Text style={s.alertPillText}>{pendingCount}</Text>
+            </View>
+          )}
+          <Pressable style={s.logoutBtn} onPress={handleLogout} hitSlop={10}>
+            <Ionicons name="log-out-outline" size={20} color="rgba(255,255,255,0.5)" />
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -992,89 +976,89 @@ export default function TenantHome() {
           )}
         </View>
 
-        {/* Mes signalements — section repliable */}
+        {/* Signalements */}
         <View style={s.section}>
-          <Pressable
-            style={s.sectionHeader}
-            onPress={() => setSignalementsOpen((v) => !v)}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
-              <Text style={s.sectionTitle}>Mes signalements</Text>
+          {/* En-tête section */}
+          <View style={s.sectionHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={s.sectionTitle}>Signalements</Text>
               {activeReports.length > 0 && (
                 <View style={s.countBadge}>
                   <Text style={s.countBadgeText}>{activeReports.length}</Text>
                 </View>
               )}
             </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Pressable
-                style={s.sectionAction}
-                onPress={(e) => { e.stopPropagation?.(); setShowReportModal(true); }}
-                hitSlop={8}
-              >
-                <Ionicons name="add" size={14} color={COLORS.teal} />
-                <Text style={s.sectionActionText}>Nouveau</Text>
-              </Pressable>
-              <Ionicons
-                name={signalementsOpen ? "chevron-up" : "chevron-down"}
-                size={16}
-                color="rgba(255,255,255,0.4)"
-              />
+          </View>
+
+          {/* Bouton Nouveau signalement */}
+          <Pressable
+            style={({ pressed }) => [s.newSigBtn, pressed && { opacity: 0.8 }]}
+            onPress={() => setShowReportModal(true)}
+          >
+            <View style={s.newSigIconBox}>
+              <Ionicons name="add" size={20} color="#fff" />
             </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.newSigLabel}>Nouveau signalement</Text>
+              <Text style={s.newSigSub}>Signalez un problème à votre bailleur</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
           </Pressable>
 
-          {signalementsOpen && (
-            <>
-              {/* Actifs */}
-              {activeReports.length === 0 ? (
-                <View style={s.missingCard}>
-                  <Ionicons name="checkmark-circle-outline" size={22} color="rgba(255,255,255,0.3)" />
-                  <Text style={s.missingText}>Aucun signalement actif.{"\n"}Tout va bien !</Text>
-                </View>
-              ) : (
-                <View style={s.reportsList}>
-                  {activeReports.map((r) => (
-                    <SignalementCard
-                      key={r.id}
-                      report={r}
-                      propertyId={rentalInfo?.propertyId ?? ""}
-                    />
-                  ))}
-                </View>
-              )}
+          {/* Onglets Actifs / Archivés */}
+          <View style={s.sigTabs}>
+            <Pressable
+              style={[s.sigTab, sigFilter === "active" && s.sigTabActive]}
+              onPress={() => setSigFilter("active")}
+            >
+              <Text style={[s.sigTabText, sigFilter === "active" && s.sigTabTextActive]}>
+                Actifs{activeReports.length > 0 ? ` (${activeReports.length})` : ""}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[s.sigTab, sigFilter === "archived" && s.sigTabArchiveActive]}
+              onPress={() => setSigFilter("archived")}
+            >
+              <Ionicons
+                name="archive-outline"
+                size={12}
+                color={sigFilter === "archived" ? "#8B5CF6" : "rgba(255,255,255,0.35)"}
+              />
+              <Text style={[s.sigTabText, sigFilter === "archived" && s.sigTabTextArchiveActive]}>
+                Archivés{archivedReports.length > 0 ? ` (${archivedReports.length})` : ""}
+              </Text>
+            </Pressable>
+          </View>
 
-              {/* Archivés — sous-section */}
-              {archivedReports.length > 0 && (
-                <>
-                  <Pressable
-                    style={s.archivedToggle}
-                    onPress={() => setShowArchived((v) => !v)}
-                  >
-                    <Ionicons name="archive-outline" size={13} color="rgba(255,255,255,0.3)" />
-                    <Text style={s.archivedToggleText}>
-                      {archivedReports.length} archivé{archivedReports.length > 1 ? "s" : ""}
-                    </Text>
-                    <Ionicons
-                      name={showArchived ? "chevron-up" : "chevron-down"}
-                      size={12}
-                      color="rgba(255,255,255,0.25)"
-                    />
-                  </Pressable>
-
-                  {showArchived && (
-                    <View style={s.reportsList}>
-                      {archivedReports.map((r) => (
-                        <SignalementCard
-                          key={r.id}
-                          report={r}
-                          propertyId={rentalInfo?.propertyId ?? ""}
-                        />
-                      ))}
-                    </View>
-                  )}
-                </>
-              )}
-            </>
+          {/* Liste */}
+          {sigFilter === "active" ? (
+            activeReports.length === 0 ? (
+              <View style={s.sigEmpty}>
+                <Ionicons name="checkmark-circle-outline" size={32} color="rgba(255,255,255,0.2)" />
+                <Text style={s.sigEmptyTitle}>Aucun signalement actif</Text>
+                <Text style={s.sigEmptyDesc}>Tout va bien — appuyez sur "Nouveau" si vous avez un problème.</Text>
+              </View>
+            ) : (
+              <View style={s.reportsList}>
+                {activeReports.map((r) => (
+                  <SignalementCard key={r.id} report={r} propertyId={rentalInfo?.propertyId ?? ""} />
+                ))}
+              </View>
+            )
+          ) : (
+            archivedReports.length === 0 ? (
+              <View style={s.sigEmpty}>
+                <Ionicons name="archive-outline" size={32} color="rgba(255,255,255,0.2)" />
+                <Text style={s.sigEmptyTitle}>Aucun signalement archivé</Text>
+                <Text style={s.sigEmptyDesc}>Les signalements résolus que vous archivez apparaîtront ici.</Text>
+              </View>
+            ) : (
+              <View style={s.reportsList}>
+                {archivedReports.map((r) => (
+                  <SignalementCard key={r.id} report={r} propertyId={rentalInfo?.propertyId ?? ""} />
+                ))}
+              </View>
+            )
           )}
         </View>
 
@@ -1082,7 +1066,6 @@ export default function TenantHome() {
         <AccountSection
           displayName={user?.displayName}
           email={user?.email}
-          onLogout={handleLogout}
         />
 
         {/* Informations légales */}
@@ -1119,12 +1102,18 @@ const s = StyleSheet.create({
   },
   topBarTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#fff" },
   alertPill: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: "rgba(239,68,68,0.15)", borderRadius: 12,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(239,68,68,0.2)", borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.35)",
   },
-  alertPillText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#F87171" },
+  alertPillText: { fontSize: 12, fontFamily: "Inter_700Bold", color: "#F87171" },
+  logoutBtn: {
+    width: 36, height: 36, borderRadius: 11,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
 
   content: { paddingHorizontal: 20, paddingTop: 8, gap: 28 },
 
@@ -1181,14 +1170,49 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.7)", textAlign: "center", lineHeight: 15,
   },
 
-  // Archivés toggle
-  archivedToggle: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    paddingVertical: 10, paddingHorizontal: 4,
+  // Bouton nouveau signalement
+  newSigBtn: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: "rgba(139,92,246,0.15)",
+    borderRadius: 16, padding: 14,
+    borderWidth: 1.5, borderColor: "rgba(139,92,246,0.35)",
   },
-  archivedToggleText: {
-    fontSize: 11, fontFamily: "Inter_500Medium",
-    color: "rgba(255,255,255,0.3)", flex: 1,
+  newSigIconBox: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: "#8B5CF6",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+  },
+  newSigLabel: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" },
+  newSigSub:   { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)", marginTop: 2 },
+
+  // Onglets signalements
+  sigTabs: {
+    flexDirection: "row", gap: 8,
+  },
+  sigTab: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  sigTabActive:        { backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.25)" },
+  sigTabArchiveActive: { backgroundColor: "rgba(139,92,246,0.12)", borderColor: "rgba(139,92,246,0.35)" },
+  sigTabText:              { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.45)" },
+  sigTabTextActive:        { color: "#fff", fontFamily: "Inter_600SemiBold" },
+  sigTabTextArchiveActive: { color: "#8B5CF6", fontFamily: "Inter_600SemiBold" },
+
+  // État vide signalements
+  sigEmpty: {
+    alignItems: "center", gap: 8, paddingVertical: 28,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+  },
+  sigEmptyTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.5)" },
+  sigEmptyDesc:  {
+    fontSize: 12, fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.3)", textAlign: "center", lineHeight: 17,
+    paddingHorizontal: 24,
   },
 
   // États communs
