@@ -315,9 +315,14 @@ service cloud.firestore {
         isTenantOf(propertyId) ||
         get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
       );
-      // Bailleur : lecture + mise à jour statut
+      // Bailleur : lecture + mise à jour complète (statut, note, archivage…)
       allow update: if isSignedIn() &&
         get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid;
+      // Locataire : peut archiver/désarchiver uniquement ses propres signalements
+      allow update: if isSignedIn() &&
+        isTenantOf(propertyId) &&
+        resource.data.tenantUserId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["archived", "updatedAt"]);
     }
 
     // ── Module État des lieux ────────────────────────────────────────────────
