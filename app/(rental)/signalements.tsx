@@ -19,6 +19,7 @@ import type { RentalProperty } from "@/shared/types";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ReportStatus = "pending" | "in_progress" | "resolved";
+type FilterKey = "all" | ReportStatus | "archived";
 type ReportCategory =
   | "plomberie" | "electricite" | "chauffage" | "serrurerie"
   | "menage" | "nuisible" | "structure" | "autre";
@@ -32,6 +33,7 @@ interface TenantReport {
   status: ReportStatus;
   landlordNote?:     string;  // Note interne (bailleur uniquement)
   landlordResponse?: string;  // Réponse visible par le locataire
+  archived?:         boolean; // Archivé par le bailleur
   createdAt: string;
   updatedAt: string;
   // hydrated client-side
@@ -69,11 +71,12 @@ const STATUS_NEXT_LABEL: Record<ReportStatus, string> = {
   resolved:    "",
 };
 
-const FILTER_TABS: Array<{ key: "all" | ReportStatus; label: string }> = [
-  { key: "all",         label: "Tous" },
-  { key: "pending",     label: "Nouveaux" },
-  { key: "in_progress", label: "En cours" },
-  { key: "resolved",    label: "Résolus" },
+const FILTER_TABS: Array<{ key: FilterKey; label: string; icon: string }> = [
+  { key: "all",         label: "Actifs",    icon: "list-outline" },
+  { key: "pending",     label: "Nouveaux",  icon: "alert-circle-outline" },
+  { key: "in_progress", label: "En cours",  icon: "time-outline" },
+  { key: "resolved",    label: "Résolus",   icon: "checkmark-circle-outline" },
+  { key: "archived",    label: "Archives",  icon: "archive-outline" },
 ];
 
 // ─── Composant détail ─────────────────────────────────────────────────────────
@@ -91,9 +94,11 @@ function DetailModal({
   const [note, setNote]           = useState(report.landlordNote ?? "");
   const [response, setResponse]   = useState(report.landlordResponse ?? "");
   const [saving, setSaving]       = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const cfg = STATUS_CONFIG[report.status];
   const cat = CATEGORIES[report.category] ?? CATEGORIES.autre;
   const nextStatus = STATUS_NEXT[report.status];
+  const isArchived = !!report.archived;
 
   const save = async (newStatus?: ReportStatus) => {
     setSaving(true);
@@ -125,6 +130,22 @@ function DetailModal({
     }
   };
 
+  const toggleArchive = async () => {
+    setArchiving(true);
+    try {
+      await updateDoc(
+        doc(db, "properties", report.propertyId, "tenantReports", report.id),
+        { archived: !isArchived, updatedAt: new Date().toISOString() }
+      );
+      onUpdated();
+      onClose();
+    } catch {
+      Alert.alert("Erreur", "Impossible d'archiver ce signalement.");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <View style={StyleSheet.absoluteFillObject}>
@@ -138,8 +159,12 @@ function DetailModal({
 
           {/* En-tête */}
           <View style={detail.header}>
-            <View style={[detail.catIcon, { backgroundColor: cfg.bg }]}>
-              <Ionicons name={cat.icon as any} size={20} color={cfg.color} />
+            <View style={[detail.catIcon, { backgroundColor: isArchived ? "#F1F5F9" : cfg.bg }]}>
+              <Ionicons
+                name={isArchived ? "archive-outline" : (cat.icon as any)}
+                size={20}
+                color={isArchived ? "#6366F1" : cfg.color}
+              />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={detail.catLabel}>{cat.label}</Text>
@@ -147,9 +172,15 @@ function DetailModal({
                 <Text style={detail.propLabel}>{report.propertyLabel}</Text>
               ) : null}
             </View>
-            <View style={[detail.badge, { backgroundColor: cfg.bg }]}>
-              <Text style={[detail.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
-            </View>
+            {isArchived ? (
+              <View style={[detail.badge, { backgroundColor: "#EEF2FF" }]}>
+                <Text style={[detail.badgeText, { color: "#6366F1" }]}>Archivé</Text>
+              </View>
+            ) : (
+              <View style={[detail.badge, { backgroundColor: cfg.bg }]}>
+                <Text style={[detail.badgeText, { color: cfg.color }]}>{cfg.label}</Text>
+              </View>
+            )}
           </View>
 
           <Text style={detail.desc}>{report.description}</Text>
@@ -195,7 +226,7 @@ function DetailModal({
 
           {/* Boutons */}
           <View style={detail.actions}>
-            <Pressable style={detail.saveBtn} onPress={() => save()} disabled={saving}>
+            <Pressable style={detail.saveBtn} onPress={() => save()} disabled={saving || archiving}>
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
@@ -203,17 +234,39 @@ function DetailModal({
               )}
             </Pressable>
 
-            {nextStatus && (
+            {nextStatus && !isArchived && (
               <Pressable
                 style={[detail.nextBtn, { borderColor: STATUS_CONFIG[nextStatus].color }]}
                 onPress={() => save(nextStatus)}
-                disabled={saving}
+                disabled={saving || archiving}
               >
                 <Text style={[detail.nextBtnText, { color: STATUS_CONFIG[nextStatus].color }]}>
                   {STATUS_NEXT_LABEL[report.status]}
                 </Text>
               </Pressable>
             )}
+
+            {/* Archive / Désarchiver */}
+            <Pressable
+              style={[detail.archiveBtn, isArchived && detail.archiveBtnActive]}
+              onPress={toggleArchive}
+              disabled={saving || archiving}
+            >
+              {archiving ? (
+                <ActivityIndicator size="small" color={isArchived ? "#6366F1" : COLORS.textMuted} />
+              ) : (
+                <>
+                  <Ionicons
+                    name={isArchived ? "arrow-undo-outline" : "archive-outline"}
+                    size={15}
+                    color={isArchived ? "#6366F1" : COLORS.textMuted}
+                  />
+                  <Text style={[detail.archiveBtnText, isArchived && { color: "#6366F1" }]}>
+                    {isArchived ? "Restaurer le signalement" : "Archiver ce signalement"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
           </View>
         </View>
       </View>
@@ -230,7 +283,7 @@ export default function RentalSignalements() {
 
   const [reports, setReports]         = useState<TenantReport[]>([]);
   const [loading, setLoading]         = useState(true);
-  const [filter, setFilter]           = useState<"all" | ReportStatus>("all");
+  const [filter, setFilter]           = useState<FilterKey>("all");
   const [selected, setSelected]       = useState<TenantReport | null>(null);
 
   // Charge les rapports de toutes les propriétés du bailleur
@@ -303,8 +356,17 @@ export default function RentalSignalements() {
     return unsub;
   }, [loadReports]);
 
-  const filtered = filter === "all" ? reports : reports.filter((r) => r.status === filter);
-  const pendingCount = reports.filter((r) => r.status === "pending").length;
+  const activeReports   = reports.filter((r) => !r.archived);
+  const archivedReports = reports.filter((r) => !!r.archived);
+
+  const filtered =
+    filter === "archived"
+      ? archivedReports
+      : filter === "all"
+      ? activeReports
+      : activeReports.filter((r) => r.status === filter);
+
+  const pendingCount = activeReports.filter((r) => r.status === "pending").length;
 
   return (
     <View style={[styles.root, { paddingTop }]}>
@@ -317,8 +379,8 @@ export default function RentalSignalements() {
             {loading
               ? "Chargement…"
               : pendingCount > 0
-              ? `${pendingCount} nouveau${pendingCount > 1 ? "x" : ""} · ${reports.length} total`
-              : `${reports.length} signalement${reports.length > 1 ? "s" : ""}`}
+              ? `${pendingCount} nouveau${pendingCount > 1 ? "x" : ""} · ${activeReports.length} actif${activeReports.length > 1 ? "s" : ""}`
+              : `${activeReports.length} actif${activeReports.length > 1 ? "s" : ""}${archivedReports.length > 0 ? ` · ${archivedReports.length} archivé${archivedReports.length > 1 ? "s" : ""}` : ""}`}
           </Text>
         </View>
         {pendingCount > 0 && (
@@ -337,19 +399,38 @@ export default function RentalSignalements() {
       >
         {FILTER_TABS.map((tab) => {
           const count =
-            tab.key === "all"
-              ? reports.length
-              : reports.filter((r) => r.status === tab.key).length;
+            tab.key === "archived"
+              ? archivedReports.length
+              : tab.key === "all"
+              ? activeReports.length
+              : activeReports.filter((r) => r.status === tab.key).length;
+          const isActive = filter === tab.key;
+          const isArchiveTab = tab.key === "archived";
           return (
             <Pressable
               key={tab.key}
-              style={[styles.filterTab, filter === tab.key && styles.filterTabActive]}
+              style={[
+                styles.filterTab,
+                isActive && (isArchiveTab ? styles.filterTabArchiveActive : styles.filterTabActive),
+              ]}
               onPress={() => setFilter(tab.key)}
             >
+              <Ionicons
+                name={tab.icon as any}
+                size={13}
+                color={
+                  isActive
+                    ? isArchiveTab ? "#6366F1" : "#fff"
+                    : COLORS.textSecondary
+                }
+              />
               <Text
-                style={[styles.filterTabText, filter === tab.key && styles.filterTabTextActive]}
+                style={[
+                  styles.filterTabText,
+                  isActive && (isArchiveTab ? styles.filterTabTextArchiveActive : styles.filterTabTextActive),
+                ]}
               >
-                {tab.label} {count > 0 ? `(${count})` : ""}
+                {tab.label}{count > 0 ? ` (${count})` : ""}
               </Text>
             </Pressable>
           );
@@ -363,12 +444,23 @@ export default function RentalSignalements() {
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={56} color={COLORS.textMuted} style={{ opacity: 0.4 }} />
+          <Ionicons
+            name={filter === "archived" ? "archive-outline" : "alert-circle-outline"}
+            size={56}
+            color={COLORS.textMuted}
+            style={{ opacity: 0.4 }}
+          />
           <Text style={styles.emptyTitle}>
-            {reports.length === 0 ? "Aucun signalement" : "Aucun résultat pour ce filtre"}
+            {filter === "archived"
+              ? "Aucun signalement archivé"
+              : activeReports.length === 0
+              ? "Aucun signalement"
+              : "Aucun résultat pour ce filtre"}
           </Text>
           <Text style={styles.emptyDesc}>
-            {reports.length === 0
+            {filter === "archived"
+              ? "Les signalements résolus que vous archivez apparaîtront ici."
+              : activeReports.length === 0
               ? "Vos locataires peuvent signaler des problèmes depuis leur espace."
               : "Essayez un autre filtre."}
           </Text>
@@ -381,19 +473,32 @@ export default function RentalSignalements() {
             return (
               <Pressable
                 key={report.id}
-                style={styles.card}
+                style={[styles.card, report.archived && styles.cardArchived]}
                 onPress={() => setSelected(report)}
               >
-                <View style={[styles.catDot, { backgroundColor: cfg.bg }]}>
-                  <Ionicons name={cat.icon as any} size={18} color={cfg.color} />
+                <View style={[styles.catDot, { backgroundColor: report.archived ? "#F1F5F9" : cfg.bg }]}>
+                  <Ionicons
+                    name={report.archived ? "archive-outline" : (cat.icon as any)}
+                    size={18}
+                    color={report.archived ? COLORS.textMuted : cfg.color}
+                  />
                 </View>
 
                 <View style={styles.cardBody}>
                   <View style={styles.cardTop}>
-                    <Text style={styles.cardCat}>{cat.label}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-                      <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-                    </View>
+                    <Text style={[styles.cardCat, report.archived && { color: COLORS.textMuted }]}>
+                      {cat.label}
+                    </Text>
+                    {report.archived ? (
+                      <View style={styles.archivedBadge}>
+                        <Ionicons name="archive-outline" size={10} color="#6366F1" />
+                        <Text style={styles.archivedBadgeText}>Archivé</Text>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+                        <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.cardDesc} numberOfLines={2}>
                     {report.description}
@@ -452,13 +557,16 @@ const styles = StyleSheet.create({
   filterBar: { flexGrow: 0, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
   filterContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
   filterTab: {
-    paddingHorizontal: 14, paddingVertical: 6,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 12, paddingVertical: 6,
     borderRadius: 20, borderWidth: 1, borderColor: COLORS.border,
     backgroundColor: "#F8F8F8",
   },
-  filterTabActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  filterTabText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
-  filterTabTextActive: { color: "#fff" },
+  filterTabActive:        { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterTabArchiveActive: { backgroundColor: "#EEF2FF", borderColor: "#6366F1" },
+  filterTabText:          { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  filterTabTextActive:        { color: "#fff" },
+  filterTabTextArchiveActive: { color: "#6366F1" },
 
   list: { flex: 1 },
   card: {
@@ -479,9 +587,17 @@ const styles = StyleSheet.create({
   cardCat: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text, flex: 1 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   statusText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  cardDesc: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 18 },
-  cardProp: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
-  cardDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  cardDesc:     { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 18 },
+  cardProp:     { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  cardDate:     { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  cardArchived: { opacity: 0.7, backgroundColor: "#FAFAFA" },
+
+  archivedBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 2,
+    borderRadius: 10, backgroundColor: "#EEF2FF",
+  },
+  archivedBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#6366F1" },
 
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "center" },
@@ -541,4 +657,19 @@ const detail = StyleSheet.create({
     paddingVertical: 13, alignItems: "center",
   },
   nextBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+
+  archiveBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+    borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 11,
+    marginTop: 4,
+    backgroundColor: "#F8F9FA",
+  },
+  archiveBtnActive: {
+    borderColor: "#6366F1",
+    backgroundColor: "#EEF2FF",
+  },
+  archiveBtnText: {
+    fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.textMuted,
+  },
 });
