@@ -133,6 +133,7 @@ function ReportModal({
         />
         <View style={[rm.sheet, { bottom: keyboardH, paddingBottom: insets.bottom + 16 }]}>
           <View style={rm.handle} />
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={rm.titleRow}>
             <View style={rm.titleIcon}>
               <Ionicons name="alert-circle" size={18} color="#8B5CF6" />
@@ -176,6 +177,7 @@ function ReportModal({
                   <Text style={rm.submitText}>Envoyer le signalement</Text>
                 </>}
           </Pressable>
+          </ScrollView>
         </View>
       </View>
     </Modal>

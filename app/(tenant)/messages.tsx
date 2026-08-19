@@ -9,8 +9,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, Platform, FlatList,
-  Pressable, TextInput, KeyboardAvoidingView, ActivityIndicator, Alert,
+  Pressable, TextInput, ActivityIndicator, Alert,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";

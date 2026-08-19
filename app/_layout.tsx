@@ -8,6 +8,7 @@ import {
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
 import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -220,15 +221,17 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <CoProProvider>
-          <InterventionsProvider>
-            <WebNavbar />
-            <RootLayoutNav />
-          </InterventionsProvider>
-        </CoProProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <KeyboardProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <CoProProvider>
+            <InterventionsProvider>
+              <WebNavbar />
+              <RootLayoutNav />
+            </InterventionsProvider>
+          </CoProProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </KeyboardProvider>
   );
 }

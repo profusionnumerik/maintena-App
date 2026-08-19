@@ -1,6 +1,7 @@
 import {
   View, Text, StyleSheet, Platform, ScrollView,
   Pressable, Modal, TextInput, Alert, ActivityIndicator,
+  Keyboard, KeyboardEvent,
 } from "react-native";
 import { notifyTenantReportUpdated } from "@/lib/notifications";
 import { HamburgerButton } from "@/components/rental/RentalDrawer";
@@ -95,6 +96,13 @@ function DetailModal({
   const [response, setResponse]   = useState(report.landlordResponse ?? "");
   const [saving, setSaving]       = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [keyboardH, setKeyboardH] = useState(0);
+
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", (e: KeyboardEvent) => setKeyboardH(e.endCoordinates.height));
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardH(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
   const cfg = STATUS_CONFIG[report.status];
   const cat = CATEGORIES[report.category] ?? CATEGORIES.autre;
   const nextStatus = STATUS_NEXT[report.status];
@@ -153,10 +161,11 @@ function DetailModal({
           style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.5)" }]}
           onPress={onClose}
         />
-        <View style={[detail.sheet, { paddingBottom: insets.bottom + 20 }]}>
+        <View style={[detail.sheet, { bottom: keyboardH, paddingBottom: insets.bottom + 20 }]}>
           {/* Handle */}
           <View style={detail.handle} />
 
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {/* En-tête */}
           <View style={detail.header}>
             <View style={[detail.catIcon, { backgroundColor: isArchived ? "#F1F5F9" : cfg.bg }]}>
@@ -268,6 +277,7 @@ function DetailModal({
               )}
             </Pressable>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
