@@ -217,7 +217,7 @@ interface MyReport {
   description:      string;
   status:           MyReportStatus;
   landlordResponse?: string;
-  archived?:        boolean;
+  archivedByTenant?: boolean; // Archivé par le locataire (indépendant du bailleur)
   createdAt:        string;
   updatedAt:        string;
 }
@@ -264,14 +264,14 @@ function SignalementCard({
   const catLabel = MY_CAT_LABELS[report.category] ?? "Autre";
   const [expanded,  setExpanded]  = useState(false);
   const [archiving, setArchiving] = useState(false);
-  const isArchived = !!report.archived;
+  const isArchived = !!report.archivedByTenant;
 
   const toggleArchive = async () => {
     setArchiving(true);
     try {
       await updateDoc(
         doc(db, "properties", propertyId, "tenantReports", report.id),
-        { archived: !isArchived, updatedAt: new Date().toISOString() }
+        { archivedByTenant: !isArchived, updatedAt: new Date().toISOString() }
       );
     } catch {
       Alert.alert("Erreur", "Impossible de modifier ce signalement.");
@@ -831,8 +831,8 @@ export default function TenantHome() {
     router.push(`/inventory/${report.id}?propertyId=${rentalInfo!.propertyId}` as any);
   };
 
-  const activeReports   = myReports.filter((r) => !r.archived);
-  const archivedReports = myReports.filter((r) => !!r.archived);
+  const activeReports   = myReports.filter((r) => !r.archivedByTenant);
+  const archivedReports = myReports.filter((r) => !!r.archivedByTenant);
   const pendingCount    = activeReports.filter((r) => r.status === "pending").length;
 
   const quickActions = [

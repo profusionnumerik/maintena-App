@@ -33,7 +33,7 @@ interface TenantReport {
   status: ReportStatus;
   landlordNote?:     string;  // Note interne (bailleur uniquement)
   landlordResponse?: string;  // Réponse visible par le locataire
-  archived?:         boolean; // Archivé par le bailleur
+  archivedByLandlord?: boolean; // Archivé par le bailleur (indépendant du locataire)
   createdAt: string;
   updatedAt: string;
   // hydrated client-side
@@ -98,7 +98,7 @@ function DetailModal({
   const cfg = STATUS_CONFIG[report.status];
   const cat = CATEGORIES[report.category] ?? CATEGORIES.autre;
   const nextStatus = STATUS_NEXT[report.status];
-  const isArchived = !!report.archived;
+  const isArchived = !!report.archivedByLandlord;
 
   const save = async (newStatus?: ReportStatus) => {
     setSaving(true);
@@ -135,7 +135,7 @@ function DetailModal({
     try {
       await updateDoc(
         doc(db, "properties", report.propertyId, "tenantReports", report.id),
-        { archived: !isArchived, updatedAt: new Date().toISOString() }
+        { archivedByLandlord: !isArchived, updatedAt: new Date().toISOString() }
       );
       onUpdated();
       onClose();
@@ -356,8 +356,8 @@ export default function RentalSignalements() {
     return unsub;
   }, [loadReports]);
 
-  const activeReports   = reports.filter((r) => !r.archived);
-  const archivedReports = reports.filter((r) => !!r.archived);
+  const activeReports   = reports.filter((r) => !r.archivedByLandlord);
+  const archivedReports = reports.filter((r) => !!r.archivedByLandlord);
 
   const filtered =
     filter === "archived"
@@ -473,23 +473,23 @@ export default function RentalSignalements() {
             return (
               <Pressable
                 key={report.id}
-                style={[styles.card, report.archived && styles.cardArchived]}
+                style={[styles.card, report.archivedByLandlord && styles.cardArchived]}
                 onPress={() => setSelected(report)}
               >
-                <View style={[styles.catDot, { backgroundColor: report.archived ? "#F1F5F9" : cfg.bg }]}>
+                <View style={[styles.catDot, { backgroundColor: report.archivedByLandlord ? "#F1F5F9" : cfg.bg }]}>
                   <Ionicons
-                    name={report.archived ? "archive-outline" : (cat.icon as any)}
+                    name={report.archivedByLandlord ? "archive-outline" : (cat.icon as any)}
                     size={18}
-                    color={report.archived ? COLORS.textMuted : cfg.color}
+                    color={report.archivedByLandlord ? COLORS.textMuted : cfg.color}
                   />
                 </View>
 
                 <View style={styles.cardBody}>
                   <View style={styles.cardTop}>
-                    <Text style={[styles.cardCat, report.archived && { color: COLORS.textMuted }]}>
+                    <Text style={[styles.cardCat, report.archivedByLandlord && { color: COLORS.textMuted }]}>
                       {cat.label}
                     </Text>
-                    {report.archived ? (
+                    {report.archivedByLandlord ? (
                       <View style={styles.archivedBadge}>
                         <Ionicons name="archive-outline" size={10} color="#6366F1" />
                         <Text style={styles.archivedBadgeText}>Archivé</Text>
