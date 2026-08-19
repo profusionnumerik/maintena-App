@@ -688,9 +688,21 @@ export default function TenantHome() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={p.welcomeName}>{firstName ? `Bonjour, ${firstName}` : "Bienvenue"}</Text>
-                {property
-                  ? <Text style={p.welcomeAddr} numberOfLines={1}>{property.address}{property.city ? `, ${property.city}` : ""}</Text>
-                  : <Text style={p.welcomeAddr}>Votre espace locataire</Text>}
+                {property ? (
+                  <View style={{ marginTop: 4, gap: 1 }}>
+                    <Text style={p.welcomeAddr}>
+                      {property.address}
+                      {property.apartmentNumber ? ` · Apt. ${property.apartmentNumber}` : ""}
+                    </Text>
+                    {(property.postalCode || property.city) ? (
+                      <Text style={p.welcomeAddrCity}>
+                        {[property.postalCode, property.city].filter(Boolean).join(" ")}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <Text style={p.welcomeAddr}>Votre espace locataire</Text>
+                )}
               </View>
             </View>
           </LinearGradient>
@@ -813,25 +825,6 @@ export default function TenantHome() {
           </View>
         )}
 
-        {/* ── Mon compte ────────────────────────────────────────────────────── */}
-        <View style={p.section}>
-          <Text style={p.sectionLabel}>Mon compte</Text>
-          <View style={p.accountCard}>
-            <View style={p.accountRow}>
-              <View style={p.accountAvatar}>
-                <Text style={p.accountAvatarText}>{initials}</Text>
-              </View>
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={p.accountName}>{user?.displayName ?? "Locataire"}</Text>
-                {user?.email ? <Text style={p.accountEmail}>{user.email}</Text> : null}
-                <View style={p.rolePill}>
-                  <Ionicons name="person-outline" size={10} color={COLORS.teal} />
-                  <Text style={p.roleText}>Locataire</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
 
         {/* ── Informations ──────────────────────────────────────────────────── */}
         <View style={p.section}>
@@ -906,8 +899,9 @@ const p = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   avatarText:  { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.teal },
-  welcomeName: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#fff" },
-  welcomeAddr: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)", marginTop: 3 },
+  welcomeName:     { fontSize: 18, fontFamily: "Inter_700Bold", color: "#fff" },
+  welcomeAddr:     { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.6)" },
+  welcomeAddrCity: { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.35)" },
 
   // Sections
   section:      { gap: 10 },
@@ -939,23 +933,6 @@ const p = StyleSheet.create({
   serviceLabel:   { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
   serviceSub:     { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)", lineHeight: 15 },
 
-  // Mon compte
-  accountCard:   { backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 18, padding: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
-  accountRow:    { flexDirection: "row", alignItems: "center", gap: 14 },
-  accountAvatar: {
-    width: 50, height: 50, borderRadius: 15,
-    backgroundColor: "rgba(14,186,170,0.2)", borderWidth: 1.5, borderColor: "rgba(14,186,170,0.4)",
-    alignItems: "center", justifyContent: "center",
-  },
-  accountAvatarText: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.teal },
-  accountName:  { fontSize: 16, fontFamily: "Inter_700Bold", color: "#fff" },
-  accountEmail: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)" },
-  rolePill: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "rgba(14,186,170,0.1)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
-    alignSelf: "flex-start", marginTop: 4, borderWidth: 1, borderColor: "rgba(14,186,170,0.2)",
-  },
-  roleText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: COLORS.teal },
 
   // Liens
   linksCard:   { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 16, overflow: "hidden", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
