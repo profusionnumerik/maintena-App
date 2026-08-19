@@ -234,14 +234,30 @@ service cloud.firestore {
 
       // Interventions du logement
       match /interventions/{interventionId} {
+        // Bailleur : accès complet
+        allow read, write: if isSignedIn() && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        );
+        // Locataire : lecture seule (pour suivre l'avancement)
+        allow read: if isSignedIn() && isTenantOf(propertyId);
+      }
+
+      // Messagerie locataire ↔ bailleur
+      match /messages/{messageId} {
+        // Les deux parties peuvent lire les messages de ce logement
         allow read: if isSignedIn() && (
-          isSuperAdmin() ||
+          isTenantOf(propertyId) ||
           get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
-        allow create, update, delete: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+        // Chacun peut créer un message avec son propre uid comme senderId
+        allow create: if isSignedIn() && (
+          (isTenantOf(propertyId) && request.resource.data.senderId == request.auth.uid) ||
+          (get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+           && request.resource.data.senderId == request.auth.uid)
         );
+        // Pas de modification ni suppression
+        allow update, delete: if false;
       }
 
       // Documents (bail, état des lieux, DPE…)

@@ -778,9 +778,9 @@ export default function TenantHome() {
               { icon: "document-text-outline", label: "Mes documents", sub: "Quittances, bail, autres", color: "#3B82F6", onPress: () => router.push("/documents" as any) },
               { icon: "clipboard-outline",     label: "États des lieux", sub: `${reports.length} disponible${reports.length > 1 ? "s" : ""}`, color: "#10B981", onPress: () => {} },
               { icon: "construct-outline",     label: "Interventions", sub: "Suivi des travaux", color: "#F59E0B",
-                onPress: () => Alert.alert("Bientôt disponible", "Le suivi des interventions sera disponible prochainement.") },
+                onPress: () => router.push("/interventions" as any) },
               { icon: "chatbubble-outline",    label: "Messagerie", sub: "Contacter le bailleur", color: COLORS.teal,
-                onPress: () => Alert.alert("Bientôt disponible", "La messagerie sera disponible prochainement.") },
+                onPress: () => router.push("/messages" as any) },
             ].map((srv) => (
               <Pressable
                 key={srv.label}
