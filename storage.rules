@@ -17,6 +17,26 @@ service firebase.storage {
                    && request.resource.size < 1 * 1024 * 1024;
     }
 
+    // ── Messagerie — messages audio locataire ↔ bailleur ────────────────────
+    match /messages/{propertyId}/{allPaths=**} {
+      // Lecture : bailleur ou locataire du logement
+      allow read: if isSignedIn() && (
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+          .data.rentalInfo.propertyId == propertyId
+      );
+      // Écriture : l'un ou l'autre, max 10 Mo, audio uniquement
+      allow write: if isSignedIn() && (
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+          .data.rentalInfo.propertyId == propertyId
+      ) &&
+      request.resource.size < 10 * 1024 * 1024 &&
+      request.resource.contentType.matches("audio/.*");
+    }
+
     // ── Module État des lieux — photos pièces, compteurs, PDF ──────────────
     match /properties/{propertyId}/inventory/{allPaths=**} {
       // Lecture : bailleur du logement ou locataire du logement
