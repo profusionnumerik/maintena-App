@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
+import {
   ActivityIndicator,
   Alert,
   FlatList,
@@ -1197,7 +1206,77 @@ export default function PropertyDetail() {
 
 // ─── Modale messagerie ────────────────────────────────────────────────────────
 
-interface ChatMsg { id: string; senderId: string; type: string; text?: string; createdAt: { toDate(): Date } | null }
+interface ChatMsg {
+  id: string; senderId: string; type: string;
+  text?: string; audioUrl?: string; audioDuration?: number;
+  createdAt: { toDate(): Date } | null;
+}
+
+function fmtDur(ms: number) {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function ChatAudioBubble({ msg, isMine }: { msg: ChatMsg; isMine: boolean }) {
+  const player = useAudioPlayer(msg.audioUrl ?? "");
+  const status = useAudioPlayerStatus(player);
+  const pos = status.duration > 0 ? status.currentTime / status.duration : 0;
+  const toggle = () => { if (status.playing) player.pause(); else player.play(); };
+  return (
+    <View style={[cm.row, isMine ? cm.rowRight : cm.rowLeft]}>
+      <Pressable style={[cm.bubble, cm.audioBubble, isMine ? cm.bubbleMine : cm.bubbleThem]} onPress={toggle}>
+        <View style={cm.audioInner}>
+          <View style={[cm.playBtn, isMine ? cm.playMine : cm.playThem]}>
+            <Ionicons name={status.playing ? "pause" : "play"} size={14} color={isMine ? "#fff" : "#8B5CF6"} />
+          </View>
+          <View style={{ flex: 1, gap: 4 }}>
+            <View style={cm.track}><View style={[cm.fill, isMine ? cm.fillMine : cm.fillThem, { width: `${Math.round(pos * 100)}%` as any }]} /></View>
+            <Text style={[cm.time, isMine ? cm.timeMine : cm.timeThem]}>{msg.audioDuration ? fmtDur(msg.audioDuration) : "…"}</Text>
+          </View>
+          <Ionicons name="mic-outline" size={12} color={isMine ? "rgba(255,255,255,0.6)" : "#8B5CF6"} />
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
+function ChatMicButton({ onAudioReady, disabled }: { onAudioReady: (uri: string, ms: number) => void; disabled?: boolean }) {
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recState = useAudioRecorderState(recorder, 200);
+  const startTime = useRef(0);
+
+  const start = async () => {
+    if (disabled) return;
+    try {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) { Alert.alert("Permission refusée", "Autorisez le microphone dans les réglages."); return; }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      startTime.current = Date.now();
+    } catch (e) { console.warn("[mic]", e); }
+  };
+  const stop = async () => {
+    if (!recState.isRecording) return;
+    try {
+      await recorder.stop();
+      const uri = recorder.uri;
+      const ms = Date.now() - startTime.current;
+      await setAudioModeAsync({ allowsRecording: false });
+      if (uri) onAudioReady(uri, ms);
+    } catch (e) { console.warn("[mic stop]", e); }
+  };
+
+  return (
+    <Pressable
+      style={[cm.micBtn, recState.isRecording && cm.micBtnActive, disabled && { opacity: 0.35 }]}
+      onPressIn={start} onPressOut={stop}
+    >
+      <Ionicons name={recState.isRecording ? "stop-circle" : "mic-outline"} size={20}
+        color={recState.isRecording ? "#EF4444" : "#8B5CF6"} />
+    </Pressable>
+  );
+}
 
 function MessagesModal({ visible, propertyId, landlordId, onClose }: {
   visible: boolean; propertyId: string; landlordId: string; onClose: () => void;
@@ -1233,17 +1312,37 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
     finally { setSending(false); }
   }, [text, propertyId, landlordId, sending]);
 
+  const sendAudio = useCallback(async (uri: string, durationMs: number) => {
+    if (!propertyId || !landlordId) return;
+    setSending(true);
+    try {
+      const resp = await fetch(uri);
+      const blob = await resp.blob();
+      const fileId = Date.now().toString(36);
+      const ref = storageRef(storage, `messages/${propertyId}/${fileId}.m4a`);
+      await uploadBytes(ref, blob, { contentType: "audio/m4a" });
+      const audioUrl = await getDownloadURL(ref);
+      await addDoc(collection(db, "properties", propertyId, "messages"), {
+        senderId: landlordId, type: "audio", audioUrl, audioDuration: durationMs, createdAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn("[MessagesModal] sendAudio", e);
+      Alert.alert("Erreur", "Impossible d'envoyer le message audio.");
+    } finally { setSending(false); }
+  }, [propertyId, landlordId]);
+
+  const hasText = text.trim().length > 0;
+
   const renderItem = ({ item }: { item: ChatMsg }) => {
     const isMine = item.senderId === landlordId;
+    if (item.type === "audio") return <ChatAudioBubble msg={item} isMine={isMine} />;
     const time = item.createdAt
       ? item.createdAt.toDate().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
       : "";
     return (
       <View style={[cm.row, isMine ? cm.rowRight : cm.rowLeft]}>
         <View style={[cm.bubble, isMine ? cm.bubbleMine : cm.bubbleThem]}>
-          <Text style={[cm.bubbleText, isMine ? cm.textMine : cm.textThem]}>
-            {item.type === "audio" ? "🎤 Message vocal" : (item.text ?? "")}
-          </Text>
+          <Text style={[cm.bubbleText, isMine ? cm.textMine : cm.textThem]}>{item.text ?? ""}</Text>
           {!!time && <Text style={[cm.time, isMine ? cm.timeMine : cm.timeThem]}>{time}</Text>}
         </View>
       </View>
@@ -1267,6 +1366,7 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
           <View style={cm.empty}>
             <Ionicons name="chatbubbles-outline" size={48} color={COLORS.textMuted} />
             <Text style={cm.emptyText}>Aucun message pour l'instant</Text>
+            <Text style={cm.emptyHint}>Maintenez 🎤 pour un message vocal</Text>
           </View>
         ) : (
           <FlatList
@@ -1294,15 +1394,18 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
               maxLength={2000}
               returnKeyType="default"
             />
-            <Pressable
-              style={[cm.sendBtn, (!text.trim() || sending) && cm.sendBtnDim]}
-              onPress={sendText}
-              disabled={!text.trim() || sending}
-            >
-              {sending
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Ionicons name="send" size={16} color="#fff" />}
-            </Pressable>
+            {!hasText && <ChatMicButton onAudioReady={sendAudio} disabled={sending} />}
+            {hasText && (
+              <Pressable
+                style={[cm.sendBtn, sending && cm.sendBtnDim]}
+                onPress={sendText}
+                disabled={sending}
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="send" size={16} color="#fff" />}
+              </Pressable>
+            )}
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -1315,12 +1418,14 @@ const cm = StyleSheet.create({
   header:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: "#fff" },
   backBtn:     { width: 36, height: 36, borderRadius: 11, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text },
-  empty:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  emptyText:   { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  empty:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
+  emptyText:   { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  emptyHint:   { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, opacity: 0.6 },
   row:         { paddingHorizontal: 16, marginVertical: 3 },
   rowRight:    { alignItems: "flex-end" },
   rowLeft:     { alignItems: "flex-start" },
   bubble:      { maxWidth: "78%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9, gap: 3 },
+  audioBubble: { paddingHorizontal: 10, paddingVertical: 8 },
   bubbleMine:  { backgroundColor: "#8B5CF6", borderBottomRightRadius: 4 },
   bubbleThem:  { backgroundColor: "#fff", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: COLORS.border },
   bubbleText:  { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
@@ -1329,10 +1434,20 @@ const cm = StyleSheet.create({
   time:        { fontSize: 10, fontFamily: "Inter_400Regular" },
   timeMine:    { color: "rgba(255,255,255,0.55)", textAlign: "right" },
   timeThem:    { color: COLORS.textMuted },
+  audioInner:  { flexDirection: "row", alignItems: "center", gap: 10, minWidth: 160 },
+  playBtn:     { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  playMine:    { backgroundColor: "rgba(255,255,255,0.25)" },
+  playThem:    { backgroundColor: "rgba(139,92,246,0.12)", borderWidth: 1, borderColor: "#8B5CF644" },
+  track:       { height: 3, backgroundColor: COLORS.border, borderRadius: 2, overflow: "hidden" },
+  fill:        { height: "100%" as any, borderRadius: 2 },
+  fillMine:    { backgroundColor: "rgba(255,255,255,0.8)" },
+  fillThem:    { backgroundColor: "#8B5CF6" },
   bar:         { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: "#fff" },
   input:       { flex: 1, backgroundColor: "#F1F5F9", borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, maxHeight: 120, minHeight: 40 },
   sendBtn:     { width: 40, height: 40, borderRadius: 20, backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendBtnDim:  { opacity: 0.4 },
+  micBtn:      { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(139,92,246,0.1)", borderWidth: 1.5, borderColor: "#8B5CF644", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  micBtnActive:{ backgroundColor: "rgba(239,68,68,0.1)", borderColor: "#EF444455" },
 });
 
 // ─── Modale création intervention ────────────────────────────────────────────
