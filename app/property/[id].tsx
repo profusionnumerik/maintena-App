@@ -32,12 +32,14 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db, storage } from "@/lib/firebase";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -1335,6 +1337,61 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
 
   const hasText = text.trim().length > 0;
 
+  const deleteAllMessages = useCallback(() => {
+    Alert.alert(
+      "Supprimer la boîte",
+      "Tous les messages seront définitivement supprimés. Le locataire ne pourra plus les consulter.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const snap = await getDocs(collection(db, "properties", propertyId, "messages"));
+              const batch = writeBatch(db);
+              snap.docs.forEach((d) => batch.delete(d.ref));
+              await batch.commit();
+            } catch (e) {
+              Alert.alert("Erreur", "Impossible de supprimer les messages.");
+            }
+          },
+        },
+      ]
+    );
+  }, [propertyId]);
+
+  const archiveConversation = useCallback(() => {
+    Alert.alert(
+      "Archiver la conversation",
+      "La messagerie sera masquée dans votre tableau de bord. Les messages restent accessibles au locataire.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Archiver",
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, "properties", propertyId), {
+                messagesArchivedAt: serverTimestamp(),
+              });
+              onClose();
+            } catch (e) {
+              Alert.alert("Erreur", "Impossible d'archiver.");
+            }
+          },
+        },
+      ]
+    );
+  }, [propertyId, onClose]);
+
+  const showOptions = useCallback(() => {
+    Alert.alert("Gérer la messagerie", undefined, [
+      { text: "Archiver la conversation", onPress: archiveConversation },
+      { text: "Supprimer tous les messages", style: "destructive", onPress: deleteAllMessages },
+      { text: "Annuler", style: "cancel" },
+    ]);
+  }, [archiveConversation, deleteAllMessages]);
+
   const renderItem = ({ item }: { item: ChatMsg }) => {
     const isMine = item.senderId === landlordId;
     if (item.type === "audio") return <ChatAudioBubble msg={item} isMine={isMine} />;
@@ -1360,7 +1417,9 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
             <Ionicons name="chevron-down" size={22} color={COLORS.text} />
           </Pressable>
           <Text style={cm.headerTitle}>Messagerie</Text>
-          <View style={{ width: 36 }} />
+          <Pressable style={cm.moreBtn} onPress={showOptions} hitSlop={8}>
+            <Ionicons name="ellipsis-horizontal" size={20} color={COLORS.text} />
+          </Pressable>
         </View>
 
         {/* Messages */}
@@ -1419,6 +1478,7 @@ const cm = StyleSheet.create({
   root:        { flex: 1, backgroundColor: "#F8FAFF" },
   header:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: "#fff" },
   backBtn:     { width: 36, height: 36, borderRadius: 11, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
+  moreBtn:     { width: 36, height: 36, borderRadius: 11, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
   headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text },
   empty:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
   emptyText:   { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
