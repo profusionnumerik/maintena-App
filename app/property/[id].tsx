@@ -22,6 +22,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -124,6 +125,28 @@ const INT_CAT_ICONS: Record<string, string> = {
   peinture:    "brush-outline",
   nettoyage:   "sparkles-outline",
   autre:       "construct-outline",
+};
+
+const INTERVENTION_CATEGORIES = [
+  { id: "plomberie",   label: "Plomberie",    icon: "water-outline" },
+  { id: "electricite", label: "Électricité",   icon: "flash-outline" },
+  { id: "chauffage",   label: "Chauffage",     icon: "flame-outline" },
+  { id: "serrurerie",  label: "Serrurerie",    icon: "key-outline" },
+  { id: "menuiserie",  label: "Menuiserie",    icon: "hammer-outline" },
+  { id: "toiture",     label: "Toiture",       icon: "umbrella-outline" },
+  { id: "peinture",    label: "Peinture",      icon: "brush-outline" },
+  { id: "nettoyage",   label: "Nettoyage",     icon: "sparkles-outline" },
+  { id: "autre",       label: "Autre",         icon: "construct-outline" },
+] as const;
+type IntCat = typeof INTERVENTION_CATEGORIES[number]["id"];
+
+const INT_STATUS_FLOW: RentalInterventionStatus[] = ["new", "scheduled", "in_progress", "completed"];
+const INT_STATUS_NEXT_LABEL: Partial<Record<RentalInterventionStatus, string>> = {
+  new: "Planifier", scheduled: "Démarrer", in_progress: "Terminer",
+};
+const INT_STATUS_BG: Record<RentalInterventionStatus, string> = {
+  new: "#FEF2F2", assigned: "#FFF7ED", scheduled: "#EFF6FF",
+  in_progress: "#F5F3FF", completed: "#F0FDF4", cancelled: "#F8FAFC",
 };
 
 // ─── Petit badge statut logement ─────────────────────────────────────────────
@@ -778,7 +801,10 @@ export default function PropertyDetail() {
   const [showInvite, setShowInvite] = useState(false);
   const [tokenModal, setTokenModal] = useState<{ visible: boolean; token: string; name: string }>({ visible: false, token: "", name: "" });
   const [hubTab, setHubTab]         = useState<HubTab>("overview");
-  const [selectedReport, setSelectedReport] = useState<TenantReport | null>(null);
+  const [selectedReport, setSelectedReport]       = useState<TenantReport | null>(null);
+  const [selectedIntervention, setSelectedIntervention] = useState<PropertyIntervention | null>(null);
+  const [showCreateIntervention, setShowCreateIntervention] = useState(false);
+  const [previewMessages, setPreviewMessages] = useState<Array<{ id: string; senderId: string; type: string; text?: string }>>([]);
 
   // Chargement du logement
   useEffect(() => {
@@ -811,6 +837,16 @@ export default function PropertyDetail() {
     return onSnapshot(query(collection(db, "properties", id, "interventions"), orderBy("createdAt", "desc")), (snap) => {
       setInterventions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PropertyIntervention)));
     }, (err) => console.warn("[PropertyHub] interventions", err));
+  }, [id]);
+
+  // Aperçu messages (3 derniers)
+  useEffect(() => {
+    if (!id) return;
+    return onSnapshot(
+      query(collection(db, "properties", id, "messages"), orderBy("createdAt", "desc"), limit(3)),
+      (snap) => setPreviewMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)).reverse()),
+      () => {}
+    );
   }, [id]);
 
   const activeTenants = tenants.filter((t) => t.status === "active" || t.status === "invited");
@@ -983,44 +1019,86 @@ export default function PropertyDetail() {
 
   const renderMessages = () => (
     <View style={s.section}>
-      <View style={msg.card}>
-        <View style={msg.iconWrap}>
-          <Ionicons name="chatbubbles" size={36} color="#8B5CF6" />
+      {/* Prévisualisation des derniers messages */}
+      {previewMessages.length > 0 && (
+        <View style={msg.preview}>
+          <Text style={msg.previewTitle}>Derniers messages</Text>
+          {previewMessages.map((m) => {
+            const isMine = m.senderId === user?.uid;
+            return (
+              <View key={m.id} style={[msg.previewRow, isMine ? msg.previewRowRight : msg.previewRowLeft]}>
+                {!isMine && <View style={msg.previewAvatar}><Ionicons name="person-outline" size={11} color="#8B5CF6" /></View>}
+                <View style={[msg.previewBubble, isMine ? msg.previewBubbleMine : msg.previewBubbleThem]}>
+                  <Text style={[msg.previewText, isMine ? msg.previewTextMine : msg.previewTextThem]} numberOfLines={2}>
+                    {m.type === "audio" ? "🎤 Message vocal" : (m.text ?? "")}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
         </View>
-        <Text style={msg.title}>Messagerie locataire</Text>
-        <Text style={msg.desc}>
-          Échangez directement avec {activeTenants.length > 0 ? `${activeTenants[0].firstName} ${activeTenants[0].lastName}` : "votre locataire"} par messages texte ou audio.
+      )}
+
+      <Pressable style={msg.openBtn} onPress={() => router.push(`/property-messages?propertyId=${id}` as any)}>
+        <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
+        <Text style={msg.openBtnText}>
+          {previewMessages.length > 0 ? "Voir toute la conversation" : "Ouvrir la messagerie"}
         </Text>
-        <Pressable style={msg.openBtn} onPress={() => router.push(`/property-messages?propertyId=${id}` as any)}>
-          <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
-          <Text style={msg.openBtnText}>Ouvrir la messagerie</Text>
-          <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.7)" />
-        </Pressable>
-        {activeTenants.length === 0 && (
-          <Text style={msg.noTenant}>Invitez d'abord un locataire pour activer la messagerie.</Text>
-        )}
-      </View>
+        <Ionicons name="arrow-forward" size={16} color="rgba(255,255,255,0.7)" />
+      </Pressable>
+
+      {previewMessages.length === 0 && (
+        <View style={msg.empty}>
+          <Ionicons name="chatbubbles-outline" size={40} color={COLORS.textMuted} style={{ opacity: 0.3 }} />
+          <Text style={s.tabEmptyTitle}>Aucun message</Text>
+          <Text style={s.tabEmptyDesc}>
+            Écrivez au {activeTenants.length > 0 ? `locataire ${activeTenants[0].firstName}` : "locataire"} ou envoyez un message vocal.
+          </Text>
+        </View>
+      )}
+
+      {activeTenants.length === 0 && previewMessages.length === 0 && (
+        <Text style={msg.noTenant}>⚠️ Invitez d'abord un locataire pour activer la messagerie.</Text>
+      )}
     </View>
   );
 
   const renderInterventions = () => {
     const active   = interventions.filter((i) => i.status !== "completed" && i.status !== "cancelled");
     const done     = interventions.filter((i) => i.status === "completed");
+    const cancelled = interventions.filter((i) => i.status === "cancelled");
     return (
       <View style={s.section}>
+        {/* Bouton planifier */}
+        <Pressable style={s.createBtn} onPress={() => setShowCreateIntervention(true)}>
+          <Ionicons name="add-circle-outline" size={18} color="#fff" />
+          <Text style={s.createBtnText}>Planifier une intervention</Text>
+        </Pressable>
+
         {interventions.length === 0 ? (
           <View style={s.tabEmpty}>
             <Ionicons name="construct-outline" size={52} color={COLORS.textMuted} style={{ opacity: 0.3 }} />
             <Text style={s.tabEmptyTitle}>Aucune intervention</Text>
-            <Text style={s.tabEmptyDesc}>Les interventions planifiées pour ce logement apparaîtront ici.</Text>
+            <Text style={s.tabEmptyDesc}>Planifiez votre première intervention pour ce logement.</Text>
           </View>
         ) : (
           <>
-            {active.map((item) => <InterventionRow key={item.id} item={item} />)}
+            {active.length > 0 && (
+              <>
+                <Text style={[s.sectionTitle, { marginBottom: 10 }]}>En cours ({active.length})</Text>
+                {active.map((item) => <InterventionRow key={item.id} item={item} onSelect={() => setSelectedIntervention(item)} />)}
+              </>
+            )}
             {done.length > 0 && (
               <>
                 <Text style={[s.sectionTitle, { marginTop: 16, marginBottom: 8 }]}>Terminées ({done.length})</Text>
-                {done.map((item) => <InterventionRow key={item.id} item={item} />)}
+                {done.map((item) => <InterventionRow key={item.id} item={item} onSelect={() => setSelectedIntervention(item)} />)}
+              </>
+            )}
+            {cancelled.length > 0 && (
+              <>
+                <Text style={[s.sectionTitle, { marginTop: 16, marginBottom: 8 }]}>Annulées ({cancelled.length})</Text>
+                {cancelled.map((item) => <InterventionRow key={item.id} item={item} onSelect={() => setSelectedIntervention(item)} />)}
               </>
             )}
           </>
@@ -1088,88 +1166,306 @@ export default function PropertyDetail() {
         <ReportDetailModal
           report={selectedReport}
           onClose={() => setSelectedReport(null)}
-          onUpdated={() => {}} // onSnapshot auto-updates
+          onUpdated={() => {}}
+        />
+      )}
+      {selectedIntervention && (
+        <InterventionDetailModal
+          item={selectedIntervention}
+          onClose={() => setSelectedIntervention(null)}
+        />
+      )}
+      {showCreateIntervention && (
+        <CreateInterventionModal
+          propertyId={id ?? ""}
+          landlordId={user?.uid ?? ""}
+          onClose={() => setShowCreateIntervention(false)}
         />
       )}
     </View>
   );
 }
 
+// ─── Modale création intervention ────────────────────────────────────────────
+
+function CreateInterventionModal({ propertyId, landlordId, onClose }: {
+  propertyId: string; landlordId: string; onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const [category,    setCategory]    = useState<IntCat | "">("");
+  const [title,       setTitle]       = useState("");
+  const [description, setDescription] = useState("");
+  const [scheduledDate, setScheduled] = useState("");
+  const [estimatedCost, setEstCost]   = useState("");
+  const [saving,      setSaving]      = useState(false);
+
+  const handleCreate = async () => {
+    if (!category)     { Alert.alert("Catégorie manquante"); return; }
+    if (!title.trim()) { Alert.alert("Titre manquant");     return; }
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "properties", propertyId, "interventions"), {
+        propertyId, landlordId,
+        status:        scheduledDate ? "scheduled" : "new",
+        title:         title.trim(),
+        description:   description.trim(),
+        priority:      "normal",
+        scheduledDate: scheduledDate || undefined,
+        estimatedCost: estimatedCost ? parseFloat(estimatedCost) : undefined,
+        createdBy:     landlordId,
+        createdAt:     new Date().toISOString(),
+        category,
+      });
+      onClose();
+    } catch { Alert.alert("Erreur", "Impossible de créer l'intervention."); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={StyleSheet.absoluteFillObject}>
+        <Pressable style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={onClose} />
+        <ScrollView style={[cim.sheet, { paddingBottom: insets.bottom + 20 }]} keyboardShouldPersistTaps="handled">
+          <View style={cim.handle} />
+          <Text style={cim.title}>Nouvelle intervention</Text>
+
+          <Text style={cim.label}>Catégorie *</Text>
+          <View style={cim.grid}>
+            {INTERVENTION_CATEGORIES.map((c) => (
+              <Pressable key={c.id} style={[cim.catBtn, category === c.id && cim.catBtnActive]} onPress={() => setCategory(c.id)}>
+                <Ionicons name={c.icon as any} size={18} color={category === c.id ? COLORS.primary : COLORS.textMuted} />
+                <Text style={[cim.catLabel, category === c.id && { color: COLORS.primary }]}>{c.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Text style={cim.label}>Titre *</Text>
+          <TextInput style={cim.input} placeholder="ex : Fuite robinet cuisine" placeholderTextColor={COLORS.textMuted} value={title} onChangeText={setTitle} />
+
+          <Text style={cim.label}>Description</Text>
+          <TextInput style={[cim.input, { minHeight: 80, textAlignVertical: "top" }]} placeholder="Détails, accès, contexte…" placeholderTextColor={COLORS.textMuted} value={description} onChangeText={setDescription} multiline numberOfLines={3} />
+
+          <Text style={cim.label}>Date prévue (JJ/MM/AAAA)</Text>
+          <TextInput style={cim.input} placeholder="15/08/2026" placeholderTextColor={COLORS.textMuted} value={scheduledDate} onChangeText={setScheduled} keyboardType="numeric" />
+
+          <Text style={cim.label}>Coût estimé (€)</Text>
+          <TextInput style={cim.input} placeholder="250" placeholderTextColor={COLORS.textMuted} value={estimatedCost} onChangeText={setEstCost} keyboardType="numeric" />
+
+          <Pressable style={[cim.btn, saving && { opacity: 0.6 }]} onPress={handleCreate} disabled={saving}>
+            {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={cim.btnText}>Créer l'intervention</Text>}
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const cim = StyleSheet.create({
+  sheet:      { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 12, maxHeight: "92%" },
+  handle:     { width: 36, height: 4, borderRadius: 2, backgroundColor: COLORS.border, alignSelf: "center", marginBottom: 16 },
+  title:      { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text, marginBottom: 20 },
+  label:      { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 8, marginTop: 4 },
+  grid:       { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  catBtn:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surfaceAlt },
+  catBtnActive:{ borderColor: COLORS.primary, backgroundColor: "#EEF2FF" },
+  catLabel:   { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  input:      { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, backgroundColor: "#FAFAFA", marginBottom: 14 },
+  btn:        { backgroundColor: "#8B5CF6", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 8, marginBottom: 16 },
+  btnText:    { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+});
+
+// ─── Modale détail / édition intervention ─────────────────────────────────────
+
+function InterventionDetailModal({ item, onClose }: { item: PropertyIntervention; onClose: () => void }) {
+  const insets   = useSafeAreaInsets();
+  const [note,   setNote]   = useState(item.report ?? "");
+  const [cost,   setCost]   = useState(item.finalCost != null ? String(item.finalCost) : "");
+  const [saving, setSaving] = useState(false);
+
+  const statusColor = RENTAL_INTERVENTION_STATUS_COLORS[item.status];
+  const statusLabel = RENTAL_INTERVENTION_STATUS_LABELS[item.status];
+  const bg          = INT_STATUS_BG[item.status];
+  const cat         = INTERVENTION_CATEGORIES.find((c) => c.id === (item as any).category) ?? INTERVENTION_CATEGORIES[8];
+  const titleLow    = item.title.toLowerCase();
+  const catByTitle  = INTERVENTION_CATEGORIES.find((c) => titleLow.includes(c.id)) ?? cat;
+  const flowIdx     = INT_STATUS_FLOW.indexOf(item.status);
+  const nextStatus: RentalInterventionStatus | null = flowIdx !== -1 && flowIdx < INT_STATUS_FLOW.length - 1 ? INT_STATUS_FLOW[flowIdx + 1] : null;
+
+  const save = async (newStatus?: RentalInterventionStatus) => {
+    setSaving(true);
+    try {
+      const updates: Record<string, unknown> = { report: note.trim() || null, updatedAt: new Date().toISOString() };
+      if (cost) updates.finalCost = parseFloat(cost);
+      if (newStatus) {
+        updates.status = newStatus;
+        if (newStatus === "completed") updates.completedDate = new Date().toISOString();
+      }
+      await updateDoc(doc(db, "properties", item.propertyId, "interventions", item.id), updates);
+      onClose();
+    } catch { Alert.alert("Erreur", "Impossible de sauvegarder."); }
+    finally { setSaving(false); }
+  };
+
+  const handleCancel = () => {
+    Alert.alert("Annuler l'intervention ?", "Cette action est irréversible.", [
+      { text: "Non", style: "cancel" },
+      { text: "Oui, annuler", style: "destructive", onPress: () => save("cancelled") },
+    ]);
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={StyleSheet.absoluteFillObject}>
+        <Pressable style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={onClose} />
+        <ScrollView style={[idm.sheet, { paddingBottom: insets.bottom + 20 }]} keyboardShouldPersistTaps="handled">
+          <View style={idm.handle} />
+
+          <View style={idm.header}>
+            <View style={[idm.catIcon, { backgroundColor: bg }]}>
+              <Ionicons name={catByTitle.icon as any} size={20} color={statusColor} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={idm.itemTitle} numberOfLines={2}>{item.title}</Text>
+              {item.description ? <Text style={idm.desc}>{item.description}</Text> : null}
+            </View>
+            <View style={[idm.badge, { backgroundColor: bg }]}>
+              <Text style={[idm.badgeText, { color: statusColor }]}>{statusLabel}</Text>
+            </View>
+          </View>
+
+          <View style={idm.infoGrid}>
+            {item.scheduledDate && (
+              <View style={idm.infoCell}>
+                <Ionicons name="calendar-outline" size={14} color={COLORS.textMuted} />
+                <Text style={idm.infoText}>Planifiée : {item.scheduledDate}</Text>
+              </View>
+            )}
+            {item.estimatedCost != null && (
+              <View style={idm.infoCell}>
+                <Ionicons name="receipt-outline" size={14} color={COLORS.textMuted} />
+                <Text style={idm.infoText}>Estimé : {item.estimatedCost} €</Text>
+              </View>
+            )}
+          </View>
+
+          <Text style={idm.noteLabel}>Rapport / notes</Text>
+          <TextInput
+            style={[idm.noteInput, { minHeight: 90, textAlignVertical: "top" }]}
+            placeholder="Notes, observations, travaux effectués…"
+            placeholderTextColor={COLORS.textMuted}
+            value={note} onChangeText={setNote} multiline numberOfLines={4}
+          />
+
+          <Text style={idm.noteLabel}>Coût final (€)</Text>
+          <TextInput
+            style={idm.noteInput}
+            placeholder="Montant réel de l'intervention"
+            placeholderTextColor={COLORS.textMuted}
+            value={cost} onChangeText={setCost} keyboardType="numeric"
+          />
+
+          <View style={idm.actions}>
+            <Pressable style={idm.saveBtn} onPress={() => save()} disabled={saving}>
+              {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={idm.saveBtnText}>Enregistrer</Text>}
+            </Pressable>
+
+            {nextStatus && (
+              <Pressable style={[idm.nextBtn, { borderColor: RENTAL_INTERVENTION_STATUS_COLORS[nextStatus] }]} onPress={() => save(nextStatus)} disabled={saving}>
+                <Text style={[idm.nextBtnText, { color: RENTAL_INTERVENTION_STATUS_COLORS[nextStatus] }]}>
+                  {INT_STATUS_NEXT_LABEL[item.status]}
+                </Text>
+              </Pressable>
+            )}
+
+            {item.status !== "cancelled" && item.status !== "completed" && (
+              <Pressable style={idm.cancelBtn} onPress={handleCancel} disabled={saving}>
+                <Ionicons name="close-circle-outline" size={15} color="#EF4444" />
+                <Text style={idm.cancelBtnText}>Annuler l'intervention</Text>
+              </Pressable>
+            )}
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+const idm = StyleSheet.create({
+  sheet:       { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 12, maxHeight: "90%" },
+  handle:      { width: 36, height: 4, borderRadius: 2, backgroundColor: COLORS.border, alignSelf: "center", marginBottom: 16 },
+  header:      { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 16 },
+  catIcon:     { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  itemTitle:   { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text, lineHeight: 21 },
+  desc:        { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, marginTop: 3, lineHeight: 18 },
+  badge:       { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, flexShrink: 0 },
+  badgeText:   { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  infoGrid:    { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
+  infoCell:    { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: COLORS.surfaceAlt, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  infoText:    { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
+  noteLabel:   { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 8, marginTop: 4 },
+  noteInput:   { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, backgroundColor: "#FAFAFA", marginBottom: 14 },
+  actions:     { gap: 10, marginTop: 4, marginBottom: 8 },
+  saveBtn:     { backgroundColor: "#8B5CF6", borderRadius: 12, paddingVertical: 13, alignItems: "center" },
+  saveBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  nextBtn:     { borderRadius: 12, paddingVertical: 12, alignItems: "center", borderWidth: 1.5 },
+  nextBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  cancelBtn:   { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10 },
+  cancelBtnText:{ fontSize: 13, fontFamily: "Inter_500Medium", color: "#EF4444" },
+});
+
 // ─── Carte intervention (inline) ──────────────────────────────────────────────
 
-function InterventionRow({ item }: { item: PropertyIntervention }) {
+function InterventionRow({ item, onSelect }: { item: PropertyIntervention; onSelect: () => void }) {
   const statusColor = RENTAL_INTERVENTION_STATUS_COLORS[item.status];
   const statusLabel = RENTAL_INTERVENTION_STATUS_LABELS[item.status];
   const titleLow = item.title.toLowerCase();
   const catKey   = Object.keys(INT_CAT_ICONS).find((k) => titleLow.includes(k)) ?? "autre";
   const catIcon  = INT_CAT_ICONS[catKey];
-  const [expanded, setExpanded] = useState(false);
 
   return (
-    <Pressable style={[intv.card, item.status === "completed" && intv.cardDone]} onPress={() => setExpanded((v) => !v)}>
+    <Pressable style={({ pressed }) => [intv.card, item.status === "completed" && intv.cardDone, pressed && { opacity: 0.75 }]} onPress={onSelect}>
       <View style={[intv.rail, { backgroundColor: statusColor }]} />
       <View style={intv.body}>
         <View style={intv.topRow}>
           <View style={[intv.iconBox, { backgroundColor: statusColor + "22" }]}>
             <Ionicons name={catIcon as any} size={16} color={statusColor} />
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={[intv.title, item.status === "completed" && intv.titleDone]} numberOfLines={expanded ? undefined : 1}>{item.title}</Text>
-            <Text style={intv.meta}>{new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</Text>
+          <View style={{ flex: 1, gap: 3 }}>
+            <Text style={[intv.title, item.status === "completed" && intv.titleDone]} numberOfLines={1}>{item.title}</Text>
+            <Text style={intv.meta}>
+              {new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+              {item.scheduledDate ? ` · 📅 ${item.scheduledDate}` : ""}
+              {item.estimatedCost != null ? ` · ${item.estimatedCost} €` : ""}
+            </Text>
           </View>
           <View style={[intv.statusBadge, { backgroundColor: statusColor + "22" }]}>
             <View style={[intv.statusDot, { backgroundColor: statusColor }]} />
             <Text style={[intv.statusText, { color: statusColor }]}>{statusLabel}</Text>
           </View>
-          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={13} color={COLORS.textMuted} />
+          <Ionicons name="chevron-forward" size={13} color={COLORS.textMuted} />
         </View>
-        {expanded && (
-          <View style={intv.expandedBody}>
-            {item.description ? <Text style={intv.desc}>{item.description}</Text> : null}
-            {item.scheduledDate && (
-              <View style={intv.infoRow}>
-                <Ionicons name="calendar-outline" size={13} color="#3B82F6" />
-                <Text style={intv.infoText}>Planifiée le {new Date(item.scheduledDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}</Text>
-              </View>
-            )}
-            {item.estimatedCost != null && (
-              <View style={intv.infoRow}>
-                <Ionicons name="cash-outline" size={13} color={COLORS.textMuted} />
-                <Text style={intv.infoText}>Coût estimé : {item.estimatedCost.toLocaleString("fr-FR")} €{item.finalCost != null ? ` · Final : ${item.finalCost.toLocaleString("fr-FR")} €` : ""}</Text>
-              </View>
-            )}
-            {item.report && (
-              <View style={intv.reportBox}>
-                <Ionicons name="document-text-outline" size={12} color="#8B5CF6" />
-                <Text style={intv.reportText}>{item.report}</Text>
-              </View>
-            )}
-          </View>
-        )}
+        {item.description ? (
+          <Text style={intv.desc} numberOfLines={1}>{item.description}</Text>
+        ) : null}
       </View>
     </Pressable>
   );
 }
 
 const intv = StyleSheet.create({
-  card:         { flexDirection: "row", backgroundColor: "#fff", borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border, marginBottom: 10, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
-  cardDone:     { opacity: 0.7 },
-  rail:         { width: 4, alignSelf: "stretch" },
-  body:         { flex: 1, padding: 14, gap: 8 },
-  topRow:       { flexDirection: "row", alignItems: "center", gap: 10 },
-  iconBox:      { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  title:        { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
-  titleDone:    { color: COLORS.textMuted },
-  meta:         { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
-  statusBadge:  { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, flexShrink: 0 },
-  statusDot:    { width: 5, height: 5, borderRadius: 3 },
-  statusText:   { fontSize: 10, fontFamily: "Inter_700Bold" },
-  expandedBody: { gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border },
-  desc:         { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 18 },
-  infoRow:      { flexDirection: "row", alignItems: "center", gap: 7 },
-  infoText:     { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary },
-  reportBox:    { flexDirection: "row", alignItems: "flex-start", gap: 7, backgroundColor: "rgba(139,92,246,0.06)", borderRadius: 8, padding: 10, borderLeftWidth: 2, borderLeftColor: "#8B5CF6" },
-  reportText:   { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 17 },
+  card:        { flexDirection: "row", backgroundColor: "#fff", borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border, marginBottom: 10, shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  cardDone:    { opacity: 0.7 },
+  rail:        { width: 4, alignSelf: "stretch" },
+  body:        { flex: 1, padding: 14, gap: 6 },
+  topRow:      { flexDirection: "row", alignItems: "center", gap: 10 },
+  iconBox:     { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  title:       { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  titleDone:   { color: COLORS.textMuted },
+  meta:        { fontSize: 10, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, flexShrink: 0 },
+  statusDot:   { width: 5, height: 5, borderRadius: 3 },
+  statusText:  { fontSize: 10, fontFamily: "Inter_700Bold" },
+  desc:        { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, lineHeight: 17 },
 });
 
 const rpt = StyleSheet.create({
@@ -1183,13 +1479,22 @@ const rpt = StyleSheet.create({
 });
 
 const msg = StyleSheet.create({
-  card:        { backgroundColor: "#fff", borderRadius: 20, padding: 28, alignItems: "center", gap: 14, borderWidth: 1, borderColor: COLORS.border, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
-  iconWrap:    { width: 72, height: 72, borderRadius: 22, backgroundColor: "rgba(139,92,246,0.08)", alignItems: "center", justifyContent: "center" },
-  title:       { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
-  desc:        { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, textAlign: "center", lineHeight: 20 },
-  openBtn:     { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#8B5CF6", borderRadius: 14, paddingHorizontal: 24, paddingVertical: 14, marginTop: 4 },
-  openBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
-  noTenant:    { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center" },
+  preview:           { backgroundColor: "#fff", borderRadius: 16, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: COLORS.border, gap: 8 },
+  previewTitle:      { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
+  previewRow:        { flexDirection: "row", alignItems: "flex-end", gap: 6 },
+  previewRowRight:   { justifyContent: "flex-end" },
+  previewRowLeft:    { justifyContent: "flex-start" },
+  previewAvatar:     { width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(139,92,246,0.1)", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  previewBubble:     { maxWidth: "78%", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 7 },
+  previewBubbleMine: { backgroundColor: "#8B5CF6", borderBottomRightRadius: 4 },
+  previewBubbleThem: { backgroundColor: COLORS.surfaceAlt, borderBottomLeftRadius: 4 },
+  previewText:       { fontSize: 13, fontFamily: "Inter_400Regular", lineHeight: 18 },
+  previewTextMine:   { color: "#fff" },
+  previewTextThem:   { color: COLORS.text },
+  openBtn:           { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "#8B5CF6", borderRadius: 14, paddingHorizontal: 24, paddingVertical: 14 },
+  openBtnText:       { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  empty:             { alignItems: "center", gap: 10, paddingVertical: 32 },
+  noTenant:          { fontSize: 13, fontFamily: "Inter_400Regular", color: "#F59E0B", textAlign: "center", marginTop: 12, backgroundColor: "#FFFBEB", borderRadius: 10, padding: 10 },
 });
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -1246,6 +1551,8 @@ const s = StyleSheet.create({
   tabEmpty:      { alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 40, paddingHorizontal: 24 },
   tabEmptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary, textAlign: "center" },
   tabEmptyDesc:  { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center", lineHeight: 19 },
+  createBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#8B5CF6", borderRadius: 12, paddingVertical: 12, paddingHorizontal: 20, marginBottom: 16 },
+  createBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 
   notFoundText:  { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
   backBtnAlt:    { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: COLORS.surfaceAlt, borderRadius: 10 },
