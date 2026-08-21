@@ -1283,7 +1283,7 @@ function MessagesModal({ visible, propertyId, landlordId, onClose }: {
 
         {/* Barre d'envoi */}
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-          <View style={[cm.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <View style={[cm.bar, { paddingBottom: Math.max(insets.bottom + 16, 24) }]}>
             <TextInput
               style={cm.input}
               placeholder="Écrivez un message…"

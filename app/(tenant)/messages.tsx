@@ -265,7 +265,7 @@ export default function TenantMessages() {
   const flatRef  = useRef<FlatList>(null);
 
   const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
-  const paddingBot = Platform.OS === "ios" ? insets.bottom + 4 : 8;
+  const paddingBot = Math.max(insets.bottom + 16, 24);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading]   = useState(true);
