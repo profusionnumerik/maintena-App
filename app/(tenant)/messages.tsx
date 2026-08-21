@@ -1,9 +1,8 @@
 /**
  * Messagerie locataire ↔ bailleur
- * - Messages texte + messages audio
- * - Enregistrement vocal avec expo-av, upload Firebase Storage
- * - Lecture des messages audio dans les bulles
- * - Fix layout : ScrollView ne capture plus le swipe-back iOS
+ * - Messages texte + messages audio (expo-audio SDK 54)
+ * - Upload Firebase Storage, lecture avec useAudioPlayer
+ * - Layout : KeyboardAvoidingView (keyboard-controller) + FlatList
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -24,7 +23,15 @@ import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage
 import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
-import { Audio } from "expo-av";
+import {
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from "expo-audio";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,69 +55,32 @@ function fmtDur(ms: number) {
 }
 
 // ─── Bulle audio ──────────────────────────────────────────────────────────────
+// useAudioPlayer est un hook — on l'appelle au top-level du composant
 
 function AudioBubble({ msg, isMine }: { msg: ChatMessage; isMine: boolean }) {
-  const [sound, setSound]       = useState<Audio.Sound | null>(null);
-  const [playing, setPlaying]   = useState(false);
-  const [pos, setPos]           = useState(0);   // 0-1
-  const [loading, setLoading]   = useState(false);
+  const player = useAudioPlayer(msg.audioUrl ?? "");
+  const status = useAudioPlayerStatus(player);
 
   const duration = msg.audioDuration ?? 0;
+  const pos = status.duration > 0 ? status.currentTime / status.duration : 0;
 
-  useEffect(() => () => { sound?.unloadAsync(); }, [sound]);
-
-  const toggle = async () => {
+  const toggle = () => {
     if (!msg.audioUrl) return;
-    if (playing && sound) {
-      await sound.pauseAsync();
-      setPlaying(false);
-      return;
-    }
-    if (sound) {
-      await sound.playAsync();
-      setPlaying(true);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { sound: s } = await Audio.Sound.createAsync(
-        { uri: msg.audioUrl },
-        { shouldPlay: true },
-        (status) => {
-          if (!status.isLoaded) return;
-          if (status.didJustFinish) { setPlaying(false); setPos(0); }
-          else setPos(
-            status.positionMillis && status.durationMillis
-              ? status.positionMillis / status.durationMillis
-              : 0
-          );
-        }
-      );
-      setSound(s);
-      setPlaying(true);
-    } catch (e) {
-      Alert.alert("Erreur", "Impossible de lire l'audio.");
-    } finally {
-      setLoading(false);
-    }
+    if (status.playing) player.pause();
+    else player.play();
   };
 
   return (
     <View style={[ab.row, isMine ? ab.right : ab.left]}>
       <Pressable style={[ab.bubble, isMine ? ab.mine : ab.them]} onPress={toggle}>
         <View style={ab.inner}>
-          {/* Bouton play/pause */}
           <View style={[ab.playBtn, isMine ? ab.playMine : ab.playThem]}>
-            {loading
-              ? <ActivityIndicator size="small" color={isMine ? COLORS.teal : "#fff"} />
-              : <Ionicons
-                  name={playing ? "pause" : "play"}
-                  size={14}
-                  color={isMine ? COLORS.teal : "#fff"}
-                />
-            }
+            <Ionicons
+              name={status.playing ? "pause" : "play"}
+              size={14}
+              color={isMine ? COLORS.teal : "#fff"}
+            />
           </View>
-          {/* Barre de progression + durée */}
           <View style={{ flex: 1, gap: 4 }}>
             <View style={ab.track}>
               <View style={[ab.fill, { width: `${Math.round(pos * 100)}%` }]} />
@@ -127,21 +97,21 @@ function AudioBubble({ msg, isMine }: { msg: ChatMessage; isMine: boolean }) {
 }
 
 const ab = StyleSheet.create({
-  row:    { paddingHorizontal: 16, marginVertical: 3 },
-  right:  { alignItems: "flex-end" },
-  left:   { alignItems: "flex-start" },
-  bubble: { borderRadius: 16, overflow: "hidden" },
-  mine:   { backgroundColor: "rgba(0,180,160,0.15)", borderWidth: 1, borderColor: COLORS.teal + "55", borderBottomRightRadius: 4 },
-  them:   { backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderBottomLeftRadius: 4 },
-  inner:  { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, minWidth: 180 },
-  playBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  row:      { paddingHorizontal: 16, marginVertical: 3 },
+  right:    { alignItems: "flex-end" },
+  left:     { alignItems: "flex-start" },
+  bubble:   { borderRadius: 16, overflow: "hidden" },
+  mine:     { backgroundColor: "rgba(0,180,160,0.15)", borderWidth: 1, borderColor: COLORS.teal + "55", borderBottomRightRadius: 4 },
+  them:     { backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", borderBottomLeftRadius: 4 },
+  inner:    { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, minWidth: 180 },
+  playBtn:  { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   playMine: { backgroundColor: "rgba(0,180,160,0.2)", borderWidth: 1, borderColor: COLORS.teal + "44" },
   playThem: { backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
-  track:  { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, overflow: "hidden" },
-  fill:   { height: "100%", backgroundColor: COLORS.teal, borderRadius: 2 },
-  dur:    { fontSize: 10, fontFamily: "Inter_400Regular" },
-  durMine: { color: "rgba(0,180,160,0.8)" },
-  durThem: { color: "rgba(255,255,255,0.35)" },
+  track:    { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, overflow: "hidden" },
+  fill:     { height: "100%", backgroundColor: COLORS.teal, borderRadius: 2 },
+  dur:      { fontSize: 10, fontFamily: "Inter_400Regular" },
+  durMine:  { color: "rgba(0,180,160,0.8)" },
+  durThem:  { color: "rgba(255,255,255,0.35)" },
 });
 
 // ─── Bulle texte ──────────────────────────────────────────────────────────────
@@ -166,17 +136,17 @@ function TextBubble({ msg, isMine }: { msg: ChatMessage; isMine: boolean }) {
 }
 
 const tb = StyleSheet.create({
-  wrapper: { flexDirection: "row", alignItems: "flex-end", gap: 7, paddingHorizontal: 16, marginVertical: 3 },
-  right:   { justifyContent: "flex-end" },
-  left:    { justifyContent: "flex-start" },
-  avatar:  { width: 25, height: 25, borderRadius: 13, backgroundColor: COLORS.teal + "22", alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  bubble:  { maxWidth: "75%", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, gap: 3 },
-  mine:    { backgroundColor: COLORS.teal, borderBottomRightRadius: 4 },
-  them:    { backgroundColor: "rgba(255,255,255,0.1)", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
-  text:    { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  wrapper:  { flexDirection: "row", alignItems: "flex-end", gap: 7, paddingHorizontal: 16, marginVertical: 3 },
+  right:    { justifyContent: "flex-end" },
+  left:     { justifyContent: "flex-start" },
+  avatar:   { width: 25, height: 25, borderRadius: 13, backgroundColor: COLORS.teal + "22", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  bubble:   { maxWidth: "75%", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9, gap: 3 },
+  mine:     { backgroundColor: COLORS.teal, borderBottomRightRadius: 4 },
+  them:     { backgroundColor: "rgba(255,255,255,0.1)", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+  text:     { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
   textMine: { color: "#fff" },
   textThem: { color: "rgba(255,255,255,0.85)" },
-  time:    { fontSize: 10, fontFamily: "Inter_400Regular" },
+  time:     { fontSize: 10, fontFamily: "Inter_400Regular" },
   timeMine: { color: "rgba(255,255,255,0.5)", textAlign: "right" },
   timeThem: { color: "rgba(255,255,255,0.28)" },
 });
@@ -205,13 +175,12 @@ function buildList(msgs: ChatMessage[]): ListItem[] {
   const today     = new Date();
   const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
   const fmt = (d: Date) => d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-
   const items: ListItem[] = [];
   let lastLabel = "";
   for (const m of msgs) {
     const date = m.createdAt?.toDate() ?? new Date();
     let label: string;
-    if (date.toDateString() === today.toDateString())     label = "Aujourd'hui";
+    if (date.toDateString() === today.toDateString())          label = "Aujourd'hui";
     else if (date.toDateString() === yesterday.toDateString()) label = "Hier";
     else label = fmt(date);
     if (label !== lastLabel) { items.push({ kind: "sep", label }); lastLabel = label; }
@@ -220,7 +189,8 @@ function buildList(msgs: ChatMessage[]): ListItem[] {
   return items;
 }
 
-// ─── Bouton micro — maintien pour enregistrer ─────────────────────────────────
+// ─── Bouton micro — expo-audio (SDK 54) ───────────────────────────────────────
+// useAudioRecorder est un hook React — appelé au top-level du composant
 
 interface MicButtonProps {
   onAudioReady: (uri: string, durationMs: number) => void;
@@ -228,22 +198,22 @@ interface MicButtonProps {
 }
 
 function MicButton({ onAudioReady, disabled }: MicButtonProps) {
-  const [recording, setRecording] = useState(false);
-  const recRef = useRef<Audio.Recording | null>(null);
+  const recorder  = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recState  = useAudioRecorderState(recorder, 200);
   const startTime = useRef<number>(0);
 
   const start = async () => {
     if (disabled) return;
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) { Alert.alert("Permission refusée", "Autorisez l'accès au microphone dans les réglages."); return; }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording: rec } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      recRef.current = rec;
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
+        Alert.alert("Permission refusée", "Autorisez l'accès au microphone dans les réglages.");
+        return;
+      }
+      await setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       startTime.current = Date.now();
-      setRecording(true);
     } catch (e) {
       console.warn("[mic] start", e);
       Alert.alert("Erreur", "Impossible de démarrer l'enregistrement.");
@@ -251,37 +221,36 @@ function MicButton({ onAudioReady, disabled }: MicButtonProps) {
   };
 
   const stop = async () => {
-    if (!recRef.current) return;
+    if (!recState.isRecording) return;
     try {
-      await recRef.current.stopAndUnloadAsync();
-      const uri = recRef.current.getURI();
+      await recorder.stop();
+      const uri = recorder.uri;
       const durationMs = Date.now() - startTime.current;
-      recRef.current = null;
-      setRecording(false);
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      await setAudioModeAsync({ allowsRecordingIOS: false });
       if (uri) onAudioReady(uri, durationMs);
     } catch (e) {
       console.warn("[mic] stop", e);
-      setRecording(false);
     }
   };
 
+  const isRecording = recState.isRecording;
+
   return (
     <Pressable
-      style={[m.btn, recording && m.btnActive, disabled && m.btnDim]}
+      style={[mc.btn, isRecording && mc.btnActive, disabled && mc.btnDim]}
       onPressIn={start}
       onPressOut={stop}
     >
       <Ionicons
-        name={recording ? "stop-circle" : "mic-outline"}
+        name={isRecording ? "stop-circle" : "mic-outline"}
         size={18}
-        color={recording ? "#EF4444" : (disabled ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.8)")}
+        color={isRecording ? "#EF4444" : (disabled ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.8)")}
       />
     </Pressable>
   );
 }
 
-const m = StyleSheet.create({
+const mc = StyleSheet.create({
   btn:       { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", flexShrink: 0 },
   btnActive: { backgroundColor: "rgba(239,68,68,0.18)", borderColor: "#EF444455" },
   btnDim:    { opacity: 0.35 },
@@ -290,20 +259,20 @@ const m = StyleSheet.create({
 // ─── Écran principal ──────────────────────────────────────────────────────────
 
 export default function TenantMessages() {
-  const insets     = useSafeAreaInsets();
-  const router     = useRouter();
+  const insets   = useSafeAreaInsets();
+  const router   = useRouter();
   const { user, rentalInfo } = useAuth();
-  const flatRef    = useRef<FlatList>(null);
+  const flatRef  = useRef<FlatList>(null);
 
   const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
   const paddingBot = Platform.OS === "ios" ? insets.bottom + 4 : 8;
 
-  const [messages, setMessages]   = useState<ChatMessage[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [text, setText]           = useState("");
-  const [sending, setSending]     = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [text, setText]         = useState("");
+  const [sending, setSending]   = useState(false);
 
-  // ── Firestore listener ───────────────────────────────────────────────────────
+  // ── Firestore listener ────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!rentalInfo?.propertyId) { setLoading(false); return; }
@@ -320,7 +289,7 @@ export default function TenantMessages() {
     );
   }, [rentalInfo?.propertyId]);
 
-  // Auto-scroll
+  // Auto-scroll en bas
   useEffect(() => {
     if (messages.length > 0)
       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
@@ -351,14 +320,12 @@ export default function TenantMessages() {
     if (!rentalInfo?.propertyId || !user?.uid) return;
     setSending(true);
     try {
-      // Upload dans Firebase Storage
       const resp = await fetch(uri);
       const blob = await resp.blob();
       const id   = Date.now().toString(36);
       const ref  = storageRef(storage, `messages/${rentalInfo.propertyId}/${id}.m4a`);
       await uploadBytes(ref, blob, { contentType: "audio/m4a" });
       const audioUrl = await getDownloadURL(ref);
-
       await addDoc(
         collection(db, "properties", rentalInfo.propertyId, "messages"),
         { senderId: user.uid, type: "audio", audioUrl, audioDuration: durationMs, createdAt: serverTimestamp() }
@@ -371,9 +338,10 @@ export default function TenantMessages() {
     }
   }, [rentalInfo?.propertyId, user?.uid]);
 
-  // ── Rendu liste ───────────────────────────────────────────────────────────────
+  // ── Rendu ─────────────────────────────────────────────────────────────────────
 
   const listItems = buildList(messages);
+  const hasText   = text.trim().length > 0;
 
   const renderItem = ({ item }: { item: ListItem }) => {
     if (item.kind === "sep") return <DateSep label={item.label} />;
@@ -382,8 +350,6 @@ export default function TenantMessages() {
     if (msg.type === "audio") return <AudioBubble msg={msg} isMine={isMine} />;
     return <TextBubble msg={msg} isMine={isMine} />;
   };
-
-  const hasText = text.trim().length > 0;
 
   return (
     <LinearGradient
@@ -429,7 +395,6 @@ export default function TenantMessages() {
             renderItem={renderItem}
             contentContainerStyle={{ paddingTop: 10, paddingBottom: 10 }}
             showsVerticalScrollIndicator={false}
-            // Ne pas intercepter le swipe horizontal (évite le conflit avec swipe-back iOS)
             directionalLockEnabled
             keyboardDismissMode="on-drag"
           />
@@ -449,12 +414,12 @@ export default function TenantMessages() {
             blurOnSubmit={false}
           />
 
-          {/* Micro — maintien pour enregistrer, masqué si texte en cours */}
+          {/* Micro visible seulement sans texte */}
           {!hasText && (
             <MicButton onAudioReady={sendAudio} disabled={sending} />
           )}
 
-          {/* Envoyer — apparaît uniquement quand il y a du texte */}
+          {/* Envoyer visible seulement avec texte */}
           {hasText && (
             <Pressable
               style={[s.sendBtn, sending && s.sendBtnDim]}
@@ -498,7 +463,6 @@ const s = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.3)", textAlign: "center" },
   emptyDesc:  { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.2)", textAlign: "center", lineHeight: 19 },
-
   bar: {
     flexDirection: "row", alignItems: "flex-end", gap: 10,
     paddingHorizontal: 14, paddingTop: 10,
@@ -513,11 +477,6 @@ const s = StyleSheet.create({
     fontSize: 14, fontFamily: "Inter_400Regular", color: "#fff",
     maxHeight: 120, minHeight: 40,
   },
-  sendBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: COLORS.teal,
-    alignItems: "center", justifyContent: "center",
-    flexShrink: 0,
-  },
+  sendBtn:    { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.teal, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendBtnDim: { opacity: 0.4 },
 });
