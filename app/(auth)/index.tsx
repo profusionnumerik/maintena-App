@@ -5,17 +5,15 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import {
-  KeyboardAvoidingView,
-  KeyboardAwareScrollView,
-} from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
@@ -260,7 +258,7 @@ export default function AuthScreen() {
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <KeyboardAwareScrollView
+        <ScrollView
           contentContainerStyle={[
             styles.scroll,
             { paddingTop: topPadding + 20, paddingBottom: bottomPadding + 20 },
@@ -566,7 +564,7 @@ export default function AuthScreen() {
           </View>
 
           <PricingSection />
-        </KeyboardAwareScrollView>
+        </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>
   );

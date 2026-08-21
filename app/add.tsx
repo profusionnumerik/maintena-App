@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { KeyboardAwareScrollView as ScrollView } from "react-native-keyboard-controller";
+import { ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
