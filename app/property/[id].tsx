@@ -1662,9 +1662,9 @@ const s = StyleSheet.create({
   headerTitle:  { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
   headerSub:    { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
 
-  tabBar:        { flexGrow: 0, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  tabBarContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
-  tab:           { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, borderWidth: 1.5, borderColor: "#94A3B8", backgroundColor: "#F1F5F9" },
+  tabBar:        { height: 60, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  tabBarContent: { height: 60, flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 10 },
+  tab:           { height: 40, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, borderRadius: 20, borderWidth: 1.5, borderColor: "#94A3B8", backgroundColor: "#F1F5F9" },
   tabActive:     { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" },
   tabText:       { fontSize: 14, fontFamily: "Inter_700Bold", color: "#1E293B" },
   tabTextActive: { color: "#fff" },
