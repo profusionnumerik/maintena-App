@@ -1514,10 +1514,10 @@ const s = StyleSheet.create({
   headerSub:    { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 1 },
 
   tabBar:        { flexGrow: 0, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  tabBarContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  tab:           { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 22, borderWidth: 1.5, borderColor: "#94A3B8", backgroundColor: "#F1F5F9" },
+  tabBarContent: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
+  tab:           { flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24, borderWidth: 1.5, borderColor: "#94A3B8", backgroundColor: "#F1F5F9" },
   tabActive:     { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" },
-  tabText:       { fontSize: 13, fontFamily: "Inter_700Bold", color: "#1E293B" },
+  tabText:       { fontSize: 14, fontFamily: "Inter_700Bold", color: "#1E293B" },
   tabTextActive: { color: "#fff" },
   tabBadge:      { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
   tabBadgeText:  { fontSize: 10, fontFamily: "Inter_700Bold", color: "#fff" },
