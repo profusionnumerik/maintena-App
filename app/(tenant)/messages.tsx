@@ -17,7 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
   collection, onSnapshot, addDoc, orderBy, query,
-  serverTimestamp, Timestamp,
+  serverTimestamp,
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
@@ -44,7 +44,7 @@ interface ChatMessage {
   text?: string;
   audioUrl?: string;
   audioDuration?: number; // ms
-  createdAt: Timestamp | null;
+  createdAt: { toDate(): Date } | null;
 }
 
 // ─── Utilitaire durée ─────────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ function MicButton({ onAudioReady, disabled }: MicButtonProps) {
         Alert.alert("Permission refusée", "Autorisez l'accès au microphone dans les réglages.");
         return;
       }
-      await setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
       startTime.current = Date.now();
@@ -226,7 +226,7 @@ function MicButton({ onAudioReady, disabled }: MicButtonProps) {
       await recorder.stop();
       const uri = recorder.uri;
       const durationMs = Date.now() - startTime.current;
-      await setAudioModeAsync({ allowsRecordingIOS: false });
+      await setAudioModeAsync({ allowsRecording: false });
       if (uri) onAudioReady(uri, durationMs);
     } catch (e) {
       console.warn("[mic] stop", e);

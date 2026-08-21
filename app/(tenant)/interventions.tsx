@@ -46,7 +46,9 @@ const FILTER_TABS: { key: FilterKey; label: string; icon: string }[] = [
 function InterventionCard({ item }: { item: PropertyIntervention }) {
   const statusColor = RENTAL_INTERVENTION_STATUS_COLORS[item.status];
   const statusLabel = RENTAL_INTERVENTION_STATUS_LABELS[item.status];
-  const catIcon     = CAT_ICONS[item.category ?? "autre"] ?? "construct-outline";
+  const titleLow = item.title.toLowerCase();
+  const catKey   = Object.keys(CAT_ICONS).find((k) => titleLow.includes(k)) ?? "autre";
+  const catIcon  = CAT_ICONS[catKey];
   const [expanded, setExpanded] = useState(false);
 
   const formattedDate = item.scheduledDate
