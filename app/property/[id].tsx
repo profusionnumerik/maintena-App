@@ -27,10 +27,13 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import { apiRequest } from "@/lib/query-client";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {
   RentalProperty,
   PropertyTenant,
@@ -72,38 +75,101 @@ const badgeS = StyleSheet.create({
 // ─── Gestion documents ─────────────────────────────────────────────────────────
 
 const DOC_TYPES: PropertyDocumentType[] = ["lease", "dpe", "invoice", "quote", "other"];
+type AddMode = "file" | "link";
 
 function AddDocModal({
   propertyId, landlordId, onClose,
 }: { propertyId: string; landlordId: string; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const [mode, setMode]       = useState<AddMode>("file");
   const [type, setType]       = useState<PropertyDocumentType>("other");
   const [label, setLabel]     = useState("");
   const [url, setUrl]         = useState("");
   const [visible, setVisible] = useState(true);
   const [saving, setSaving]   = useState(false);
+  // Fichier choisi
+  const [fileUri, setFileUri]   = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>("");
+  const [fileMime, setFileMime] = useState<string>("application/octet-stream");
 
+  // ── Choisir un fichier (PDF) ────────────────────────────────────────────────
+  const pickFile = async () => {
+    const res = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf"],
+      copyToCacheDirectory: true,
+    });
+    if (res.canceled) return;
+    const asset = res.assets[0];
+    setFileUri(asset.uri);
+    setFileName(asset.name ?? "document.pdf");
+    setFileMime(asset.mimeType ?? "application/pdf");
+    if (!label) setLabel(asset.name?.replace(/\.[^.]+$/, "") ?? "");
+  };
+
+  // ── Choisir une image (PNG / JPG) ───────────────────────────────────────────
+  const pickImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert("Permission refusée", "Autorisez l'accès à la photothèque."); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.85,
+      allowsMultipleSelection: false,
+    });
+    if (res.canceled) return;
+    const asset = res.assets[0];
+    const ext  = asset.uri.split(".").pop()?.toLowerCase() ?? "jpg";
+    const mime = ext === "png" ? "image/png" : "image/jpeg";
+    const name = `image.${ext}`;
+    setFileUri(asset.uri);
+    setFileName(name);
+    setFileMime(mime);
+    if (!label) setLabel("Photo");
+  };
+
+  // ── Sauvegarder ─────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!label.trim()) { Alert.alert("Nom manquant"); return; }
-    if (!url.trim())   { Alert.alert("Lien manquant", "Collez l'URL du document (Google Drive, Dropbox…)"); return; }
+
+    if (mode === "link") {
+      if (!url.trim()) { Alert.alert("Lien manquant", "Collez l'URL du document."); return; }
+      setSaving(true);
+      try {
+        await addDoc(collection(db, "properties", propertyId, "documents"), {
+          propertyId, landlordId, type,
+          label: label.trim(), url: url.trim(),
+          visibleToTenant: visible, uploadedBy: landlordId,
+          createdAt: new Date().toISOString(),
+        } satisfies Omit<PropertyDocument, "id">);
+        onClose();
+      } catch {
+        Alert.alert("Erreur", "Impossible d'ajouter le document.");
+      } finally { setSaving(false); }
+      return;
+    }
+
+    // mode === "file"
+    if (!fileUri) { Alert.alert("Fichier manquant", "Choisissez un fichier PDF, PNG ou JPG."); return; }
     setSaving(true);
     try {
+      const resp = await fetch(fileUri);
+      const blob = await resp.blob();
+      const ext  = fileName.split(".").pop() ?? "pdf";
+      const id   = Date.now().toString(36);
+      const ref  = storageRef(storage, `properties/${propertyId}/documents/${id}.${ext}`);
+      await uploadBytes(ref, blob, { contentType: fileMime });
+      const downloadUrl = await getDownloadURL(ref);
       await addDoc(collection(db, "properties", propertyId, "documents"), {
-        propertyId,
-        landlordId,
-        type,
-        label: label.trim(),
-        url: url.trim(),
-        visibleToTenant: visible,
-        uploadedBy: landlordId,
+        propertyId, landlordId, type,
+        label: label.trim(), url: downloadUrl,
+        visibleToTenant: visible, uploadedBy: landlordId,
+        mimeType: fileMime,
         createdAt: new Date().toISOString(),
       } satisfies Omit<PropertyDocument, "id">);
       onClose();
-    } catch {
-      Alert.alert("Erreur", "Impossible d'ajouter le document.");
-    } finally {
-      setSaving(false);
-    }
+    } catch (e) {
+      console.warn("[AddDocModal] upload", e);
+      Alert.alert("Erreur", "Impossible d'uploader le fichier.");
+    } finally { setSaving(false); }
   };
 
   return (
@@ -121,6 +187,27 @@ function AddDocModal({
             <View style={addDoc_.handle} />
             <Text style={addDoc_.title}>Ajouter un document</Text>
 
+            {/* ── Onglets Fichier / Lien ── */}
+            <View style={addDoc_.tabs}>
+              {(["file", "link"] as AddMode[]).map((m) => (
+                <Pressable
+                  key={m}
+                  style={[addDoc_.tab, mode === m && addDoc_.tabActive]}
+                  onPress={() => setMode(m)}
+                >
+                  <Ionicons
+                    name={m === "file" ? "cloud-upload-outline" : "link-outline"}
+                    size={14}
+                    color={mode === m ? COLORS.primary : COLORS.textMuted}
+                  />
+                  <Text style={[addDoc_.tabText, mode === m && addDoc_.tabTextActive]}>
+                    {m === "file" ? "Fichier" : "Lien URL"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* ── Type ── */}
             <Text style={addDoc_.label}>Type de document</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
               <View style={{ flexDirection: "row", gap: 8 }}>
@@ -143,6 +230,7 @@ function AddDocModal({
               </View>
             </ScrollView>
 
+            {/* ── Nom ── */}
             <Text style={addDoc_.label}>Nom du document *</Text>
             <TextInput
               style={addDoc_.input}
@@ -152,17 +240,53 @@ function AddDocModal({
               onChangeText={setLabel}
             />
 
-            <Text style={addDoc_.label}>Lien (URL) *</Text>
-            <TextInput
-              style={addDoc_.input}
-              placeholder="https://drive.google.com/…"
-              placeholderTextColor={COLORS.textMuted}
-              value={url}
-              onChangeText={setUrl}
-              autoCapitalize="none"
-              keyboardType="url"
-            />
+            {/* ── Contenu selon mode ── */}
+            {mode === "file" ? (
+              <View style={{ gap: 8, marginBottom: 14 }}>
+                <Text style={addDoc_.label}>Fichier (PDF, PNG, JPG)</Text>
+                {/* Boutons de choix */}
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable style={[addDoc_.fileBtn, { flex: 1 }]} onPress={pickFile}>
+                    <Ionicons name="document-outline" size={16} color={COLORS.primary} />
+                    <Text style={addDoc_.fileBtnText}>PDF</Text>
+                  </Pressable>
+                  <Pressable style={[addDoc_.fileBtn, { flex: 1 }]} onPress={pickImage}>
+                    <Ionicons name="image-outline" size={16} color={COLORS.primary} />
+                    <Text style={addDoc_.fileBtnText}>PNG / JPG</Text>
+                  </Pressable>
+                </View>
+                {/* Fichier sélectionné */}
+                {fileUri ? (
+                  <View style={addDoc_.fileChosen}>
+                    <Ionicons
+                      name={fileMime.startsWith("image") ? "image-outline" : "document-text-outline"}
+                      size={16} color="#10B981"
+                    />
+                    <Text style={addDoc_.fileChosenText} numberOfLines={1}>{fileName}</Text>
+                    <Pressable onPress={() => { setFileUri(null); setFileName(""); }}>
+                      <Ionicons name="close-circle" size={16} color={COLORS.textMuted} />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={addDoc_.fileHint}>Aucun fichier sélectionné</Text>
+                )}
+              </View>
+            ) : (
+              <>
+                <Text style={addDoc_.label}>Lien (URL) *</Text>
+                <TextInput
+                  style={[addDoc_.input, { marginBottom: 14 }]}
+                  placeholder="https://drive.google.com/…"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={url}
+                  onChangeText={setUrl}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              </>
+            )}
 
+            {/* ── Visibilité locataire ── */}
             <Pressable
               style={addDoc_.toggleRow}
               onPress={() => setVisible((v) => !v)}
@@ -177,7 +301,9 @@ function AddDocModal({
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={addDoc_.btnText}>Ajouter</Text>
+                <Text style={addDoc_.btnText}>
+                  {mode === "file" ? "Uploader et ajouter" : "Ajouter"}
+                </Text>
               )}
             </Pressable>
           </View>
@@ -334,6 +460,32 @@ const addDoc_ = StyleSheet.create({
     width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff",
   },
   toggleDotOn: { alignSelf: "flex-end" },
+  // ── Onglets fichier / lien ──
+  tabs: { flexDirection: "row", gap: 8, marginBottom: 18 },
+  tab: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 10, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: "#F8F8F8",
+  },
+  tabActive: { borderColor: COLORS.primary, backgroundColor: "#EEF2FF" },
+  tabText: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  tabTextActive: { color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
+  // ── Boutons de sélection de fichier ──
+  fileBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1.5, borderColor: COLORS.primary, borderStyle: "dashed",
+    backgroundColor: "#EEF2FF",
+  },
+  fileBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+  // ── Fichier sélectionné ──
+  fileChosen: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#F0FDF4", borderRadius: 8, padding: 10,
+    borderWidth: 1, borderColor: "#D1FAE5",
+  },
+  fileChosenText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "#065F46" },
+  fileHint: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center" },
   btn: {
     backgroundColor: COLORS.primary, borderRadius: 12,
     paddingVertical: 14, alignItems: "center",

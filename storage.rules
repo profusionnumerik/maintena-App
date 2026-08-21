@@ -37,6 +37,24 @@ service firebase.storage {
       request.resource.contentType.matches("audio/.*");
     }
 
+    // ── Documents logement (bail, DPE, factures, photos…) ───────────────────
+    match /properties/{propertyId}/documents/{allPaths=**} {
+      // Lecture : bailleur ou locataire si le document est partagé
+      // (le contrôle visibleToTenant est côté Firestore ; ici on autorise l'URL)
+      allow read: if isSignedIn() && (
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+          .data.rentalInfo.propertyId == propertyId
+      );
+      // Écriture : bailleur uniquement, max 20 Mo, PDF ou image
+      allow write: if isSignedIn() &&
+        firestore.get(/databases/(default)/documents/properties/$(propertyId))
+          .data.landlordId == request.auth.uid &&
+        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.contentType.matches("application/pdf|image/.*");
+    }
+
     // ── Module État des lieux — photos pièces, compteurs, PDF ──────────────
     match /properties/{propertyId}/inventory/{allPaths=**} {
       // Lecture : bailleur du logement ou locataire du logement
