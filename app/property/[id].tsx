@@ -1063,7 +1063,6 @@ export default function PropertyDetail() {
                       : 0;
           return (
             <Pressable key={tab.key} style={[s.tab, isActive && s.tabActive]} onPress={() => setHubTab(tab.key)}>
-              <Ionicons name={tab.icon as any} size={13} color={isActive ? "#8B5CF6" : COLORS.textMuted} />
               <Text style={[s.tabText, isActive && s.tabTextActive]}>{tab.label}</Text>
               {badge > 0 && (
                 <View style={s.tabBadge}><Text style={s.tabBadgeText}>{badge}</Text></View>
@@ -1211,12 +1210,12 @@ const s = StyleSheet.create({
 
   tabBar:        { flexGrow: 0, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border },
   tabBarContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
-  tab:           { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surfaceAlt },
-  tabActive:     { backgroundColor: "rgba(139,92,246,0.08)", borderColor: "#8B5CF6" },
-  tabText:       { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
-  tabTextActive: { color: "#8B5CF6", fontFamily: "Inter_600SemiBold" },
-  tabBadge:      { minWidth: 16, height: 16, borderRadius: 8, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
-  tabBadgeText:  { fontSize: 9, fontFamily: "Inter_700Bold", color: "#fff" },
+  tab:           { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 22, borderWidth: 1.5, borderColor: "#CBD5E1", backgroundColor: "#F8FAFC" },
+  tabActive:     { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" },
+  tabText:       { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#475569" },
+  tabTextActive: { color: "#fff" },
+  tabBadge:      { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: "#EF4444", alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  tabBadgeText:  { fontSize: 10, fontFamily: "Inter_700Bold", color: "#fff" },
 
   scroll:   { padding: 16, gap: 4 },
   section:  { marginBottom: 20 },
