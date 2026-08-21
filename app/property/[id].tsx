@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   KeyboardEvent,
@@ -26,6 +27,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
 import { auth, db, storage } from "@/lib/firebase";
@@ -805,6 +807,7 @@ export default function PropertyDetail() {
   const [selectedIntervention, setSelectedIntervention] = useState<PropertyIntervention | null>(null);
   const [showCreateIntervention, setShowCreateIntervention] = useState(false);
   const [previewMessages, setPreviewMessages] = useState<Array<{ id: string; senderId: string; type: string; text?: string }>>([]);
+  const [showMessages, setShowMessages] = useState(false);
 
   // Chargement du logement
   useEffect(() => {
@@ -1039,7 +1042,7 @@ export default function PropertyDetail() {
         </View>
       )}
 
-      <Pressable style={msg.openBtn} onPress={() => router.push(`/property-messages?propertyId=${id}` as any)}>
+      <Pressable style={msg.openBtn} onPress={() => setShowMessages(true)}>
         <Ionicons name="chatbubbles-outline" size={18} color="#fff" />
         <Text style={msg.openBtnText}>
           {previewMessages.length > 0 ? "Voir toute la conversation" : "Ouvrir la messagerie"}
@@ -1182,9 +1185,155 @@ export default function PropertyDetail() {
           onClose={() => setShowCreateIntervention(false)}
         />
       )}
+      <MessagesModal
+        visible={showMessages}
+        propertyId={id ?? ""}
+        landlordId={user?.uid ?? ""}
+        onClose={() => setShowMessages(false)}
+      />
     </View>
   );
 }
+
+// ─── Modale messagerie ────────────────────────────────────────────────────────
+
+interface ChatMsg { id: string; senderId: string; type: string; text?: string; createdAt: { toDate(): Date } | null }
+
+function MessagesModal({ visible, propertyId, landlordId, onClose }: {
+  visible: boolean; propertyId: string; landlordId: string; onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const flatRef = useRef<FlatList>(null);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!visible || !propertyId) return;
+    return onSnapshot(
+      query(collection(db, "properties", propertyId, "messages"), orderBy("createdAt", "asc")),
+      (snap) => {
+        setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChatMsg)));
+        setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 100);
+      },
+      (err) => console.warn("[MessagesModal]", err)
+    );
+  }, [visible, propertyId]);
+
+  const sendText = useCallback(async () => {
+    const t = text.trim();
+    if (!t || !propertyId || !landlordId || sending) return;
+    setText("");
+    setSending(true);
+    try {
+      await addDoc(collection(db, "properties", propertyId, "messages"), {
+        senderId: landlordId, type: "text", text: t, createdAt: serverTimestamp(),
+      });
+    } catch { setText(t); }
+    finally { setSending(false); }
+  }, [text, propertyId, landlordId, sending]);
+
+  const renderItem = ({ item }: { item: ChatMsg }) => {
+    const isMine = item.senderId === landlordId;
+    const time = item.createdAt
+      ? item.createdAt.toDate().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+      : "";
+    return (
+      <View style={[cm.row, isMine ? cm.rowRight : cm.rowLeft]}>
+        <View style={[cm.bubble, isMine ? cm.bubbleMine : cm.bubbleThem]}>
+          <Text style={[cm.bubbleText, isMine ? cm.textMine : cm.textThem]}>
+            {item.type === "audio" ? "🎤 Message vocal" : (item.text ?? "")}
+          </Text>
+          {!!time && <Text style={[cm.time, isMine ? cm.timeMine : cm.timeThem]}>{time}</Text>}
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[cm.root, { paddingTop: insets.top || 20 }]}>
+        {/* Header */}
+        <View style={cm.header}>
+          <Pressable style={cm.backBtn} onPress={onClose} hitSlop={8}>
+            <Ionicons name="chevron-down" size={22} color={COLORS.text} />
+          </Pressable>
+          <Text style={cm.headerTitle}>Messagerie</Text>
+          <View style={{ width: 36 }} />
+        </View>
+
+        {/* Messages */}
+        {messages.length === 0 ? (
+          <View style={cm.empty}>
+            <Ionicons name="chatbubbles-outline" size={48} color={COLORS.textMuted} />
+            <Text style={cm.emptyText}>Aucun message pour l'instant</Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatRef}
+            data={messages}
+            keyExtractor={(m) => m.id}
+            renderItem={renderItem}
+            contentContainerStyle={{ paddingVertical: 12 }}
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+            onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: false })}
+          />
+        )}
+
+        {/* Barre d'envoi */}
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={[cm.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <TextInput
+              style={cm.input}
+              placeholder="Écrivez un message…"
+              placeholderTextColor={COLORS.textMuted}
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={2000}
+              returnKeyType="default"
+            />
+            <Pressable
+              style={[cm.sendBtn, (!text.trim() || sending) && cm.sendBtnDim]}
+              onPress={sendText}
+              disabled={!text.trim() || sending}
+            >
+              {sending
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="send" size={16} color="#fff" />}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
+  );
+}
+
+const cm = StyleSheet.create({
+  root:        { flex: 1, backgroundColor: "#F8FAFF" },
+  header:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: "#fff" },
+  backBtn:     { width: 36, height: 36, borderRadius: 11, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text },
+  empty:       { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  emptyText:   { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  row:         { paddingHorizontal: 16, marginVertical: 3 },
+  rowRight:    { alignItems: "flex-end" },
+  rowLeft:     { alignItems: "flex-start" },
+  bubble:      { maxWidth: "78%", borderRadius: 18, paddingHorizontal: 14, paddingVertical: 9, gap: 3 },
+  bubbleMine:  { backgroundColor: "#8B5CF6", borderBottomRightRadius: 4 },
+  bubbleThem:  { backgroundColor: "#fff", borderBottomLeftRadius: 4, borderWidth: 1, borderColor: COLORS.border },
+  bubbleText:  { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
+  textMine:    { color: "#fff" },
+  textThem:    { color: COLORS.text },
+  time:        { fontSize: 10, fontFamily: "Inter_400Regular" },
+  timeMine:    { color: "rgba(255,255,255,0.55)", textAlign: "right" },
+  timeThem:    { color: COLORS.textMuted },
+  bar:         { flexDirection: "row", alignItems: "flex-end", gap: 10, paddingHorizontal: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: "#fff" },
+  input:       { flex: 1, backgroundColor: "#F1F5F9", borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, maxHeight: 120, minHeight: 40 },
+  sendBtn:     { width: 40, height: 40, borderRadius: 20, backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  sendBtnDim:  { opacity: 0.4 },
+});
 
 // ─── Modale création intervention ────────────────────────────────────────────
 
