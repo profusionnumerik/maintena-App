@@ -65,10 +65,15 @@ service firebase.storage {
           .data.rentalInfo.propertyId == propertyId
       );
 
-      // Écriture : bailleur uniquement, max 20 Mo, images ou PDF
+      // Écriture : bailleur OU locataire du logement (upload photos état des lieux)
+      // max 20 Mo, images ou PDF uniquement
       allow write: if isSignedIn() &&
-        firestore.get(/databases/(default)/documents/properties/$(propertyId))
-          .data.landlordId == request.auth.uid &&
+        (
+          firestore.get(/databases/(default)/documents/properties/$(propertyId))
+            .data.landlordId == request.auth.uid ||
+          firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+            .data.rentalInfo.propertyId == propertyId
+        ) &&
         request.resource.size < 20 * 1024 * 1024 &&
         request.resource.contentType.matches("image/.*|application/pdf");
     }
