@@ -3,8 +3,8 @@
  * S'affiche au-dessus de toutes les pages (positionné dans le layout).
  */
 import {
-  Animated, Pressable, StyleSheet, Text, View,
-  Platform, useWindowDimensions,
+  Alert, Animated, Pressable, StyleSheet, Text, View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname } from "expo-router";
@@ -29,7 +29,7 @@ const NAV_ITEMS = [
 
 export function RentalDrawer() {
   const { isOpen, close } = useRentalNav();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const router   = useRouter();
   const pathname = usePathname();
   const insets   = useSafeAreaInsets();
@@ -166,6 +166,30 @@ export function RentalDrawer() {
           </View>
           <Text style={styles.navLabel}>Paramètres</Text>
         </Pressable>
+
+        {/* Déconnexion */}
+        <Pressable
+          style={styles.navItem}
+          onPress={() => {
+            Alert.alert(
+              "Se déconnecter",
+              "Voulez-vous vraiment vous déconnecter ?",
+              [
+                { text: "Annuler", style: "cancel" },
+                {
+                  text: "Se déconnecter",
+                  style: "destructive",
+                  onPress: () => { close(); logout(); },
+                },
+              ]
+            );
+          }}
+        >
+          <View style={[styles.navIcon, styles.logoutIcon]}>
+            <Ionicons name="log-out-outline" size={20} color="#EF4444" />
+          </View>
+          <Text style={styles.logoutLabel}>Se déconnecter</Text>
+        </Pressable>
       </Animated.View>
     </View>
   );
@@ -240,4 +264,6 @@ const styles = StyleSheet.create({
   hamburger: {
     width: 38, height: 38, alignItems: "center", justifyContent: "center",
   },
+  logoutIcon: { backgroundColor: "#FEF2F2" },
+  logoutLabel: { fontSize: 15, fontFamily: "Inter_500Medium", color: "#EF4444", flex: 1 },
 });
