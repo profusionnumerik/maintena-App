@@ -375,12 +375,17 @@ service cloud.firestore {
         // (tenantUserId peut être null si le rapport a été créé avant l'inscription du locataire)
         allow read: if isSignedIn() && isTenantOf(propertyId);
 
+        // Locataire : peut remplir tous les champs de la pièce quand le rapport
+        // est en cours de rédaction (draft / in_progress) — items, photos, état général, observations
         allow update: if isSignedIn() &&
           isTenantOf(propertyId) &&
           get(/databases/$(database)/documents/properties/$(propertyId)/inventoryReports/$(reportId))
-            .data.status in ["draft", "ready_for_signature", "partially_signed"] &&
+            .data.status in ["draft", "in_progress", "ready_for_signature", "partially_signed"] &&
           request.resource.data.diff(resource.data)
-            .affectedKeys().hasOnly(["tenantObservation", "updatedAt"]);
+            .affectedKeys().hasOnly([
+              "items", "photos", "observation", "generalCondition",
+              "tenantObservation", "updatedAt"
+            ]);
       }
     }
   }
