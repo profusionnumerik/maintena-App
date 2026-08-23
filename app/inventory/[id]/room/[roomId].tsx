@@ -89,23 +89,30 @@ export default function RoomEditorScreen() {
     );
   }, [id, roomId, propertyId]);
 
-  // Sauvegarder
+  // Sauvegarder — strip undefined (Firestore refuse les champs undefined)
+  const clean = (v: unknown) => JSON.parse(JSON.stringify(v ?? null));
+
   const save = useCallback(async (force = false) => {
     if (!dirty && !force) return;
+    if (!propertyId || !id || !roomId) {
+      Alert.alert("Erreur", "Identifiants manquants.");
+      return;
+    }
     setSaving(true);
     try {
       await updateDoc(
         doc(db, "properties", propertyId, "inventoryReports", id, "rooms", roomId),
         {
-          items,
-          photos: roomPhotos,
-          observation,
-          generalCondition: generalCond,
-          updatedAt: new Date().toISOString(),
+          items:            clean(items),
+          photos:           clean(roomPhotos),
+          observation:      observation ?? "",
+          generalCondition: generalCond ?? "not_checked",
+          updatedAt:        new Date().toISOString(),
         }
       );
       setDirty(false);
-    } catch {
+    } catch (e) {
+      console.error("[RoomEditor] save error", e);
       Alert.alert("Erreur", "Impossible de sauvegarder.");
     } finally {
       setSaving(false);
