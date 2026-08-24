@@ -49,6 +49,8 @@
     .nav-links a:hover { color: #fff; }
     .nav-cta { background: var(--blue); color: #fff !important; border-radius: 10px; padding: 9px 20px !important; font-weight: 700 !important; }
     .nav-cta:hover { background: #1D4ED8 !important; }
+    .nav-web { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.25); color: #fff !important; border-radius: 10px; padding: 9px 18px !important; font-weight: 600 !important; }
+    .nav-web:hover { background: rgba(255,255,255,.22) !important; }
 
     /* ── Hero ── */
     .hero {
@@ -214,6 +216,7 @@
     <a href="#modules">Modules</a>
     <a href="/privacy-policy">Confidentialité</a>
     <a href="mailto:contact@profusionnumerik.com">Contact</a>
+    <a href="/app" class="nav-web">Version web</a>
     <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="nav-cta" target="_blank" rel="noopener">Télécharger</a>
   </div>
 </nav>
@@ -222,11 +225,11 @@
 <section class="hero">
   <div class="hero-badge">
     <span class="hero-badge-dot"></span>
-    Disponible sur Android
+    Application mobile &amp; version web disponibles
   </div>
   <h1>La gestion immobilière<br /><em>enfin simple</em></h1>
   <p class="hero-sub">
-    Maintena centralise la gestion des interventions, des devis prestataires et de la communication entre syndics, bailleurs et locataires — le tout depuis votre téléphone.
+    Maintena centralise la gestion des interventions, des devis prestataires et de la communication entre syndics, bailleurs et locataires — le tout depuis votre téléphone ou navigateur.
   </p>
   <div class="hero-btns">
     <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="btn-primary" target="_blank" rel="noopener">
@@ -238,8 +241,11 @@
       </svg>
       Google Play
     </a>
-    <a href="#fonctionnalites" class="btn-secondary">
-      Découvrir les fonctionnalités →
+    <a href="/app" class="btn-secondary">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Accéder à la version web
     </a>
   </div>
 </section>
@@ -341,14 +347,20 @@
 <!-- CTA -->
 <div class="cta-section">
   <h2>Prêt à simplifier votre gestion ?</h2>
-  <p>30 jours d'essai gratuit, sans carte bancaire. Disponible sur Android.</p>
+  <p>30 jours d'essai gratuit, sans carte bancaire. Application mobile et version web.</p>
   <div class="hero-btns">
     <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="btn-primary" target="_blank" rel="noopener">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
         <path d="M3.18 23.87a2 2 0 0 1-.68-1.52V1.65A2 2 0 0 1 3.18.13l12.7 11.74-12.7 12Z" fill="#fff"/>
         <path d="m16.5 15.26-3.38-3.13 3.38-3.13L20.84 12l-4.34 3.26Z" fill="#fff" opacity=".8"/>
       </svg>
-      Télécharger sur Google Play
+      Google Play
+    </a>
+    <a href="/app" class="btn-secondary">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Version web
     </a>
     <a href="mailto:contact@profusionnumerik.com" class="btn-secondary">Nous contacter</a>
   </div>
@@ -367,7 +379,8 @@
       </div>
       <div class="footer-col">
         <h4>Application</h4>
-        <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" rel="noopener">Google Play</a>
+        <a href="/app">🖥 Version web</a>
+        <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" rel="noopener">📱 Google Play</a>
         <a href="#fonctionnalites">Fonctionnalités</a>
         <a href="#modules">Modules</a>
       </div>
