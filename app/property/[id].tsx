@@ -1571,8 +1571,8 @@ function CreateInterventionModal({ propertyId, landlordId, onClose }: {
           <Text style={cim.label}>Description</Text>
           <TextInput style={[cim.input, { minHeight: 80, textAlignVertical: "top" }]} placeholder="Détails, accès, contexte…" placeholderTextColor={COLORS.textMuted} value={description} onChangeText={setDescription} multiline numberOfLines={3} />
 
-          <Text style={cim.label}>Date prévue (JJ/MM/AAAA)</Text>
-          <TextInput style={cim.input} placeholder="15/08/2026" placeholderTextColor={COLORS.textMuted} value={scheduledDate} onChangeText={setScheduled} keyboardType="numeric" />
+          <Text style={cim.label}>Date prévue</Text>
+          <TextInput style={cim.input} placeholder="JJ/MM/AAAA" placeholderTextColor={COLORS.textMuted} value={scheduledDate} onChangeText={(v) => setScheduled(maskDate(v, scheduledDate))} keyboardType="number-pad" maxLength={10} />
 
           <Text style={cim.label}>Coût estimé (€)</Text>
           <TextInput style={cim.input} placeholder="250" placeholderTextColor={COLORS.textMuted} value={estimatedCost} onChangeText={setEstCost} keyboardType="numeric" />

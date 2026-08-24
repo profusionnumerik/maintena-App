@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Maintena — Gestion de copropriété et immobilier locatif</title>
+  <meta name="description" content="Maintena simplifie la gestion des interventions, des prestataires et de la communication entre syndics, locataires et bailleurs." />
+  <meta property="og:title" content="Maintena — Gestion de copropriété et immobilier locatif" />
+  <meta property="og:description" content="Simplifiez la gestion des interventions, des devis et de la communication entre syndics, bailleurs et locataires." />
+  <meta property="og:image" content="/icon.png" />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="/favicon.ico" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:    #0B1628;
+      --navy2:   #0F1E36;
+      --blue:    #2563EB;
+      --blue-lt: #3B82F6;
+      --purple:  #7C3AED;
+      --cyan:    #06B6D4;
+      --white:   #FFFFFF;
+      --text:    #0F172A;
+      --muted:   #64748B;
+      --border:  #E2E8F0;
+      --bg:      #F8FAFC;
+      --card:    #FFFFFF;
+      --shadow:  0 4px 24px rgba(15,23,42,.07);
+      --grad:    linear-gradient(135deg, var(--navy) 0%, #1a2f52 50%, #0B2545 100%);
+    }
+
+    html { scroll-behavior: smooth; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(11,22,40,.95); backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      padding: 0 40px; height: 68px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .nav-brand img { width: 40px; height: 40px; border-radius: 10px; }
+    .nav-brand span { color: #fff; font-size: 18px; font-weight: 800; letter-spacing: -.3px; }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-links a { color: rgba(255,255,255,.72); font-size: 14px; font-weight: 500; text-decoration: none; transition: color .2s; }
+    .nav-links a:hover { color: #fff; }
+    .nav-cta { background: var(--blue); color: #fff !important; border-radius: 10px; padding: 9px 20px !important; font-weight: 700 !important; }
+    .nav-cta:hover { background: #1D4ED8 !important; }
+
+    /* ── Hero ── */
+    .hero {
+      background: var(--grad);
+      padding: 100px 40px 90px;
+      text-align: center;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -120px; left: 50%; transform: translateX(-50%);
+      width: 700px; height: 700px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(37,99,235,.18) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: rgba(37,99,235,.25); border: 1px solid rgba(99,150,255,.4);
+      color: #93C5FD; font-size: 13px; font-weight: 600;
+      border-radius: 30px; padding: 6px 16px; margin-bottom: 28px;
+    }
+    .hero-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: #60A5FA; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .hero h1 {
+      font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 900;
+      color: #fff; line-height: 1.15; letter-spacing: -.03em;
+      max-width: 720px; margin: 0 auto 22px;
+    }
+    .hero h1 em { font-style: normal; color: #60A5FA; }
+    .hero-sub {
+      font-size: 1.15rem; color: rgba(255,255,255,.72);
+      max-width: 560px; margin: 0 auto 44px; line-height: 1.7;
+    }
+    .hero-btns { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--blue); color: #fff; border-radius: 14px;
+      padding: 16px 32px; font-size: 16px; font-weight: 700;
+      text-decoration: none; transition: transform .2s, box-shadow .2s;
+      box-shadow: 0 6px 20px rgba(37,99,235,.45);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(37,99,235,.55); }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.25);
+      color: #fff; border-radius: 14px; padding: 16px 28px;
+      font-size: 16px; font-weight: 600; text-decoration: none;
+      transition: background .2s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,.18); }
+
+    /* ── Stats ── */
+    .stats {
+      background: var(--white); border-top: 1px solid var(--border);
+      padding: 40px 40px;
+      display: flex; justify-content: center; gap: 0; flex-wrap: wrap;
+    }
+    .stat { text-align: center; padding: 16px 48px; }
+    .stat + .stat { border-left: 1px solid var(--border); }
+    .stat-n { font-size: 2rem; font-weight: 900; color: var(--blue); line-height: 1; }
+    .stat-l { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Section ── */
+    section { padding: 80px 40px; max-width: 1100px; margin: 0 auto; }
+    .section-eyebrow { color: var(--blue); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 12px; }
+    .section-title { font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 900; color: var(--text); line-height: 1.2; letter-spacing: -.02em; margin-bottom: 14px; }
+    .section-sub { font-size: 1.05rem; color: var(--muted); max-width: 560px; line-height: 1.7; margin-bottom: 52px; }
+
+    /* ── Features grid ── */
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .feature-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+      padding: 28px 28px; box-shadow: var(--shadow);
+      transition: transform .2s, box-shadow .2s;
+    }
+    .feature-card:hover { transform: translateY(-3px); box-shadow: 0 12px 36px rgba(15,23,42,.1); }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 18px;
+    }
+    .feature-card h3 { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── Modules ── */
+    .modules { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .module-card {
+      border-radius: 20px; padding: 32px;
+      position: relative; overflow: hidden;
+    }
+    .module-card h3 { font-size: 1.25rem; font-weight: 800; margin-bottom: 10px; }
+    .module-card p { font-size: 14px; line-height: 1.7; opacity: .85; }
+    .module-card ul { list-style: none; margin-top: 16px; display: flex; flex-direction: column; gap: 7px; }
+    .module-card ul li { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .module-card ul li::before { content: '✓'; font-weight: 800; flex-shrink: 0; }
+    .mod-copro { background: linear-gradient(135deg, #1E3A5F, #0F2340); color: #E0EEFF; }
+    .mod-copro ul li::before { color: #60A5FA; }
+    .mod-rental { background: linear-gradient(135deg, #2D1B4E, #1A0F2E); color: #EDE9FE; }
+    .mod-rental ul li::before { color: #A78BFA; }
+
+    /* ── CTA section ── */
+    .cta-section {
+      background: var(--grad);
+      border-radius: 24px; padding: 60px 48px;
+      text-align: center; color: #fff;
+      margin: 0 40px 80px;
+    }
+    .cta-section h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 900; margin-bottom: 14px; letter-spacing: -.02em; }
+    .cta-section p { color: rgba(255,255,255,.75); font-size: 1.05rem; margin-bottom: 36px; }
+
+    /* ── Footer ── */
+    footer {
+      background: var(--navy); color: rgba(255,255,255,.6);
+      padding: 48px 40px 32px;
+    }
+    .footer-inner { max-width: 1100px; margin: 0 auto; }
+    .footer-top { display: flex; justify-content: space-between; gap: 40px; flex-wrap: wrap; padding-bottom: 36px; border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 28px; }
+    .footer-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .footer-brand img { width: 36px; height: 36px; border-radius: 9px; }
+    .footer-brand span { color: #fff; font-size: 16px; font-weight: 800; }
+    .footer-desc { font-size: 13px; max-width: 280px; line-height: 1.7; }
+    .footer-col h4 { color: #fff; font-size: 13px; font-weight: 700; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .footer-col a { display: block; color: rgba(255,255,255,.6); font-size: 13px; text-decoration: none; margin-bottom: 8px; transition: color .2s; }
+    .footer-col a:hover { color: #fff; }
+    .footer-bottom { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+
+    /* ── Badges store ── */
+    .store-badge {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: #fff; color: var(--text); border-radius: 12px;
+      padding: 12px 20px; text-decoration: none;
+      font-weight: 700; font-size: 14px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.12);
+      transition: transform .2s, box-shadow .2s;
+    }
+    .store-badge:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.18); }
+    .store-badge svg { flex-shrink: 0; }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero { padding: 70px 24px 60px; }
+      .stats .stat { padding: 14px 24px; }
+      .stat + .stat { border-left: none; border-top: 1px solid var(--border); }
+      section { padding: 60px 24px; }
+      .modules { grid-template-columns: 1fr; }
+      .cta-section { margin: 0 20px 60px; padding: 44px 28px; }
+      footer { padding: 40px 24px 24px; }
+      .footer-top { flex-direction: column; gap: 32px; }
+      .footer-bottom { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav class="nav">
+  <a href="/" class="nav-brand">
+    <img src="/icon.png" alt="Maintena" />
+    <span>Maintena</span>
+  </a>
+  <div class="nav-links">
+    <a href="#fonctionnalites">Fonctionnalités</a>
+    <a href="#modules">Modules</a>
+    <a href="/privacy-policy">Confidentialité</a>
+    <a href="mailto:contact@profusionnumerik.com">Contact</a>
+    <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="nav-cta" target="_blank" rel="noopener">Télécharger</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-badge">
+    <span class="hero-badge-dot"></span>
+    Disponible sur Android
+  </div>
+  <h1>La gestion immobilière<br /><em>enfin simple</em></h1>
+  <p class="hero-sub">
+    Maintena centralise la gestion des interventions, des devis prestataires et de la communication entre syndics, bailleurs et locataires — le tout depuis votre téléphone.
+  </p>
+  <div class="hero-btns">
+    <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="btn-primary" target="_blank" rel="noopener">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path d="M3.18 23.87a2 2 0 0 1-.68-1.52V1.65A2 2 0 0 1 3.18.13l12.7 11.74-12.7 12Z" fill="#fff"/>
+        <path d="m16.5 15.26-3.38-3.13 3.38-3.13L20.84 12l-4.34 3.26Z" fill="#fff" opacity=".8"/>
+        <path d="M3.18.13 15.88 11.87 6.05 1.65A2.07 2.07 0 0 0 3.18.13Z" fill="#fff" opacity=".6"/>
+        <path d="M3.18 23.87C4.27 23.25 16 16.16 16 16.16l-12.82-7.7A1.95 1.95 0 0 0 2.5 9.87v12.48a2 2 0 0 0 .68 1.52Z" fill="#fff" opacity=".6"/>
+      </svg>
+      Google Play
+    </a>
+    <a href="#fonctionnalites" class="btn-secondary">
+      Découvrir les fonctionnalités →
+    </a>
+  </div>
+</section>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-n">2</div>
+    <div class="stat-l">Modules métier</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n">30j</div>
+    <div class="stat-l">Essai gratuit</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n">100%</div>
+    <div class="stat-l">Données en France (EU)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n">RGPD</div>
+    <div class="stat-l">Conforme</div>
+  </div>
+</div>
+
+<!-- Fonctionnalités -->
+<section id="fonctionnalites">
+  <p class="section-eyebrow">Fonctionnalités</p>
+  <h2 class="section-title">Tout ce dont vous avez besoin,<br />dans une seule application</h2>
+  <p class="section-sub">Maintena couvre l'ensemble du cycle de vie d'une intervention : signalement, devis, signature, et suivi.</p>
+
+  <div class="features">
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#EFF6FF;">🔧</div>
+      <h3>Gestion des interventions</h3>
+      <p>Créez, suivez et clôturez vos interventions avec un suivi de statut en temps réel (nouveau → planifié → en cours → terminé).</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#F5F3FF;">📄</div>
+      <h3>Devis électroniques</h3>
+      <p>Envoyez des demandes de devis à plusieurs prestataires, comparez les offres et signez les bons pour accord électroniquement.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#ECFDF5;">🏠</div>
+      <h3>Annuaire des prestataires</h3>
+      <p>Centralisez vos contacts professionnels (plombier, électricien, menuisier…) et envoyez des demandes de devis en un clic.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#FFF7ED;">💬</div>
+      <h3>Messagerie intégrée</h3>
+      <p>Communiquez directement avec vos locataires ou résidents sans sortir de l'application, avec historique complet.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#FEF2F2;">📸</div>
+      <h3>Documentation photos</h3>
+      <p>Joignez des photos aux signalements, interventions et états des lieux pour un suivi documenté et sans litige.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon" style="background:#F0FDF4;">✍️</div>
+      <h3>Signature électronique</h3>
+      <p>Signez les bons pour accord directement dans l'application — prestataire et donneur d'ordre, sans impression papier.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Modules -->
+<section id="modules" style="padding-top: 0;">
+  <p class="section-eyebrow">Deux modules</p>
+  <h2 class="section-title">Copropriété ou immobilier locatif,<br />Maintena s'adapte à vous</h2>
+  <p class="section-sub">Choisissez le module adapté à votre activité. Les deux sont inclus dans l'application.</p>
+
+  <div class="modules">
+    <div class="module-card mod-copro">
+      <h3>🏢 Module Syndic</h3>
+      <p>Pour les syndics de copropriété et les conseils syndicaux qui gèrent un ou plusieurs immeubles.</p>
+      <ul>
+        <li>Gestion multi-résidences</li>
+        <li>Signalements des résidents</li>
+        <li>Interventions et devis prestataires</li>
+        <li>Messagerie résidents</li>
+        <li>Suivi financier (charges, dépenses)</li>
+        <li>Carnet d'entretien numérique</li>
+      </ul>
+    </div>
+    <div class="module-card mod-rental">
+      <h3>🔑 Module Bailleur</h3>
+      <p>Pour les propriétaires bailleurs qui gèrent leur patrimoine locatif.</p>
+      <ul>
+        <li>Gestion des logements</li>
+        <li>Suivi des locataires</li>
+        <li>Interventions et devis prestataires</li>
+        <li>États des lieux numériques</li>
+        <li>Annuaire professionnel personnel</li>
+        <li>Messagerie locataires</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-section">
+  <h2>Prêt à simplifier votre gestion ?</h2>
+  <p>30 jours d'essai gratuit, sans carte bancaire. Disponible sur Android.</p>
+  <div class="hero-btns">
+    <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" class="btn-primary" target="_blank" rel="noopener">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <path d="M3.18 23.87a2 2 0 0 1-.68-1.52V1.65A2 2 0 0 1 3.18.13l12.7 11.74-12.7 12Z" fill="#fff"/>
+        <path d="m16.5 15.26-3.38-3.13 3.38-3.13L20.84 12l-4.34 3.26Z" fill="#fff" opacity=".8"/>
+      </svg>
+      Télécharger sur Google Play
+    </a>
+    <a href="mailto:contact@profusionnumerik.com" class="btn-secondary">Nous contacter</a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-top">
+      <div>
+        <div class="footer-brand">
+          <img src="/icon.png" alt="Maintena" />
+          <span>Maintena</span>
+        </div>
+        <p class="footer-desc">Application de gestion de copropriété et d'immobilier locatif éditée par Profusion Numérik.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Application</h4>
+        <a href="https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena" target="_blank" rel="noopener">Google Play</a>
+        <a href="#fonctionnalites">Fonctionnalités</a>
+        <a href="#modules">Modules</a>
+      </div>
+      <div class="footer-col">
+        <h4>Légal</h4>
+        <a href="/privacy-policy">Politique de confidentialité</a>
+        <a href="/terms">Conditions d'utilisation</a>
+        <a href="/account-deletion">Suppression de compte</a>
+      </div>
+      <div class="footer-col">
+        <h4>Contact</h4>
+        <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a>
+        <a href="tel:0668183092">06 68 18 30 92</a>
+        <a href="https://profusionnumerik.com" target="_blank" rel="noopener">profusionnumerik.com</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Profusion Numérik — SIREN 932 117 500</span>
+      <span>Application soumise aux lois françaises et européennes (RGPD)</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

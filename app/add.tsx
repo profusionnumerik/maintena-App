@@ -94,11 +94,13 @@ function todayDDMMYYYY(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
-  return `${dd}-${mm}-${yyyy}`;
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function parseDDMMYYYY(str: string): Date | null {
-  const parts = str.split("-");
+  // Support "/" et "-" pour la rétrocompatibilité
+  const sep = str.includes("/") ? "/" : "-";
+  const parts = str.split(sep);
   if (parts.length !== 3) return null;
 
   const day = parseInt(parts[0], 10);
@@ -114,11 +116,13 @@ function parseDDMMYYYY(str: string): Date | null {
   return d;
 }
 
-function formatDateInput(raw: string): string {
+function formatDateInput(raw: string, prev: string = ""): string {
+  if (raw.length < prev.length) return raw;
   const digits = raw.replace(/\D/g, "");
+  if (digits.length === 0) return "";
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 }
 
 function isTodayOrFuture(date: Date): boolean {
@@ -740,7 +744,7 @@ export default function AddInterventionScreen() {
     const d = parseDDMMYYYY(str);
 
     if (!d) {
-      setDateError("Date invalide. Format : JJ-MM-AAAA");
+      setDateError("Date invalide. Format : JJ/MM/AAAA");
       return null;
     }
 
@@ -754,7 +758,7 @@ export default function AddInterventionScreen() {
   };
 
   const handleDateChange = (text: string) => {
-    const formatted = formatDateInput(text);
+    const formatted = formatDateInput(text, dateStr);
     setDateStr(formatted);
 
     if (formatted.length === 10) validateDate(formatted);
@@ -1584,7 +1588,7 @@ export default function AddInterventionScreen() {
               style={styles.dateInput}
               value={dateStr}
               onChangeText={handleDateChange}
-              placeholder="JJ-MM-AAAA"
+              placeholder="JJ/MM/AAAA"
               placeholderTextColor={COLORS.textMuted}
               keyboardType="number-pad"
               returnKeyType="done"

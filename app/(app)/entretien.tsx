@@ -43,29 +43,32 @@ function todayIso(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-/** Auto-formate une saisie en JJ-MM-AAAA au fur et à mesure */
-function formatDateInput(raw: string): string {
+/** Auto-formate une saisie en JJ/MM/AAAA au fur et à mesure (gère backspace) */
+function formatDateInput(raw: string, prev: string = ""): string {
+  if (raw.length < prev.length) return raw;
   const digits = raw.replace(/\D/g, "");
+  if (digits.length === 0) return "";
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 }
 
-/** JJ-MM-AAAA → AAAA-MM-JJ (ISO) pour Firestore */
+/** JJ/MM/AAAA (ou JJ-MM-AAAA) → AAAA-MM-JJ (ISO) pour Firestore */
 function displayToIso(display: string): string {
-  const parts = display.split("-");
+  const sep = display.includes("/") ? "/" : "-";
+  const parts = display.split(sep);
   if (parts.length !== 3 || parts[2].length !== 4) return "";
   return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
 }
 
-/** AAAA-MM-JJ (ISO) → JJ-MM-AAAA pour l'affichage */
+/** AAAA-MM-JJ (ISO) → JJ/MM/AAAA pour l'affichage */
 function isoToDisplayDate(iso: string): string {
   if (!iso || iso.length < 10) return "";
   const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+  return `${d}/${m}/${y}`;
 }
 
-/** Aujourd'hui au format JJ-MM-AAAA */
+/** Aujourd'hui au format JJ/MM/AAAA */
 function todayDisplay(): string {
   return isoToDisplayDate(new Date().toISOString().split("T")[0]);
 }
@@ -310,8 +313,8 @@ function EquipementModal({
           <TextInput
             style={styles.input}
             value={form.lastVisitDate}
-            onChangeText={(v) => set("lastVisitDate")(formatDateInput(v))}
-            placeholder="JJ-MM-AAAA (optionnel)"
+            onChangeText={(v) => set("lastVisitDate")(formatDateInput(v, form.lastVisitDate))}
+            placeholder="JJ/MM/AAAA (optionnel)"
             placeholderTextColor={COLORS.textMuted}
             keyboardType="number-pad"
             maxLength={10}
@@ -392,8 +395,8 @@ function VisitModal({
           <TextInput
             style={styles.input}
             value={form.date}
-            onChangeText={(v) => set("date")(formatDateInput(v))}
-            placeholder="JJ-MM-AAAA"
+            onChangeText={(v) => set("date")(formatDateInput(v, form.date))}
+            placeholder="JJ/MM/AAAA"
             placeholderTextColor={COLORS.textMuted}
             keyboardType="number-pad"
             maxLength={10}

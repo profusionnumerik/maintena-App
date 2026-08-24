@@ -42,6 +42,11 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
+
+      // Annuaire professionnels bailleur — accessible uniquement par le propriétaire du compte
+      match /providerContacts/{contactId} {
+        allow read, write: if isSignedIn() && request.auth.uid == uid;
+      }
     }
 
     match /accountDeletionRequests/{requestId} {

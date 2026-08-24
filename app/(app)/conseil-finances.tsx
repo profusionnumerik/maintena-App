@@ -42,18 +42,22 @@ function todayStr() {
 function isoToDisplay(iso: string) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+  return `${d}/${m}/${y}`;
 }
 function displayToIso(display: string) {
-  const parts = display.split("-");
+  // Support "/" et "-" pour la rétrocompatibilité
+  const sep = display.includes("/") ? "/" : "-";
+  const parts = display.split(sep);
   if (parts.length !== 3) return "";
   return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
 }
-function formatDateInput(raw: string): string {
+function formatDateInput(raw: string, prev: string = ""): string {
+  if (raw.length < prev.length) return raw;
   const digits = raw.replace(/\D/g, "");
+  if (digits.length === 0) return "";
   if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
 }
 
 const COMMON_SUGGESTIONS = [
@@ -1039,7 +1043,7 @@ export default function ConseilFinancesScreen() {
 
             <Text style={styles.fieldLabel}>Date *</Text>
             <TextInput style={styles.input} value={dateDisplay}
-              onChangeText={(v) => setDateDisplay(formatDateInput(v))}
+              onChangeText={(v) => setDateDisplay(formatDateInput(v, dateDisplay))}
               placeholder="JJ/MM/AAAA" placeholderTextColor={COLORS.textMuted} keyboardType="numeric" maxLength={10} />
 
             {/* Bâtiment / secteur */}
