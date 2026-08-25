@@ -3,7 +3,7 @@
  * S'affiche au-dessus de toutes les pages (positionné dans le layout).
  */
 import {
-  Alert, Animated, Pressable, StyleSheet, Text, View,
+  Animated, Pressable, StyleSheet, Text, View,
   useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import { useRentalNav } from "@/context/RentalNavContext";
 import { COLORS } from "@/constants/colors";
+import { wConfirm } from "@/shared/dialogs";
 
 // ─── Entrées du menu ───────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ const NAV_ITEMS = [
 
 export function RentalDrawer() {
   const { isOpen, close } = useRentalNav();
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth();
   const router   = useRouter();
   const pathname = usePathname();
   const insets   = useSafeAreaInsets();
@@ -171,17 +172,11 @@ export function RentalDrawer() {
         <Pressable
           style={styles.navItem}
           onPress={() => {
-            Alert.alert(
+            wConfirm(
               "Se déconnecter",
               "Voulez-vous vraiment vous déconnecter ?",
-              [
-                { text: "Annuler", style: "cancel" },
-                {
-                  text: "Se déconnecter",
-                  style: "destructive",
-                  onPress: () => { close(); logout(); },
-                },
-              ]
+              () => { close(); logout(); },
+              "Se déconnecter",
             );
           }}
         >
@@ -189,6 +184,30 @@ export function RentalDrawer() {
             <Ionicons name="log-out-outline" size={20} color="#EF4444" />
           </View>
           <Text style={styles.logoutLabel}>Se déconnecter</Text>
+        </Pressable>
+
+        {/* Suppression compte */}
+        <Pressable
+          style={styles.deleteBtn}
+          onPress={() => {
+            wConfirm(
+              "Supprimer mon compte",
+              "Cette action est irréversible. Votre compte et toutes vos données seront définitivement supprimés.",
+              () => wConfirm(
+                "Confirmer la suppression",
+                `Supprimer définitivement le compte ${user?.email} ? Impossible d'annuler.`,
+                async () => {
+                  close();
+                  try { await deleteAccount(); } catch {}
+                },
+                "Supprimer définitivement",
+              ),
+              "Continuer",
+            );
+          }}
+        >
+          <Ionicons name="trash-outline" size={13} color="#9CA3AF" />
+          <Text style={styles.deleteText}>Supprimer mon compte</Text>
         </Pressable>
       </Animated.View>
     </View>
@@ -266,4 +285,6 @@ const styles = StyleSheet.create({
   },
   logoutIcon: { backgroundColor: "#FEF2F2" },
   logoutLabel: { fontSize: 15, fontFamily: "Inter_500Medium", color: "#EF4444", flex: 1 },
+  deleteBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, marginHorizontal: 16, marginTop: 2 },
+  deleteText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", textDecorationLine: "underline" },
 });

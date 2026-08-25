@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { wConfirm } from "@/shared/dialogs";
@@ -22,8 +23,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { auth } from "@/lib/firebase";
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 // ─── Calcul jours d'essai restants ───────────────────────────────────────────
 
@@ -36,9 +37,17 @@ function trialDaysLeft(creationTime?: string | null): number {
 
 // ─── Écran ────────────────────────────────────────────────────────────────────
 
+// ─── Validation SIRET (exactement 14 chiffres) ───────────────────────────────
+function isValidSiret(v: string) { return /^\d{14}$/.test(v.replace(/\s/g, "")); }
+function formatSiret(raw: string) {
+  const d = raw.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 9) return d;
+  return d.slice(0, 9) + " " + d.slice(9);
+}
+
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount, userType, rentalInfo } = useAuth();
   const { stats } = useInterventions();
   const { userSubscription, currentRole } = useCoPro();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -53,6 +62,66 @@ export default function ProfileScreen() {
   const [notifSignalement, setNotifSignalement] = useState(true);
   const [notifMessage,     setNotifMessage]     = useState(true);
   const [notifQuittance,   setNotifQuittance]   = useState(false);
+
+  // ── Profil professionnel bailleur ─────────────────────────────────────────
+  const isLandlord = userType === "landlord" || userType === "both";
+  const isTenant   = userType === "tenant";
+  const [companyType,  setCompanyType]  = useState<"particulier" | "société">("particulier");
+  const [companyName,  setCompanyName]  = useState("");
+  const [siret,        setSiretRaw]     = useState("");
+  const [agenceName,   setAgenceName]   = useState("");
+  const [siretError,   setSiretError]   = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved,  setProfileSaved]  = useState(false);
+
+  // Chargement initial du rentalProfile Firestore
+  useEffect(() => {
+    if (!user?.uid) return;
+    getDoc(doc(db, "users", user.uid)).then((snap) => {
+      if (!snap.exists()) return;
+      const p = snap.data()?.rentalProfile ?? {};
+      setCompanyType(p.companyType ?? "particulier");
+      setCompanyName(p.companyName ?? "");
+      setSiretRaw(p.siret ? formatSiret(p.siret) : "");
+      setAgenceName(p.agenceName ?? "");
+    }).catch(() => {});
+  }, [user?.uid]);
+
+  const handleSiretChange = (text: string) => {
+    const formatted = formatSiret(text);
+    setSiretRaw(formatted);
+    setSiretError("");
+  };
+
+  const handleSaveProfile = async () => {
+    const cleanSiret = siret.replace(/\s/g, "");
+    if (companyType === "société" && cleanSiret && !isValidSiret(cleanSiret)) {
+      setSiretError("Le numéro SIRET doit contenir exactement 14 chiffres.");
+      return;
+    }
+    if (!user?.uid) return;
+    setProfileSaving(true);
+    try {
+      await updateDoc(doc(db, "users", user.uid), {
+        rentalProfile: {
+          companyType,
+          companyName: companyType === "société" ? companyName : "",
+          siret: companyType === "société" ? cleanSiret : "",
+          agenceName,
+        },
+      });
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    } catch {
+      if (Platform.OS === "web") {
+        window.alert("Impossible de sauvegarder. Réessayez.");
+      } else {
+        Alert.alert("Erreur", "Impossible de sauvegarder. Réessayez.");
+      }
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const isAdmin = currentRole === "admin";
   const daysLeft = trialDaysLeft(user?.metadata?.creationTime);
@@ -119,43 +188,27 @@ export default function ProfileScreen() {
     wConfirm(
       "Supprimer mon compte",
       "Cette action est irréversible. Votre compte et toutes vos données seront définitivement supprimés.",
-      () => {
-        // Deuxième confirmation pour une action aussi critique
-        wConfirm(
-          "Confirmer la suppression",
-          `Vous êtes sur le point de supprimer définitivement le compte ${user?.email}. Impossible d'annuler.`,
-          async () => {
-            setIsDeletingAccount(true);
-            try {
-              if (Platform.OS !== "web") {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-              }
-              const currentUser = auth.currentUser;
-              if (!currentUser) throw new Error("not-logged-in");
-
-              // L'endpoint serveur supprime toutes les données Firestore + le compte Auth
-              const idToken = await currentUser.getIdToken();
-              const res = await fetch(
-                new URL("/api/account/delete", getApiUrl()).toString(),
-                { method: "POST", headers: { Authorization: `Bearer ${idToken}` } }
-              );
-              if (!res.ok) throw new Error("server-error");
-
-              // Déconnexion locale propre puis redirection
-              await logout();
-              router.dismissAll();
-            } catch {
-              setIsDeletingAccount(false);
-              if (Platform.OS === "web") {
-                window.alert("Impossible de supprimer le compte. Réessayez ou contactez le support.");
-              } else {
-                Alert.alert("Erreur", "Impossible de supprimer le compte. Réessayez ou contactez le support.");
-              }
+      () => wConfirm(
+        "Confirmer la suppression",
+        `Supprimer définitivement le compte ${user?.email} ? Impossible d'annuler.`,
+        async () => {
+          setIsDeletingAccount(true);
+          if (Platform.OS !== "web") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          }
+          try {
+            await deleteAccount();
+          } catch (e: any) {
+            setIsDeletingAccount(false);
+            if (Platform.OS === "web") {
+              window.alert(e?.message ?? "Impossible de supprimer le compte. Réessayez.");
+            } else {
+              Alert.alert("Erreur", e?.message ?? "Impossible de supprimer le compte. Réessayez.");
             }
-          },
-          "Supprimer définitivement",
-        );
-      },
+          }
+        },
+        "Supprimer définitivement",
+      ),
       "Continuer",
     );
   };
@@ -368,6 +421,152 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* ── Informations bailleur ───────────────────────────────────────── */}
+        {isLandlord && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Informations bailleur</Text>
+            <View style={s.card}>
+
+              {/* Type : Particulier / Société */}
+              <View style={[s.row, { flexWrap: "wrap", gap: 8 }]}>
+                <View style={[s.rowIcon, { backgroundColor: "#F5F3FF" }]}>
+                  <Ionicons name="business-outline" size={18} color="#8B5CF6" />
+                </View>
+                <Text style={[s.rowLabel, { flex: 1, alignSelf: "center" }]}>Type de bailleur</Text>
+                <View style={pi.typeRow}>
+                  {(["particulier", "société"] as const).map((t) => (
+                    <Pressable
+                      key={t}
+                      style={[pi.typeChip, companyType === t && pi.typeChipActive]}
+                      onPress={() => { setCompanyType(t); setSiretError(""); }}
+                    >
+                      <Text style={[pi.typeChipText, companyType === t && pi.typeChipTextActive]}>
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Raison sociale (si société) */}
+              {companyType === "société" && (
+                <>
+                  <View style={s.separator} />
+                  <View style={s.row}>
+                    <View style={[s.rowIcon, { backgroundColor: "#EFF6FF" }]}>
+                      <Ionicons name="briefcase-outline" size={18} color={COLORS.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>Raison sociale</Text>
+                      <TextInput
+                        style={pi.input}
+                        value={companyName}
+                        onChangeText={setCompanyName}
+                        placeholder="Nom de la société"
+                        placeholderTextColor={COLORS.textMuted}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  </View>
+
+                  <View style={s.separator} />
+
+                  {/* SIRET */}
+                  <View style={s.row}>
+                    <View style={[s.rowIcon, { backgroundColor: "#FFF7ED" }]}>
+                      <Ionicons name="barcode-outline" size={18} color="#F59E0B" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.rowLabel}>N° SIRET <Text style={{ color: COLORS.textMuted, fontSize: 11 }}>(14 chiffres)</Text></Text>
+                      <TextInput
+                        style={[pi.input, siretError ? pi.inputError : null]}
+                        value={siret}
+                        onChangeText={handleSiretChange}
+                        placeholder="123 456 789 00012"
+                        placeholderTextColor={COLORS.textMuted}
+                        keyboardType="numeric"
+                        maxLength={16}
+                      />
+                      {siretError ? <Text style={pi.errorText}>{siretError}</Text> : null}
+                    </View>
+                  </View>
+                </>
+              )}
+
+              <View style={s.separator} />
+
+              {/* Agence */}
+              <View style={s.row}>
+                <View style={[s.rowIcon, { backgroundColor: "#F0FDF4" }]}>
+                  <Ionicons name="home-outline" size={18} color="#16A34A" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>Agence immobilière <Text style={{ color: COLORS.textMuted, fontSize: 11 }}>(optionnel)</Text></Text>
+                  <TextInput
+                    style={pi.input}
+                    value={agenceName}
+                    onChangeText={setAgenceName}
+                    placeholder="Nom de l'agence"
+                    placeholderTextColor={COLORS.textMuted}
+                    autoCapitalize="words"
+                  />
+                </View>
+              </View>
+
+              <View style={s.separator} />
+
+              {/* Bouton enregistrer */}
+              <Pressable
+                style={({ pressed }) => [pi.saveBtn, pressed && { opacity: 0.8 }, profileSaved && pi.saveBtnDone]}
+                onPress={handleSaveProfile}
+                disabled={profileSaving}
+              >
+                {profileSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name={profileSaved ? "checkmark" : "save-outline"} size={16} color="#fff" />}
+                <Text style={pi.saveBtnText}>{profileSaved ? "Enregistré !" : "Enregistrer"}</Text>
+              </Pressable>
+
+            </View>
+          </View>
+        )}
+
+        {/* ── Informations locataire ───────────────────────────────────────── */}
+        {isTenant && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Informations</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={[s.rowIcon, { backgroundColor: "#F0FDF4" }]}>
+                  <Ionicons name="home-outline" size={18} color="#16A34A" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.rowLabel}>Agence immobilière <Text style={{ color: COLORS.textMuted, fontSize: 11 }}>(optionnel)</Text></Text>
+                  <TextInput
+                    style={pi.input}
+                    value={agenceName}
+                    onChangeText={setAgenceName}
+                    placeholder="Nom de l'agence"
+                    placeholderTextColor={COLORS.textMuted}
+                    autoCapitalize="words"
+                  />
+                </View>
+              </View>
+              <View style={s.separator} />
+              <Pressable
+                style={({ pressed }) => [pi.saveBtn, pressed && { opacity: 0.8 }, profileSaved && pi.saveBtnDone]}
+                onPress={handleSaveProfile}
+                disabled={profileSaving}
+              >
+                {profileSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name={profileSaved ? "checkmark" : "save-outline"} size={16} color="#fff" />}
+                <Text style={pi.saveBtnText}>{profileSaved ? "Enregistré !" : "Enregistrer"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* ── Application ─────────────────────────────────────────────────── */}
         <View style={s.section}>
           <Text style={s.sectionTitle}>Application</Text>
@@ -466,4 +665,19 @@ const s = StyleSheet.create({
   logoutText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.danger },
   deleteAccountBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 4, marginBottom: 8 },
   deleteAccountText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", textDecorationLine: "underline" },
+});
+
+// ─── Styles formulaire profil bailleur/locataire ──────────────────────────────
+const pi = StyleSheet.create({
+  typeRow:          { flexDirection: "row", gap: 6 },
+  typeChip:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.background },
+  typeChipActive:   { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" },
+  typeChipText:     { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  typeChipTextActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
+  input:            { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginTop: 2 },
+  inputError:       { borderBottomColor: "#EF4444" },
+  errorText:        { fontSize: 11, fontFamily: "Inter_400Regular", color: "#EF4444", marginTop: 4 },
+  saveBtn:          { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#8B5CF6", borderRadius: 12, paddingVertical: 12, marginTop: 6 },
+  saveBtnDone:      { backgroundColor: "#16A34A" },
+  saveBtnText:      { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

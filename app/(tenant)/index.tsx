@@ -568,7 +568,7 @@ const ec = StyleSheet.create({
 export default function TenantHome() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout, rentalInfo } = useAuth();
+  const { user, logout, deleteAccount, rentalInfo } = useAuth();
 
   const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
@@ -837,8 +837,7 @@ export default function TenantHome() {
             {[
               { label: "Politique de confidentialité", icon: "shield-checkmark-outline", url: "https://maintena-pro.fr/privacy-policy" },
               { label: "Conditions d'utilisation",     icon: "document-text-outline",    url: "https://maintena-pro.fr/privacy-policy" },
-              { label: "Supprimer mon compte",         icon: "trash-outline",            url: "https://maintena-pro.fr/account-deletion" },
-            ].map((lnk, i, arr) => (
+            ].map((lnk, i) => (
               <View key={lnk.label}>
                 {i > 0 && <View style={p.linkDivider} />}
                 <Pressable
@@ -852,6 +851,36 @@ export default function TenantHome() {
               </View>
             ))}
           </View>
+
+          {/* Suppression compte directe */}
+          <Pressable
+            style={({ pressed }) => [p.deleteAccountBtn, pressed && { opacity: 0.7 }]}
+            onPress={() => wConfirm(
+              "Supprimer mon compte",
+              "Cette action est irréversible. Votre compte et toutes vos données seront définitivement supprimés.",
+              () => wConfirm(
+                "Confirmer la suppression",
+                `Supprimer définitivement le compte ${user?.email} ? Impossible d'annuler.`,
+                async () => {
+                  try {
+                    await deleteAccount();
+                  } catch (e: any) {
+                    if (Platform.OS === "web") {
+                      window.alert(e?.message ?? "Impossible de supprimer le compte. Réessayez.");
+                    } else {
+                      Alert.alert("Erreur", e?.message ?? "Impossible de supprimer le compte. Réessayez.");
+                    }
+                  }
+                },
+                "Supprimer définitivement",
+              ),
+              "Continuer",
+            )}
+          >
+            <Ionicons name="trash-outline" size={14} color="rgba(255,255,255,0.3)" />
+            <Text style={p.deleteAccountText}>Supprimer mon compte</Text>
+          </Pressable>
+
           <Text style={p.version}>Maintena · v1.0 · {new Date().getFullYear()}</Text>
         </View>
       </ScrollView>
@@ -954,6 +983,8 @@ const p = StyleSheet.create({
   linkText:    { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.65)" },
   linkDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.07)", marginLeft: 43 },
   version:     { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.2)", textAlign: "center", marginTop: 4 },
+  deleteAccountBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 6 },
+  deleteAccountText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.3)", textDecorationLine: "underline" },
 
   // États communs
   loadingBox: { backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 14, padding: 24, alignItems: "center" },
