@@ -38,11 +38,13 @@ export default function RentalOnboardingScreen() {
   const [surface, setSurface]           = useState("");
   const [rooms, setRooms]               = useState("");
   const [saving, setSaving]             = useState(false);
+  const [errorMsg, setErrorMsg]         = useState<string | null>(null);
 
   const canSubmit = address.trim() && postalCode.trim() && city.trim();
 
   const handleCreate = async () => {
     if (!canSubmit || !user?.uid) return;
+    setErrorMsg(null);
     setSaving(true);
     try {
       await addDoc(collection(db, "properties"), {
@@ -62,7 +64,10 @@ export default function RentalOnboardingScreen() {
       await markRentalSetup();
     } catch (e: any) {
       console.error("[RENTAL] property creation failed:", e);
-      wa("Erreur", `La création du logement a échoué.\n${e?.message ?? "Vérifiez votre connexion."}`);
+      const msg = e?.code === "permission-denied"
+        ? "Permission refusée par Firestore. Vérifiez que votre compte est bien configuré."
+        : (e?.message ?? "Erreur inconnue. Vérifiez votre connexion.");
+      setErrorMsg(msg);
       setSaving(false);
     }
   };
@@ -210,6 +215,14 @@ export default function RentalOnboardingScreen() {
             </View>
           </View>
 
+          {/* Erreur inline */}
+          {errorMsg && (
+            <View style={styles.errorBanner}>
+              <Ionicons name="alert-circle" size={16} color="#EF4444" />
+              <Text style={styles.errorText}>{errorMsg}</Text>
+            </View>
+          )}
+
           {/* Bouton */}
           <Pressable
             style={[styles.btn, (!canSubmit || saving) && styles.btnDisabled]}
@@ -315,5 +328,16 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: 15, fontFamily: "Inter_500Medium",
     color: "rgba(255,255,255,0.7)",
+  },
+
+  errorBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 8,
+    backgroundColor: "rgba(239,68,68,0.12)",
+    borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.3)",
+  },
+  errorText: {
+    flex: 1, fontSize: 13, fontFamily: "Inter_400Regular",
+    color: "#FCA5A5", lineHeight: 18,
   },
 });
