@@ -804,7 +804,7 @@ export default function PropertyDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, isPro } = useAuth();
 
   const [property, setProperty]     = useState<RentalProperty | null>(null);
   const [tenants, setTenants]       = useState<PropertyTenant[]>([]);
@@ -921,9 +921,15 @@ export default function PropertyDetail() {
       <View style={s.section}>
         <View style={s.sectionRow}>
           <Text style={s.sectionTitle}>Locataire{activeTenants.length > 1 ? "s" : ""}{activeTenants.length > 0 ? ` (${activeTenants.length})` : ""}</Text>
-          <Pressable style={s.inviteBtn} onPress={() => setShowInvite(true)}>
-            <Ionicons name="person-add" size={15} color="#fff" />
-            <Text style={s.inviteBtnText}>Inviter</Text>
+          <Pressable
+            style={[s.inviteBtn, (!isPro && activeTenants.length >= 1) && s.inviteBtnLocked]}
+            onPress={() => (!isPro && activeTenants.length >= 1)
+              ? router.push("/rental-upgrade" as any)
+              : setShowInvite(true)
+            }
+          >
+            <Ionicons name={(!isPro && activeTenants.length >= 1) ? "lock-closed" : "person-add"} size={15} color="#fff" />
+            <Text style={s.inviteBtnText}>{(!isPro && activeTenants.length >= 1) ? "Pro" : "Inviter"}</Text>
           </Pressable>
         </View>
         {activeTenants.length === 0 ? (
@@ -1855,6 +1861,7 @@ const s = StyleSheet.create({
   sectionRow:   { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
 
   inviteBtn:      { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#8B5CF6", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
+  inviteBtnLocked: { backgroundColor: "#F59E0B" },
   inviteBtnText:  { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
 
   infoCard:      { backgroundColor: "#fff", borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden" },

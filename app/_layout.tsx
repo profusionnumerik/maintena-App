@@ -400,6 +400,7 @@ function RootLayoutNav() {
       <Stack.Screen name="inventory/[id]/keys" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]/equipment" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]/summary" options={{ headerShown: false }} />
+      <Stack.Screen name="rental-upgrade" options={{ headerShown: false }} />
     </Stack>
   );
 }

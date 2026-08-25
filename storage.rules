@@ -37,21 +37,31 @@ service firebase.storage {
       request.resource.contentType.matches("audio/.*");
     }
 
+    // ── Helpers plan bailleur ────────────────────────────────────────────────
+    // Plan gratuit : 5 Mo max par fichier. Plan Pro (SIRET ou société) : 20 Mo.
+    function landlordIsPro() {
+      let profile = firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.rentalProfile;
+      return profile != null && (profile.companyType == "société" || (profile.keys().hasAll(["siret"]) && profile.siret != ""));
+    }
+    function maxSizeForLandlord() {
+      return landlordIsPro() ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
+    }
+
     // ── Documents logement (bail, DPE, factures, photos…) ───────────────────
     match /properties/{propertyId}/documents/{allPaths=**} {
       // Lecture : bailleur ou locataire si le document est partagé
-      // (le contrôle visibleToTenant est côté Firestore ; ici on autorise l'URL)
       allow read: if isSignedIn() && (
         firestore.get(/databases/(default)/documents/properties/$(propertyId))
           .data.landlordId == request.auth.uid ||
         firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
           .data.rentalInfo.propertyId == propertyId
       );
-      // Écriture : bailleur uniquement, max 20 Mo, PDF ou image
+      // Écriture : bailleur uniquement, PDF ou image
+      // Gratuit : 5 Mo max — Pro (SIRET/société) : 20 Mo max
       allow write: if isSignedIn() &&
         firestore.get(/databases/(default)/documents/properties/$(propertyId))
           .data.landlordId == request.auth.uid &&
-        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.size < maxSizeForLandlord() &&
         request.resource.contentType.matches("application/pdf|image/.*");
     }
 
@@ -65,8 +75,8 @@ service firebase.storage {
           .data.rentalInfo.propertyId == propertyId
       );
 
-      // Écriture : bailleur OU locataire du logement (upload photos état des lieux)
-      // max 20 Mo, images ou PDF uniquement
+      // Écriture : bailleur OU locataire, images ou PDF uniquement
+      // Gratuit : 5 Mo max par fichier — Pro : 20 Mo max
       allow write: if isSignedIn() &&
         (
           firestore.get(/databases/(default)/documents/properties/$(propertyId))
@@ -74,7 +84,7 @@ service firebase.storage {
           firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
             .data.rentalInfo.propertyId == propertyId
         ) &&
-        request.resource.size < 20 * 1024 * 1024 &&
+        request.resource.size < 5 * 1024 * 1024 &&
         request.resource.contentType.matches("image/.*|application/pdf");
     }
   }

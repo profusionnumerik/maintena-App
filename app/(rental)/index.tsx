@@ -250,6 +250,7 @@ const FREE_PROPERTY_LIMIT = 1;
 export default function RentalDashboard() {
   const insets  = useSafeAreaInsets();
   const { user, isPro } = useAuth();
+  const router  = useRouter();
 
   const [properties, setProperties] = useState<RentalProperty[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -417,17 +418,24 @@ export default function RentalDashboard() {
             </View>
             <Text style={limitStyles.title}>Plan gratuit</Text>
             <Text style={limitStyles.desc}>
-              Le plan gratuit (particuliers sans SIRET) est limité à{" "}
+              Le plan gratuit est limité à{" "}
               <Text style={{ fontFamily: "Inter_700Bold" }}>1 logement et 1 locataire</Text>.
             </Text>
             <Text style={limitStyles.desc}>
-              Pour gérer plus de logements, contactez-nous pour passer à l'offre Pro.
+              Passez Pro pour gérer plusieurs logements et locataires sans limite.
             </Text>
             <Pressable
-              style={({ pressed }) => [limitStyles.btn, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [limitStyles.btnPro, pressed && { opacity: 0.85 }]}
+              onPress={() => { setShowLimitModal(false); router.push("/rental-upgrade" as any); }}
+            >
+              <Ionicons name="diamond-outline" size={15} color="#fff" />
+              <Text style={limitStyles.btnProText}>Voir les offres Pro</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [limitStyles.btnSecondary, pressed && { opacity: 0.7 }]}
               onPress={() => setShowLimitModal(false)}
             >
-              <Text style={limitStyles.btnText}>Compris</Text>
+              <Text style={limitStyles.btnSecondaryText}>Plus tard</Text>
             </Pressable>
           </View>
         </Pressable>
@@ -595,9 +603,13 @@ const limitStyles = StyleSheet.create({
     fontSize: 14, fontFamily: "Inter_400Regular",
     color: COLORS.textSecondary, textAlign: "center", lineHeight: 20,
   },
-  btn: {
+  btnPro: {
+    flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "#8B5CF6", borderRadius: 12,
-    paddingHorizontal: 28, paddingVertical: 13, marginTop: 4,
+    paddingHorizontal: 28, paddingVertical: 13, marginTop: 4, width: "100%",
+    justifyContent: "center",
   },
-  btnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  btnProText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  btnSecondary: { paddingVertical: 10 },
+  btnSecondaryText: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#94A3B8" },
 });

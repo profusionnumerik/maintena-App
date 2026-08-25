@@ -6746,11 +6746,32 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     const aptSuffix = property.apartmentNumber ? `, Apt. ${property.apartmentNumber}` : "";
     const propertyAddress = `${property.address}${aptSuffix}, ${property.postalCode} ${property.city}`;
 
-    // Nom du bailleur
+    // Nom du bailleur + vérification plan gratuit
     const landlordDoc = await db.collection("users").doc(decoded.uid).get();
     const landlordName = landlordDoc.exists
       ? (landlordDoc.data()?.displayName ?? "Votre bailleur")
       : "Votre bailleur";
+
+    // ── Limite plan gratuit : 1 locataire total ──────────────────────────────
+    const rentalProfile = landlordDoc.data()?.rentalProfile ?? {};
+    const landlordIsPro = rentalProfile.companyType === "société" || !!rentalProfile.siret;
+    if (!landlordIsPro) {
+      const propertiesSnap = await db.collection("properties")
+        .where("landlordId", "==", decoded.uid).get();
+      let totalActiveTenants = 0;
+      for (const propDoc of propertiesSnap.docs) {
+        const tenantsSnap = await propDoc.ref.collection("tenants")
+          .where("status", "in", ["active", "invited"]).get();
+        totalActiveTenants += tenantsSnap.size;
+      }
+      if (totalActiveTenants >= 1) {
+        return res.status(403).json({
+          error: "Plan gratuit limité à 1 locataire. Passez à l'offre Pro pour gérer plusieurs locataires.",
+          code: "FREE_TENANT_LIMIT",
+        }) as any;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // Générer un token unique (6 hex chars → ex : A1B2C3)
     let token = "";
