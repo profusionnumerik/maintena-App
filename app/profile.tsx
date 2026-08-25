@@ -23,7 +23,8 @@ import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { deleteUser } from "firebase/auth";
+import { db, auth } from "@/lib/firebase";
 
 // ─── Calcul jours d'essai restants ───────────────────────────────────────────
 
@@ -110,6 +111,55 @@ export default function ProfileScreen() {
         router.dismissAll();
       },
       "Se déconnecter",
+    );
+  };
+
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = () => {
+    wConfirm(
+      "Supprimer mon compte",
+      "Cette action est irréversible. Votre compte et toutes vos données seront définitivement supprimés.",
+      () => {
+        // Deuxième confirmation pour une action aussi critique
+        wConfirm(
+          "Confirmer la suppression",
+          `Vous êtes sur le point de supprimer définitivement le compte ${user?.email}. Impossible d'annuler.`,
+          async () => {
+            setIsDeletingAccount(true);
+            try {
+              if (Platform.OS !== "web") {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              }
+              const currentUser = auth.currentUser;
+              if (!currentUser) throw new Error("not-logged-in");
+              await deleteUser(currentUser);
+              router.dismissAll();
+            } catch (err: any) {
+              setIsDeletingAccount(false);
+              if (err?.code === "auth/requires-recent-login") {
+                wConfirm(
+                  "Reconnexion requise",
+                  "Pour des raisons de sécurité, veuillez vous déconnecter puis vous reconnecter avant de supprimer votre compte.",
+                  async () => {
+                    await logout();
+                    router.dismissAll();
+                  },
+                  "Se déconnecter",
+                );
+              } else {
+                if (Platform.OS === "web") {
+                  window.alert("Impossible de supprimer le compte. Réessayez.");
+                } else {
+                  Alert.alert("Erreur", "Impossible de supprimer le compte. Réessayez.");
+                }
+              }
+            }
+          },
+          "Supprimer définitivement",
+        );
+      },
+      "Continuer",
     );
   };
 
@@ -358,6 +408,18 @@ export default function ProfileScreen() {
             : <Ionicons name="log-out-outline" size={20} color={COLORS.danger} />}
           <Text style={s.logoutText}>Se déconnecter</Text>
         </Pressable>
+
+        {/* ── Suppression compte ───────────────────────────────────────────── */}
+        <Pressable
+          onPress={handleDeleteAccount}
+          disabled={isDeletingAccount}
+          style={({ pressed }) => [s.deleteAccountBtn, pressed && { opacity: 0.7 }]}
+        >
+          {isDeletingAccount
+            ? <ActivityIndicator size="small" color="#9CA3AF" />
+            : <Ionicons name="trash-outline" size={15} color="#9CA3AF" />}
+          <Text style={s.deleteAccountText}>Supprimer mon compte</Text>
+        </Pressable>
       </ScrollView>
     </View>
   );
@@ -405,4 +467,6 @@ const s = StyleSheet.create({
 
   logoutBtn:  { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 16, backgroundColor: "#FEF2F2", borderRadius: 16, borderWidth: 1, borderColor: "#FECACA", marginTop: 4 },
   logoutText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.danger },
+  deleteAccountBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 4, marginBottom: 8 },
+  deleteAccountText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", textDecorationLine: "underline" },
 });

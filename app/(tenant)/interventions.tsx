@@ -228,11 +228,20 @@ function CreateModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
+      animationType={Platform.OS === "web" ? "fade" : "slide"}
+      transparent={Platform.OS === "web"}
+      presentationStyle={Platform.OS === "web" ? undefined : "pageSheet"}
       onRequestClose={onClose}
     >
-      <View style={[m.root, { paddingTop: insets.top + 16 }]}>
+      {/* Wrapper web : overlay centré 580px max */}
+      <View style={Platform.OS === "web"
+        ? { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 }
+        : { flex: 1 }
+      }>
+      <View style={Platform.OS === "web"
+        ? { width: "100%", maxWidth: 580, maxHeight: "90%", backgroundColor: COLORS.background, borderRadius: 20, overflow: "hidden" }
+        : [m.root, { paddingTop: insets.top + 16 }]
+      }>
         {/* Header */}
         <View style={m.header}>
           <Pressable onPress={onClose}><Text style={m.cancel}>Annuler</Text></Pressable>
@@ -311,6 +320,7 @@ function CreateModal({
             Votre bailleur sera notifié et vous contactera pour organiser l'intervention.
           </Text>
         </ScrollView>
+      </View>
       </View>
     </Modal>
   );

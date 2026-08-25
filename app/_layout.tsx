@@ -288,7 +288,7 @@ const hub = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 40,
-    overflow: "hidden" as const,
+    // overflow: "hidden" retiré — il coupait la tab bar et ses labels sur web
   },
 });
 
