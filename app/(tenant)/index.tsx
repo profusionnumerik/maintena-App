@@ -5,6 +5,7 @@ import {
   Linking, Modal, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
+import { wConfirm } from "@/shared/dialogs";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -131,7 +132,11 @@ function ReportModal({
           style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.55)" }]}
           onPress={onClose}
         />
-        <View style={[rm.sheet, { bottom: keyboardH, paddingBottom: insets.bottom + 16 }]}>
+        <View style={Platform.OS === "web"
+            ? { position: "absolute" as const, bottom: keyboardH, left: 0, right: 0, alignItems: "center" as const }
+            : { position: "absolute" as const, bottom: keyboardH, left: 0, right: 0 }
+          }>
+        <View style={[rm.sheet, { paddingBottom: insets.bottom + 16, maxWidth: Platform.OS === "web" ? 560 : undefined }]}>
           <View style={rm.handle} />
           <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={rm.titleRow}>
@@ -179,6 +184,7 @@ function ReportModal({
           </Pressable>
           </ScrollView>
         </View>
+        </View>
       </View>
     </Modal>
   );
@@ -186,7 +192,7 @@ function ReportModal({
 
 const rm = StyleSheet.create({
   sheet: {
-    position: "absolute", left: 0, right: 0,
+    width: "100%",
     backgroundColor: "#fff", borderTopLeftRadius: 26, borderTopRightRadius: 26,
     padding: 24, paddingTop: 12, gap: 10,
     shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 24,
@@ -608,10 +614,12 @@ export default function TenantHome() {
       .finally(() => setRptLoading(false));
   }, [rentalInfo?.propertyId]);
 
-  const handleLogout = () => Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
-    { text: "Annuler", style: "cancel" },
-    { text: "Se déconnecter", style: "destructive", onPress: logout },
-  ]);
+  const handleLogout = () => wConfirm(
+    "Déconnexion",
+    "Voulez-vous vous déconnecter ?",
+    logout,
+    "Se déconnecter",
+  );
 
   const firstName      = user?.displayName?.split(" ")[0] ?? "";
   const activeReports  = myReports.filter((r) => !r.archivedByTenant);

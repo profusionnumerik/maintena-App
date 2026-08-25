@@ -53,9 +53,12 @@ function BottomSheet({ visible, onClose, insetBottom, children }: {
           style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(0,0,0,0.45)" }]}
           onPress={onClose}
         />
-        <View style={{ position: "absolute", bottom: keyboardHeight, left: 0, right: 0 }}>
+        <View style={{
+          position: "absolute", bottom: keyboardHeight, left: 0, right: 0,
+          alignItems: "center",
+        }}>
           <ScrollView
-            style={{ flex: 0 }}
+            style={{ flex: 0, width: "100%", maxWidth: Platform.OS === "web" ? 560 : undefined }}
             contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
             keyboardShouldPersistTaps="handled"
           >

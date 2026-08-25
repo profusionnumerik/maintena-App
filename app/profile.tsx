@@ -117,7 +117,7 @@ export default function ProfileScreen() {
     ? user.displayName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
     : user?.email?.[0].toUpperCase() ?? "?";
 
-  const topPadding    = Platform.OS === "web" ? 67 : insets.top;
+  const topPadding    = Platform.OS === "web" ? 0 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 
   return (
