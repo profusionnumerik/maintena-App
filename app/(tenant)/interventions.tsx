@@ -1,13 +1,21 @@
-import { useEffect, useState } from "react";
+/**
+ * app/(tenant)/interventions.tsx
+ * Locataire : consulter les interventions de son logement + en créer.
+ * Quand le bailleur a retenu un artisan → coordonnées visibles.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, Platform, ScrollView,
-  Pressable, ActivityIndicator,
+  ActivityIndicator, Alert, Linking, Modal, Platform, Pressable,
+  ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  addDoc, collection, onSnapshot, orderBy, query,
+} from "firebase/firestore";
+import DateInput, { maskDate } from "@/components/DateInput";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
@@ -19,160 +27,321 @@ import {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const CAT_ICONS: Record<string, string> = {
-  plomberie:   "water-outline",
-  electricite: "flash-outline",
-  chauffage:   "flame-outline",
-  serrurerie:  "key-outline",
-  menuiserie:  "hammer-outline",
-  toiture:     "umbrella-outline",
-  peinture:    "brush-outline",
-  nettoyage:   "sparkles-outline",
-  autre:       "construct-outline",
-};
+const CATEGORIES = [
+  { id: "plomberie",    label: "Plomberie",    icon: "water-outline" },
+  { id: "electricite",  label: "Électricité",  icon: "flash-outline" },
+  { id: "chauffage",    label: "Chauffage",    icon: "flame-outline" },
+  { id: "serrurerie",   label: "Serrurerie",   icon: "key-outline" },
+  { id: "menuiserie",   label: "Menuiserie",   icon: "hammer-outline" },
+  { id: "toiture",      label: "Toiture",      icon: "umbrella-outline" },
+  { id: "peinture",     label: "Peinture",     icon: "brush-outline" },
+  { id: "nettoyage",    label: "Nettoyage",    icon: "sparkles-outline" },
+  { id: "autre",        label: "Autre",        icon: "construct-outline" },
+] as const;
+type Category = typeof CATEGORIES[number]["id"];
 
-type FilterKey = "all" | RentalInterventionStatus;
+const CAT_ICONS: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.icon]));
 
-const FILTER_TABS: { key: FilterKey; label: string; icon: string }[] = [
-  { key: "all",         label: "Toutes",    icon: "list-outline" },
-  { key: "new",         label: "À faire",   icon: "alert-circle-outline" },
-  { key: "scheduled",   label: "Planifiée", icon: "calendar-outline" },
-  { key: "in_progress", label: "En cours",  icon: "construct-outline" },
-  { key: "completed",   label: "Terminée",  icon: "checkmark-circle-outline" },
+type FilterKey = "all" | "mine" | RentalInterventionStatus;
+
+const FILTER_TABS: { key: FilterKey; label: string }[] = [
+  { key: "all",         label: "Toutes" },
+  { key: "mine",        label: "Mes demandes" },
+  { key: "new",         label: "À planifier" },
+  { key: "scheduled",   label: "Planifiée" },
+  { key: "in_progress", label: "En cours" },
+  { key: "completed",   label: "Terminée" },
 ];
 
-// ─── Carte intervention ───────────────────────────────────────────────────────
+// ─── Carte détail intervention ────────────────────────────────────────────────
 
 function InterventionCard({ item }: { item: PropertyIntervention }) {
-  const statusColor = RENTAL_INTERVENTION_STATUS_COLORS[item.status];
-  const statusLabel = RENTAL_INTERVENTION_STATUS_LABELS[item.status];
-  const titleLow = item.title.toLowerCase();
-  const catKey   = Object.keys(CAT_ICONS).find((k) => titleLow.includes(k)) ?? "autre";
-  const catIcon  = CAT_ICONS[catKey];
   const [expanded, setExpanded] = useState(false);
+  const statusColor = RENTAL_INTERVENTION_STATUS_COLORS[item.status] ?? "#94A3B8";
+  const statusLabel = RENTAL_INTERVENTION_STATUS_LABELS[item.status] ?? item.status;
+  const catIcon = CAT_ICONS[item.category ?? "autre"] ?? "construct-outline";
+  const retainedDevis = item.devis?.find((d) => d.id === item.selectedDevisId);
 
   const formattedDate = item.scheduledDate
     ? new Date(item.scheduledDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
     : null;
-  const formattedCreated = new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 
   return (
     <Pressable
-      style={[c.card, item.status === "completed" && c.cardDone]}
+      style={[c.card, item.createdByTenant && c.cardTenant]}
       onPress={() => setExpanded((v) => !v)}
     >
       {/* Rail coloré */}
       <View style={[c.rail, { backgroundColor: statusColor }]} />
 
       <View style={c.body}>
-        {/* Ligne principale */}
+        {/* Ligne titre */}
         <View style={c.topRow}>
           <View style={[c.iconBox, { backgroundColor: statusColor + "22" }]}>
             <Ionicons name={catIcon as any} size={16} color={statusColor} />
           </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Text style={[c.title, item.status === "completed" && c.titleDone]} numberOfLines={expanded ? undefined : 1}>
-              {item.title}
+          <View style={{ flex: 1 }}>
+            <Text style={c.title} numberOfLines={expanded ? undefined : 2}>{item.title}</Text>
+            <Text style={c.meta}>
+              {new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+              {formattedDate ? ` · Prévu le ${formattedDate}` : ""}
             </Text>
-            <Text style={c.meta}>Ajouté le {formattedCreated}</Text>
           </View>
-          <View style={[c.statusBadge, { backgroundColor: statusColor + "22" }]}>
+          <View style={[c.statusBadge, { backgroundColor: statusColor + "20" }]}>
             <View style={[c.statusDot, { backgroundColor: statusColor }]} />
             <Text style={[c.statusText, { color: statusColor }]}>{statusLabel}</Text>
           </View>
-          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={13} color="rgba(255,255,255,0.22)" />
         </View>
 
-        {/* Contenu étendu */}
+        {/* Badges */}
+        <View style={c.badgeRow}>
+          {item.createdByTenant && (
+            <View style={c.myBadge}>
+              <Ionicons name="person-outline" size={10} color="#8B5CF6" />
+              <Text style={c.myBadgeText}>Ma demande</Text>
+            </View>
+          )}
+          {retainedDevis && (
+            <View style={c.artisanBadge}>
+              <Ionicons name="hammer-outline" size={10} color="#F59E0B" />
+              <Text style={c.artisanBadgeText}>Artisan retenu</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Contenu déplié */}
         {expanded && (
           <View style={c.expandedBody}>
-            {item.description ? (
+            {!!item.description && (
               <Text style={c.desc}>{item.description}</Text>
-            ) : null}
-
-            {formattedDate && (
-              <View style={c.infoRow}>
-                <Ionicons name="calendar-outline" size={13} color="#3B82F6" />
-                <Text style={c.infoText}>Planifiée le {formattedDate}</Text>
-              </View>
             )}
-
-            {item.completedDate && (
-              <View style={c.infoRow}>
-                <Ionicons name="checkmark-circle-outline" size={13} color="#10B981" />
-                <Text style={[c.infoText, { color: "#10B981" }]}>
-                  Terminée le {new Date(item.completedDate).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
-                </Text>
-              </View>
-            )}
-
-            {item.estimatedCost != null && (
-              <View style={c.infoRow}>
-                <Ionicons name="cash-outline" size={13} color="rgba(255,255,255,0.4)" />
-                <Text style={c.infoText}>
-                  Coût estimé : {item.estimatedCost.toLocaleString("fr-FR")} €
-                  {item.finalCost != null ? ` · Final : ${item.finalCost.toLocaleString("fr-FR")} €` : ""}
-                </Text>
-              </View>
-            )}
-
-            {item.report ? (
+            {!!item.report && (
               <View style={c.reportBox}>
-                <Ionicons name="document-text-outline" size={12} color="#8B5CF6" />
+                <Ionicons name="document-text-outline" size={13} color="#8B5CF6" />
                 <Text style={c.reportText}>{item.report}</Text>
               </View>
-            ) : null}
+            )}
+
+            {/* Artisan retenu → coordonnées */}
+            {retainedDevis && (
+              <View style={c.artisanCard}>
+                <View style={c.artisanHeader}>
+                  <View style={c.artisanAvatar}>
+                    <Ionicons name="hammer" size={14} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={c.artisanLabel}>Artisan chargé des travaux</Text>
+                    <Text style={c.artisanName}>{retainedDevis.contactName}</Text>
+                    {retainedDevis.contactCompany ? (
+                      <Text style={c.artisanCompany}>{retainedDevis.contactCompany}</Text>
+                    ) : null}
+                  </View>
+                </View>
+                <View style={c.artisanContacts}>
+                  {retainedDevis.contactEmail ? (
+                    <Pressable
+                      style={c.contactBtn}
+                      onPress={() => Linking.openURL(`mailto:${retainedDevis!.contactEmail}`)}
+                    >
+                      <Ionicons name="mail-outline" size={14} color="#60A5FA" />
+                      <Text style={c.contactBtnText} numberOfLines={1}>{retainedDevis.contactEmail}</Text>
+                    </Pressable>
+                  ) : null}
+                  {retainedDevis.contactPhone ? (
+                    <Pressable
+                      style={c.contactBtn}
+                      onPress={() => Linking.openURL(`tel:${retainedDevis!.contactPhone}`)}
+                    >
+                      <Ionicons name="call-outline" size={14} color="#34D399" />
+                      <Text style={c.contactBtnText}>{retainedDevis.contactPhone}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            )}
           </View>
         )}
+
+        {/* Chevron */}
+        <View style={c.chevronRow}>
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={14}
+            color="rgba(255,255,255,0.25)"
+          />
+        </View>
       </View>
     </Pressable>
   );
 }
 
-const c = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderRadius: 14, overflow: "hidden",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-  },
-  cardDone:    { opacity: 0.75 },
-  rail:        { width: 4, alignSelf: "stretch" },
-  body:        { flex: 1, padding: 14, gap: 8 },
-  topRow:      { flexDirection: "row", alignItems: "center", gap: 10 },
-  iconBox:     { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  title:       { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
-  titleDone:   { color: "rgba(255,255,255,0.5)" },
-  meta:        { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.3)" },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, flexShrink: 0 },
-  statusDot:   { width: 5, height: 5, borderRadius: 3 },
-  statusText:  { fontSize: 10, fontFamily: "Inter_700Bold" },
-  expandedBody: { gap: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.07)" },
-  desc:        { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.6)", lineHeight: 18 },
-  infoRow:     { flexDirection: "row", alignItems: "center", gap: 7 },
-  infoText:    { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)" },
-  reportBox:   {
-    flexDirection: "row", alignItems: "flex-start", gap: 7,
-    backgroundColor: "rgba(139,92,246,0.08)", borderRadius: 8, padding: 10,
-    borderLeftWidth: 2, borderLeftColor: "#8B5CF6",
-  },
-  reportText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", lineHeight: 17 },
-});
+// ─── Modal création d'intervention locataire ──────────────────────────────────
+
+function CreateModal({
+  visible, onClose, propertyId, landlordId, tenantUserId,
+}: {
+  visible: boolean; onClose: () => void;
+  propertyId: string; landlordId: string; tenantUserId: string;
+}) {
+  const insets = useSafeAreaInsets();
+  const [category, setCategory] = useState<Category | "">("");
+  const [title, setTitle]       = useState("");
+  const [description, setDesc]  = useState("");
+  const [date, setDate]         = useState("");
+  const [saving, setSaving]     = useState(false);
+
+  const reset = () => { setCategory(""); setTitle(""); setDesc(""); setDate(""); };
+
+  const handleCreate = async () => {
+    if (!category) { Alert.alert("Catégorie requise", "Choisissez une catégorie."); return; }
+    if (!title.trim()) { Alert.alert("Titre requis", "Décrivez brièvement le problème."); return; }
+    setSaving(true);
+    try {
+      await addDoc(collection(db, "properties", propertyId, "interventions"), {
+        propertyId,
+        landlordId,
+        status:          "new",
+        title:           title.trim(),
+        description:     description.trim(),
+        priority:        "normal",
+        category,
+        scheduledDate:   date || null,
+        devis:           [],
+        devisStatus:     "none",
+        createdBy:       tenantUserId,
+        createdByTenant: true,
+        tenantUserId,
+        createdAt:       new Date().toISOString(),
+        updatedAt:       new Date().toISOString(),
+      });
+      reset();
+      onClose();
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message ?? "Impossible de créer la demande.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  useEffect(() => { if (!visible) reset(); }, [visible]);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[m.root, { paddingTop: insets.top + 16 }]}>
+        {/* Header */}
+        <View style={m.header}>
+          <Pressable onPress={onClose}><Text style={m.cancel}>Annuler</Text></Pressable>
+          <Text style={m.headerTitle}>Demande d'intervention</Text>
+          <Pressable onPress={handleCreate} disabled={saving}>
+            {saving
+              ? <ActivityIndicator size="small" color="#8B5CF6" />
+              : <Text style={[m.send, (!category || !title.trim()) && { opacity: 0.35 }]}>Envoyer</Text>}
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={m.body} keyboardShouldPersistTaps="handled">
+          {/* Bannière info */}
+          <View style={m.infoBanner}>
+            <Ionicons name="information-circle-outline" size={18} color="#60A5FA" />
+            <Text style={m.infoText}>
+              Votre demande sera transmise à votre bailleur, qui prendra en charge la coordination des travaux.
+            </Text>
+          </View>
+
+          {/* Catégorie */}
+          <Text style={m.label}>Catégorie *</Text>
+          <View style={m.catGrid}>
+            {CATEGORIES.map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={[m.catChip, category === cat.id && m.catChipActive]}
+                onPress={() => setCategory(cat.id)}
+              >
+                <Ionicons
+                  name={cat.icon as any}
+                  size={15}
+                  color={category === cat.id ? "#fff" : COLORS.textMuted}
+                />
+                <Text style={[m.catLabel, category === cat.id && m.catLabelActive]}>
+                  {cat.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {/* Titre */}
+          <Text style={m.label}>Problème rencontré *</Text>
+          <TextInput
+            style={m.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="Ex : Fuite sous l'évier de la cuisine"
+            placeholderTextColor={COLORS.textMuted}
+            maxLength={120}
+          />
+
+          {/* Description */}
+          <Text style={m.label}>Description (optionnel)</Text>
+          <TextInput
+            style={[m.input, m.textarea]}
+            value={description}
+            onChangeText={setDesc}
+            placeholder="Précisez le problème, depuis quand, l'urgence…"
+            placeholderTextColor={COLORS.textMuted}
+            multiline
+            numberOfLines={4}
+            textAlignVertical="top"
+          />
+
+          {/* Date souhaitée */}
+          <Text style={m.label}>Date souhaitée d'intervention</Text>
+          <DateInput
+            value={date}
+            onChange={setDate}
+            placeholder="JJ/MM/AAAA"
+            style={m.input}
+          />
+
+          <Text style={m.legal}>
+            Votre bailleur sera notifié et vous contactera pour organiser l'intervention.
+          </Text>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
 
 // ─── Écran principal ──────────────────────────────────────────────────────────
 
 export default function TenantInterventions() {
   const insets  = useSafeAreaInsets();
   const router  = useRouter();
-  const { rentalInfo } = useAuth();
+  const { user, rentalInfo } = useAuth();
   const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
   const [interventions, setInterventions] = useState<PropertyIntervention[]>([]);
   const [loading, setLoading]             = useState(true);
   const [filter, setFilter]               = useState<FilterKey>("all");
+  const [showCreate, setShowCreate]       = useState(false);
+
+  // Infos logement pour la création
+  const [landlordId, setLandlordId] = useState("");
 
   useEffect(() => {
     if (!rentalInfo?.propertyId) { setLoading(false); return; }
+
+    // Récupérer le landlordId depuis le logement
+    import("firebase/firestore").then(({ getDoc, doc: fdoc }) => {
+      getDoc(fdoc(db, "properties", rentalInfo.propertyId)).then((snap) => {
+        if (snap.exists()) setLandlordId(snap.data()?.landlordId ?? "");
+      }).catch(() => {});
+    });
+
     return onSnapshot(
       query(
         collection(db, "properties", rentalInfo.propertyId, "interventions"),
@@ -186,21 +355,15 @@ export default function TenantInterventions() {
     );
   }, [rentalInfo?.propertyId]);
 
-  const active   = interventions.filter((i) => i.status !== "completed" && i.status !== "cancelled");
-  const filtered = filter === "all"
-    ? interventions.filter((i) => i.status !== "cancelled")
-    : interventions.filter((i) => i.status === filter);
+  const filtered = (() => {
+    const base = interventions.filter((i) => i.status !== "cancelled");
+    if (filter === "mine") return base.filter((i) => i.createdByTenant && i.tenantUserId === user?.uid);
+    if (filter === "all") return base;
+    return base.filter((i) => i.status === filter);
+  })();
 
-  // Comptes par onglet
-  const counts: Record<FilterKey, number> = {
-    all:         interventions.filter((i) => i.status !== "cancelled").length,
-    new:         interventions.filter((i) => i.status === "new").length,
-    assigned:    interventions.filter((i) => i.status === "assigned").length,
-    scheduled:   interventions.filter((i) => i.status === "scheduled").length,
-    in_progress: interventions.filter((i) => i.status === "in_progress").length,
-    completed:   interventions.filter((i) => i.status === "completed").length,
-    cancelled:   interventions.filter((i) => i.status === "cancelled").length,
-  };
+  const myCount    = interventions.filter((i) => i.createdByTenant && i.tenantUserId === user?.uid).length;
+  const activeCount = interventions.filter((i) => i.status !== "completed" && i.status !== "cancelled").length;
 
   return (
     <LinearGradient
@@ -216,14 +379,23 @@ export default function TenantInterventions() {
         <View style={{ flex: 1 }}>
           <Text style={s.title}>Interventions</Text>
           <Text style={s.subtitle}>
-            {loading ? "Chargement…" : `${active.length} en cours · ${interventions.length} total`}
+            {loading ? "Chargement…"
+              : `${activeCount} en cours${myCount > 0 ? ` · ${myCount} de mes demandes` : ""}`}
           </Text>
         </View>
-        {active.length > 0 && (
-          <View style={s.badge}>
-            <Text style={s.badgeText}>{active.length}</Text>
-          </View>
-        )}
+        {/* Bouton créer */}
+        <Pressable style={s.createBtn} onPress={() => setShowCreate(true)}>
+          <Ionicons name="add" size={20} color="#fff" />
+          <Text style={s.createBtnText}>Demander</Text>
+        </Pressable>
+      </View>
+
+      {/* Bandeau info */}
+      <View style={s.infoBand}>
+        <Ionicons name="information-circle-outline" size={13} color="rgba(255,255,255,0.4)" />
+        <Text style={s.infoBandText}>
+          Vous pouvez soumettre une demande de travaux. Votre bailleur en prend la coordination.
+        </Text>
       </View>
 
       {/* Filtres */}
@@ -232,19 +404,20 @@ export default function TenantInterventions() {
         style={s.filterBar} contentContainerStyle={s.filterContent}
       >
         {FILTER_TABS.map((tab) => {
-          const count = counts[tab.key] ?? 0;
-          const active = filter === tab.key;
+          const isActive = filter === tab.key;
+          const count = tab.key === "mine"
+            ? myCount
+            : tab.key === "all"
+            ? interventions.filter((i) => i.status !== "cancelled").length
+            : interventions.filter((i) => i.status === tab.key).length;
+
           return (
             <Pressable
               key={tab.key}
-              style={[s.tab, active && s.tabActive]}
+              style={[s.tab, isActive && s.tabActive]}
               onPress={() => setFilter(tab.key)}
             >
-              <Ionicons
-                name={tab.icon as any} size={12}
-                color={active ? "#fff" : "rgba(255,255,255,0.4)"}
-              />
-              <Text style={[s.tabText, active && s.tabTextActive]}>
+              <Text style={[s.tabText, isActive && s.tabTextActive]}>
                 {tab.label}{count > 0 ? ` (${count})` : ""}
               </Text>
             </Pressable>
@@ -261,18 +434,47 @@ export default function TenantInterventions() {
         <View style={s.center}>
           <Ionicons name="construct-outline" size={52} color="rgba(255,255,255,0.15)" />
           <Text style={s.emptyTitle}>
-            {interventions.length === 0 ? "Aucune intervention" : "Aucun résultat"}
+            {filter === "mine" ? "Aucune demande de votre part"
+              : interventions.length === 0 ? "Aucune intervention" : "Aucun résultat"}
           </Text>
           <Text style={s.emptyDesc}>
-            {interventions.length === 0
+            {filter === "mine"
+              ? "Utilisez le bouton \"Demander\" pour soumettre une demande de travaux."
+              : interventions.length === 0
               ? "Les interventions planifiées par votre bailleur apparaîtront ici."
               : "Essayez un autre filtre."}
           </Text>
+          {filter === "mine" && (
+            <Pressable style={s.emptyCreateBtn} onPress={() => setShowCreate(true)}>
+              <Ionicons name="add-circle-outline" size={18} color="#8B5CF6" />
+              <Text style={s.emptyCreateBtnText}>Soumettre une demande</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <ScrollView contentContainerStyle={s.list} showsVerticalScrollIndicator={false}>
           {filtered.map((item) => <InterventionCard key={item.id} item={item} />)}
+          <View style={{ height: 60 }} />
         </ScrollView>
+      )}
+
+      {/* FAB créer */}
+      <Pressable
+        style={[s.fab, { bottom: insets.bottom + 20 }]}
+        onPress={() => setShowCreate(true)}
+      >
+        <Ionicons name="add" size={24} color="#fff" />
+      </Pressable>
+
+      {/* Modal création */}
+      {rentalInfo?.propertyId && user?.uid && (
+        <CreateModal
+          visible={showCreate}
+          onClose={() => setShowCreate(false)}
+          propertyId={rentalInfo.propertyId}
+          landlordId={landlordId}
+          tenantUserId={user.uid}
+        />
       )}
     </LinearGradient>
   );
@@ -280,10 +482,57 @@ export default function TenantInterventions() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
+const c = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
+  cardTenant: {
+    borderColor: "rgba(139,92,246,0.3)",
+    backgroundColor: "rgba(139,92,246,0.07)",
+  },
+  rail:       { width: 4, alignSelf: "stretch" },
+  body:       { flex: 1, padding: 14, gap: 8 },
+  topRow:     { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  iconBox:    { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  title:      { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff", flex: 1 },
+  meta:       { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.3)", marginTop: 2 },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, flexShrink: 0 },
+  statusDot:  { width: 5, height: 5, borderRadius: 3 },
+  statusText: { fontSize: 10, fontFamily: "Inter_700Bold" },
+  badgeRow:   { flexDirection: "row", gap: 6 },
+  myBadge:    { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(139,92,246,0.15)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  myBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#A78BFA" },
+  artisanBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.15)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  artisanBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#FCD34D" },
+
+  expandedBody: { gap: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.07)" },
+  desc:        { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.6)", lineHeight: 18 },
+  reportBox:   { flexDirection: "row", alignItems: "flex-start", gap: 7, backgroundColor: "rgba(139,92,246,0.08)", borderRadius: 8, padding: 10, borderLeftWidth: 2, borderLeftColor: "#8B5CF6" },
+  reportText:  { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.7)", lineHeight: 17 },
+
+  artisanCard: {
+    backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 12,
+    borderWidth: 1, borderColor: "rgba(245,158,11,0.2)", padding: 12, gap: 10,
+  },
+  artisanHeader:  { flexDirection: "row", alignItems: "center", gap: 10 },
+  artisanAvatar:  { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.2)", alignItems: "center", justifyContent: "center" },
+  artisanLabel:   { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "rgba(245,158,11,0.7)", textTransform: "uppercase", letterSpacing: 0.5 },
+  artisanName:    { fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" },
+  artisanCompany: { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.5)" },
+  artisanContacts: { gap: 6 },
+  contactBtn:     { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  contactBtnText: { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.7)", flex: 1 },
+
+  chevronRow: { alignItems: "flex-end" },
+});
+
 const s = StyleSheet.create({
   header: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    paddingHorizontal: 20, paddingBottom: 14,
+    paddingHorizontal: 16, paddingBottom: 12,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 11,
@@ -292,26 +541,94 @@ const s = StyleSheet.create({
   },
   title:    { fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff" },
   subtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)", marginTop: 2 },
-  badge: {
-    minWidth: 26, height: 26, borderRadius: 13, paddingHorizontal: 6,
-    backgroundColor: "#F59E0B", alignItems: "center", justifyContent: "center",
+  createBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#8B5CF6", borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 8,
   },
-  badgeText: { fontSize: 12, fontFamily: "Inter_700Bold", color: "#fff" },
+  createBtnText: { fontSize: 13, fontFamily: "Inter_700Bold", color: "#fff" },
+
+  infoBand: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginBottom: 6,
+    backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  infoBandText: { flex: 1, fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.35)", lineHeight: 16 },
 
   filterBar:     { flexGrow: 0 },
-  filterContent: { paddingHorizontal: 20, paddingVertical: 10, gap: 8 },
+  filterContent: { paddingHorizontal: 16, paddingVertical: 8, gap: 6 },
   tab: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 13, paddingVertical: 7,
-    borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
-  tabActive:    { backgroundColor: "rgba(255,255,255,0.15)", borderColor: "rgba(255,255,255,0.3)" },
-  tabText:      { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.45)" },
-  tabTextActive: { color: "#fff", fontFamily: "Inter_600SemiBold" },
+  tabActive:     { backgroundColor: "rgba(139,92,246,0.25)", borderColor: "rgba(139,92,246,0.4)" },
+  tabText:       { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.4)" },
+  tabTextActive: { color: "#C4B5FD", fontFamily: "Inter_600SemiBold" },
 
-  list:   { padding: 16, gap: 10, paddingBottom: 40 },
+  list:   { padding: 16, gap: 10 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "rgba(255,255,255,0.4)", textAlign: "center" },
   emptyDesc:  { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.25)", textAlign: "center", lineHeight: 19 },
+  emptyCreateBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8,
+    backgroundColor: "rgba(139,92,246,0.15)", borderRadius: 12,
+    paddingHorizontal: 20, paddingVertical: 12,
+    borderWidth: 1, borderColor: "rgba(139,92,246,0.3)",
+  },
+  emptyCreateBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#A78BFA" },
+
+  fab: {
+    position: "absolute", right: 20,
+    width: 54, height: 54, borderRadius: 27,
+    backgroundColor: "#8B5CF6", alignItems: "center", justifyContent: "center",
+    shadowColor: "#8B5CF6", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 12,
+    elevation: 8,
+  },
+});
+
+// ─── Styles modale création ───────────────────────────────────────────────────
+
+const m = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.background },
+  header: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 14,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border, backgroundColor: "#fff",
+  },
+  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  cancel:  { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  send:    { fontSize: 15, fontFamily: "Inter_700Bold", color: "#8B5CF6" },
+  body:    { padding: 20, gap: 16 },
+
+  infoBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 10,
+    backgroundColor: "#EFF6FF", borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "#BFDBFE",
+  },
+  infoText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular", color: "#1E40AF", lineHeight: 18 },
+
+  label: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+  input: {
+    backgroundColor: "#fff", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  textarea: { minHeight: 90, textAlignVertical: "top" },
+
+  catGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  catChip: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+    backgroundColor: COLORS.surfaceAlt, borderWidth: 1, borderColor: COLORS.border,
+  },
+  catChipActive: { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" },
+  catLabel:      { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  catLabelActive:{ color: "#fff", fontFamily: "Inter_600SemiBold" },
+
+  legal: {
+    fontSize: 11, fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted, textAlign: "center", lineHeight: 16,
+  },
 });

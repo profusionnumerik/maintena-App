@@ -244,8 +244,19 @@ service cloud.firestore {
           isSuperAdmin() ||
           get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
-        // Locataire : lecture seule (pour suivre l'avancement)
+        // Locataire : lecture de toutes les interventions du logement
         allow read: if isSignedIn() && isTenantOf(propertyId);
+        // Locataire : peut créer une intervention (signalement travaux)
+        allow create: if isSignedIn() && isTenantOf(propertyId) &&
+          request.resource.data.createdByTenant == true &&
+          request.resource.data.tenantUserId == request.auth.uid;
+        // Locataire : peut modifier ses propres interventions (statut = new seulement)
+        allow update: if isSignedIn() && isTenantOf(propertyId) &&
+          resource.data.createdByTenant == true &&
+          resource.data.tenantUserId == request.auth.uid &&
+          resource.data.status == "new" &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(["title", "description", "scheduledDate", "updatedAt"]);
       }
 
       // Messagerie locataire ↔ bailleur

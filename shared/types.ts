@@ -1063,6 +1063,33 @@ export interface PropertyIntervention {
   report?: string;
   createdBy: string;
   createdAt: string;
+  updatedAt?: string;
+  // Champs locataire
+  createdByTenant?: boolean;
+  tenantUserId?: string;
+  tenantNote?: string;
+  // Devis (module location)
+  devis?: Array<{
+    id: string;
+    contactId: string;
+    contactName: string;
+    contactCompany?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    submitted: boolean;
+    priceTTC?: number;
+    description?: string;
+    devisFileUrl?: string;
+    signedAt?: string;
+    signatureUrl?: string;
+    landlordSignedAt?: string;
+    landlordSignatureUrl?: string;
+    finalDevisUrl?: string;
+    invoiceRef?: string;
+  }>;
+  devisStatus?: "none" | "requested" | "received" | "retained";
+  selectedDevisId?: string;
+  category?: string;
 }
 
 export interface PropertyDocument {

@@ -859,11 +859,17 @@ export default function RentalInterventions() {
                     </View>
                   </View>
                   {item.propertyLabel && <Text style={s.cardProp} numberOfLines={1}><Ionicons name="home-outline" size={11} color={COLORS.textMuted} /> {item.propertyLabel}</Text>}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
                     {item.scheduledDate
                       ? <Text style={s.cardDate}><Ionicons name="calendar-outline" size={11} color={COLORS.textMuted} /> {item.scheduledDate}</Text>
                       : <Text style={s.cardDate}>{new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</Text>
                     }
+                    {(item as any).createdByTenant && (
+                      <View style={s.tenantChip}>
+                        <Ionicons name="person-outline" size={10} color="#7C3AED" />
+                        <Text style={s.tenantChipText}>Locataire</Text>
+                      </View>
+                    )}
                     {dStat && dStat !== "none" && (
                       <View style={[s.devisChip, { backgroundColor: DEVIS_STATUS_COLORS[dStat] + "20" }]}>
                         <Text style={[s.devisChipText, { color: DEVIS_STATUS_COLORS[dStat] }]}>{DEVIS_STATUS_LABELS[dStat]}</Text>
@@ -911,6 +917,8 @@ const s = StyleSheet.create({
   cardDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   devisChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   devisChipText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  tenantChip: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, backgroundColor: "rgba(124,58,237,0.1)" },
+  tenantChipText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#7C3AED" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "center" },
   emptyDesc:  { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textSecondary, textAlign: "center", lineHeight: 22 },
