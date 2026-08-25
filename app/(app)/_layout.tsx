@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Platform } from "react-native";
+import { Platform, useWindowDimensions } from "react-native";
 import { useCoPro } from "@/context/CoProContext";
 import { COLORS } from "@/constants/colors";
 
@@ -9,6 +9,10 @@ type TabBarIconProps = { color: string; size: number; focused: boolean }
 
 export default function AppLayout() {
   const { currentRole, signalements } = useCoPro();
+  const { width } = useWindowDimensions();
+
+  // Sur web ≥ 768px la sidebar gère la navigation — on masque la tab bar du bas
+  const hideTabBar = Platform.OS === "web" && width >= 768;
 
   const unacknowledgedCount = useMemo(
     () => signalements.filter((s) => !s.acknowledged).length,
@@ -26,18 +30,20 @@ export default function AppLayout() {
         headerShown: false,
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textMuted,
-        tabBarStyle: {
-          backgroundColor: "#fff",
-          borderTopWidth: 0,
-          elevation: 0,
-          height: Platform.OS === "web" ? 58 : 82,
-          paddingBottom: Platform.OS === "web" ? 6 : 28,
-          paddingTop: 8,
-          shadowColor: "#0B1628",
-          shadowOpacity: 0.10,
-          shadowRadius: 20,
-          shadowOffset: { width: 0, height: -4 },
-        },
+        tabBarStyle: hideTabBar
+          ? { display: "none" }
+          : {
+              backgroundColor: "#fff",
+              borderTopWidth: 0,
+              elevation: 0,
+              height: 82,
+              paddingBottom: 28,
+              paddingTop: 8,
+              shadowColor: "#0B1628",
+              shadowOpacity: 0.10,
+              shadowRadius: 20,
+              shadowOffset: { width: 0, height: -4 },
+            },
         tabBarLabelStyle: {
           fontSize: 10,
           fontFamily: "Inter_600SemiBold",

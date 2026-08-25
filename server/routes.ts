@@ -334,27 +334,91 @@ async function extractAuthenticatedUser(req: Request) {
   }
 }
 
+/** Supprime toutes les données de l'utilisateur puis son compte Firebase Auth */
 async function deleteUserData(uid: string) {
   const db = getAdminDb();
   const adminAuth = getAdminAuthInstance();
   if (!db || !adminAuth) throw new Error("Firebase Admin indisponible");
 
-  const batch = db.batch();
-  batch.delete(db.collection("users").doc(uid));
+  // ── helper : vider une sous-collection par lots de 400 ──────────────────
+  async function deleteSubCollection(parentRef: FirebaseFirestore.DocumentReference, subCol: string) {
+    const snap = await parentRef.collection(subCol).get();
+    if (snap.empty) return;
+    const chunks = [];
+    for (let i = 0; i < snap.docs.length; i += 400) chunks.push(snap.docs.slice(i, i + 400));
+    for (const chunk of chunks) {
+      const b = db!.batch();
+      chunk.forEach((d) => b.delete(d.ref));
+      await b.commit();
+    }
+  }
 
+  // ── 1. Profil utilisateur ────────────────────────────────────────────────
+  const batch1 = db.batch();
+  batch1.delete(db.collection("users").doc(uid));
+
+  // ── 2. Membres copro ─────────────────────────────────────────────────────
   const coprosSnap = await db.collection("copros").get();
   for (const coproDoc of coprosSnap.docs) {
     const members = await db
-      .collection("copros")
-      .doc(coproDoc.id)
-      .collection("members")
-      .where("uid", "==", uid)
-      .get();
+      .collection("copros").doc(coproDoc.id)
+      .collection("members").where("uid", "==", uid).get();
+    members.docs.forEach((d) => batch1.delete(d.ref));
+  }
+  await batch1.commit();
 
-    members.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+  // ── 3. Propriétés dont l'utilisateur est bailleur ────────────────────────
+  const propertiesSnap = await db.collection("properties")
+    .where("landlordId", "==", uid).get();
+
+  for (const propDoc of propertiesSnap.docs) {
+    const ref = propDoc.ref;
+    const SUB_COLS = [
+      "interventions", "messages", "documents", "devis",
+      "inventoryReports", "quotes", "notifications",
+    ];
+    for (const sub of SUB_COLS) {
+      await deleteSubCollection(ref, sub);
+    }
+    await ref.delete();
   }
 
-  await batch.commit();
+  // ── 4. Référence locataire dans les propriétés ────────────────────────────
+  // (on efface les infos perso sans supprimer la propriété du bailleur)
+  const tenantPropsSnap = await db.collection("properties")
+    .where("rentalInfo.tenantUserId", "==", uid).get();
+
+  if (!tenantPropsSnap.empty) {
+    const b = db.batch();
+    tenantPropsSnap.docs.forEach((d) =>
+      b.update(d.ref, {
+        "rentalInfo.tenantUserId": null,
+        "rentalInfo.tenantEmail": null,
+        "rentalInfo.tenantName": null,
+      })
+    );
+    await b.commit();
+  }
+
+  // ── 5. Codes d'invitation créés par l'utilisateur ────────────────────────
+  const inviteSnap = await db.collection("inviteCodes")
+    .where("ownerUid", "==", uid).get();
+  if (!inviteSnap.empty) {
+    const b = db.batch();
+    inviteSnap.docs.forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
+
+  // ── 6. Demandes de suppression éventuelles ───────────────────────────────
+  const delReqSnap = await db.collection("accountDeletionRequests")
+    .where("uid", "==", uid).get();
+  if (!delReqSnap.empty) {
+    const b = db.batch();
+    delReqSnap.docs.forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
+
+  // ── 7. Suppression du compte Firebase Auth ───────────────────────────────
   await adminAuth.deleteUser(uid);
 }
 

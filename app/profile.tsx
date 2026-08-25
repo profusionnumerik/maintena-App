@@ -23,8 +23,7 @@ import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { deleteUser } from "firebase/auth";
-import { db, auth } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
 
 // ─── Calcul jours d'essai restants ───────────────────────────────────────────
 
@@ -133,26 +132,24 @@ export default function ProfileScreen() {
               }
               const currentUser = auth.currentUser;
               if (!currentUser) throw new Error("not-logged-in");
-              await deleteUser(currentUser);
+
+              // L'endpoint serveur supprime toutes les données Firestore + le compte Auth
+              const idToken = await currentUser.getIdToken();
+              const res = await fetch(
+                new URL("/api/account/delete", getApiUrl()).toString(),
+                { method: "POST", headers: { Authorization: `Bearer ${idToken}` } }
+              );
+              if (!res.ok) throw new Error("server-error");
+
+              // Déconnexion locale propre puis redirection
+              await logout();
               router.dismissAll();
-            } catch (err: any) {
+            } catch {
               setIsDeletingAccount(false);
-              if (err?.code === "auth/requires-recent-login") {
-                wConfirm(
-                  "Reconnexion requise",
-                  "Pour des raisons de sécurité, veuillez vous déconnecter puis vous reconnecter avant de supprimer votre compte.",
-                  async () => {
-                    await logout();
-                    router.dismissAll();
-                  },
-                  "Se déconnecter",
-                );
+              if (Platform.OS === "web") {
+                window.alert("Impossible de supprimer le compte. Réessayez ou contactez le support.");
               } else {
-                if (Platform.OS === "web") {
-                  window.alert("Impossible de supprimer le compte. Réessayez.");
-                } else {
-                  Alert.alert("Erreur", "Impossible de supprimer le compte. Réessayez.");
-                }
+                Alert.alert("Erreur", "Impossible de supprimer le compte. Réessayez ou contactez le support.");
               }
             }
           },
