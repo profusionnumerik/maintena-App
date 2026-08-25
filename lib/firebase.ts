@@ -40,14 +40,13 @@ try {
   auth = getAuth(app);
 }
 
-// Sur React Native, on force le long-polling pour éviter le bug Firebase 12.x
-// "INTERNAL ASSERTION FAILED: Unexpected state (ID: 3186)"
+// Sur React Native, on active l'auto-détection du mode de connexion (long-polling ou WebSocket).
+// experimentalForceLongPolling pouvait geler les écritures sur Firebase 12.x / iOS.
 let db: ReturnType<typeof getFirestore>;
 try {
   db = Platform.OS !== "web"
     ? initializeFirestore(app, {
-        experimentalForceLongPolling: true,
-        experimentalAutoDetectLongPolling: false,
+        experimentalAutoDetectLongPolling: true,
       })
     : getFirestore(app);
 } catch {

@@ -42,30 +42,43 @@ export default function RentalOnboardingScreen() {
 
   const canSubmit = address.trim() && postalCode.trim() && city.trim();
 
+  /** Rejette la promesse après `ms` millisecondes */
+  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Délai dépassé (${label}). Vérifiez votre connexion internet.`)), ms)
+      ),
+    ]);
+  }
+
   const handleCreate = async () => {
     if (!canSubmit || !user?.uid) return;
     setErrorMsg(null);
     setSaving(true);
     try {
-      await addDoc(collection(db, "properties"), {
-        landlordId:   user.uid,
-        propertyType,
-        address:      address.trim(),
-        postalCode:   postalCode.trim(),
-        city:         city.trim(),
-        ...(aptNumber.trim()   ? { apartmentNumber: aptNumber.trim() }  : {}),
-        ...(surface.trim()     ? { surface: parseFloat(surface) || 0 }  : {}),
-        ...(rooms.trim()       ? { numberOfRooms: parseInt(rooms) || 0 }: {}),
-        status:    "vacant",
-        createdAt: new Date().toISOString(),
-      });
+      await withTimeout(
+        addDoc(collection(db, "properties"), {
+          landlordId:   user.uid,
+          propertyType,
+          address:      address.trim(),
+          postalCode:   postalCode.trim(),
+          city:         city.trim(),
+          ...(aptNumber.trim()   ? { apartmentNumber: aptNumber.trim() }  : {}),
+          ...(surface.trim()     ? { surface: parseFloat(surface) || 0 }  : {}),
+          ...(rooms.trim()       ? { numberOfRooms: parseInt(rooms) || 0 }: {}),
+          status:    "vacant",
+          createdAt: new Date().toISOString(),
+        }),
+        12000, "création logement"
+      );
 
       // Marque le module Location comme configuré → _layout.tsx route vers (rental)
-      await markRentalSetup();
+      await withTimeout(markRentalSetup(), 8000, "activation bailleur");
     } catch (e: any) {
       console.error("[RENTAL] property creation failed:", e);
       const msg = e?.code === "permission-denied"
-        ? "Permission refusée par Firestore. Vérifiez que votre compte est bien configuré."
+        ? "Permission refusée par Firestore. Reconnectez-vous et réessayez."
         : (e?.message ?? "Erreur inconnue. Vérifiez votre connexion.");
       setErrorMsg(msg);
       setSaving(false);
