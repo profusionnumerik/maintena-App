@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +17,7 @@ import { addDoc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
+import { wa } from "@/shared/dialogs";
 import {
   PropertyType,
   PROPERTY_TYPE_LABELS,
@@ -60,9 +60,9 @@ export default function RentalOnboardingScreen() {
 
       // Marque le module Location comme configuré → _layout.tsx route vers (rental)
       await markRentalSetup();
-    } catch (e) {
+    } catch (e: any) {
       console.error("[RENTAL] property creation failed:", e);
-      Alert.alert("Erreur", "La création du logement a échoué. Vérifiez votre connexion.");
+      wa("Erreur", `La création du logement a échoué.\n${e?.message ?? "Vérifiez votre connexion."}`);
       setSaving(false);
     }
   };
