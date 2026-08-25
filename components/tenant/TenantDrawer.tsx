@@ -155,22 +155,6 @@ export function TenantDrawer() {
 
         <View style={styles.divider} />
 
-        {/* Changer de profil */}
-        <Pressable
-          style={styles.navItem}
-          onPress={() => wConfirm(
-            "Changer de profil",
-            "Vous allez retourner à l'écran de sélection de profil. Vos données restent intactes.",
-            async () => { close(); await resetUserType(); },
-            "Changer",
-          )}
-        >
-          <View style={styles.navIcon}>
-            <Ionicons name="swap-horizontal-outline" size={20} color={COLORS.textSecondary} />
-          </View>
-          <Text style={styles.navLabel}>Changer de profil</Text>
-        </Pressable>
-
         {/* Paramètres → profil */}
         <Pressable
           style={styles.navItem}
