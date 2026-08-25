@@ -28,7 +28,7 @@ const PROPERTY_TYPES: PropertyType[] = ["apartment", "house", "studio", "room", 
 
 export default function RentalOnboardingScreen() {
   const insets = useSafeAreaInsets();
-  const { user, markRentalSetup } = useAuth();
+  const { user, markRentalSetup, resetUserType } = useAuth();
 
   const [propertyType, setPropertyType] = useState<PropertyType>("apartment");
   const [address, setAddress]           = useState("");
@@ -87,6 +87,16 @@ export default function RentalOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Bouton retour */}
+          <Pressable
+            style={[styles.backBtn, { top: Platform.OS === "web" ? 16 : insets.top + 8 }]}
+            onPress={resetUserType}
+            hitSlop={12}
+          >
+            <Ionicons name="arrow-back" size={22} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.backText}>Retour</Text>
+          </Pressable>
+
           {/* En-tête */}
           <View style={styles.header}>
             <View style={styles.iconBadge}>
@@ -295,5 +305,15 @@ const styles = StyleSheet.create({
     textAlign: "center", fontSize: 12,
     fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.25)",
     marginTop: 8,
+  },
+
+  backBtn: {
+    position: "absolute", left: 16,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    zIndex: 10,
+  },
+  backText: {
+    fontSize: 15, fontFamily: "Inter_500Medium",
+    color: "rgba(255,255,255,0.7)",
   },
 });
