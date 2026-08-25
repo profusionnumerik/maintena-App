@@ -241,15 +241,20 @@ function PropertyCard({ property }: { property: RentalProperty }) {
   );
 }
 
+// ─── Limite plan gratuit ──────────────────────────────────────────────────────
+
+const FREE_PROPERTY_LIMIT = 3;
+
 // ─── Écran principal ──────────────────────────────────────────────────────────
 
 export default function RentalDashboard() {
   const insets  = useSafeAreaInsets();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [properties, setProperties] = useState<RentalProperty[]>([]);
   const [loading, setLoading]       = useState(true);
   const [showModal, setShowModal]   = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
 
   // Chargement en temps réel des logements du bailleur
   useEffect(() => {
@@ -269,15 +274,32 @@ export default function RentalDashboard() {
     return unsub;
   }, [user?.uid]);
 
+  const atLimit = properties.length >= FREE_PROPERTY_LIMIT;
+
+  const handlePressAdd = useCallback(() => {
+    if (atLimit) {
+      setShowLimitModal(true);
+    } else {
+      setShowModal(true);
+    }
+  }, [atLimit]);
+
   const handleSaveProperty = useCallback(async (data: Omit<RentalProperty, "id">) => {
+    if (properties.length >= FREE_PROPERTY_LIMIT) {
+      setShowModal(false);
+      setShowLimitModal(true);
+      throw new Error("limit");
+    }
     try {
       await addDoc(collection(db, "properties"), data);
       setShowModal(false);
-    } catch {
-      Alert.alert("Erreur", "Impossible d'ajouter le logement. Réessayez.");
-      throw new Error("save failed");
+    } catch (e: any) {
+      if (e?.message !== "limit") {
+        Alert.alert("Erreur", "Impossible d'ajouter le logement. Réessayez.");
+      }
+      throw e;
     }
-  }, []);
+  }, [properties.length]);
 
   const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
 
@@ -292,17 +314,33 @@ export default function RentalDashboard() {
             <Text style={styles.subtitle}>
               {properties.length === 0
                 ? "Aucun logement enregistré"
-                : `${properties.length} logement${properties.length > 1 ? "s" : ""}`}
+                : `${properties.length} / ${FREE_PROPERTY_LIMIT} logement${properties.length > 1 ? "s" : ""} (plan gratuit)`}
             </Text>
           )}
         </View>
+        {/* Bouton + désactivé visuellement quand limite atteinte */}
         <Pressable
-          style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
-          onPress={() => setShowModal(true)}
+          style={({ pressed }) => [
+            styles.addBtn,
+            atLimit && styles.addBtnLocked,
+            pressed && { opacity: 0.8 },
+          ]}
+          onPress={handlePressAdd}
         >
-          <Ionicons name="add" size={22} color="#fff" />
+          <Ionicons name={atLimit ? "lock-closed" : "add"} size={20} color="#fff" />
         </Pressable>
       </View>
+
+      {/* Bandeau limite plan gratuit */}
+      {atLimit && !loading && (
+        <Pressable style={styles.limitBanner} onPress={() => setShowLimitModal(true)}>
+          <Ionicons name="lock-closed-outline" size={14} color="#8B5CF6" />
+          <Text style={styles.limitBannerText}>
+            Limite du plan gratuit atteinte · 3 logements max
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color="#8B5CF6" />
+        </Pressable>
+      )}
 
       {/* Contenu */}
       {loading ? (
@@ -318,7 +356,7 @@ export default function RentalDashboard() {
           </Text>
           <Pressable
             style={({ pressed }) => [styles.emptyBtn, pressed && { opacity: 0.8 }]}
-            onPress={() => setShowModal(true)}
+            onPress={handlePressAdd}
           >
             <Ionicons name="add-circle" size={20} color="#fff" />
             <Text style={styles.emptyBtnText}>Ajouter un logement</Text>
@@ -357,6 +395,39 @@ export default function RentalDashboard() {
           />
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Modal limite plan gratuit */}
+      <Modal
+        visible={showLimitModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLimitModal(false)}
+      >
+        <Pressable
+          style={limitStyles.backdrop}
+          onPress={() => setShowLimitModal(false)}
+        >
+          <View style={limitStyles.card}>
+            <View style={limitStyles.iconWrap}>
+              <Ionicons name="lock-closed" size={32} color="#8B5CF6" />
+            </View>
+            <Text style={limitStyles.title}>Plan gratuit</Text>
+            <Text style={limitStyles.desc}>
+              Le plan gratuit est limité à{" "}
+              <Text style={{ fontFamily: "Inter_700Bold" }}>3 logements</Text> pendant la période d'essai d'un mois.
+            </Text>
+            <Text style={limitStyles.desc}>
+              Pour gérer plus de logements, contactez-nous pour passer à l'offre Pro.
+            </Text>
+            <Pressable
+              style={({ pressed }) => [limitStyles.btn, pressed && { opacity: 0.85 }]}
+              onPress={() => setShowLimitModal(false)}
+            >
+              <Text style={limitStyles.btnText}>Compris</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -385,7 +456,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#8B5CF6", borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 9,
   },
+  addBtnLocked: { backgroundColor: "#9CA3AF" },
   addBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+
+  limitBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(139,92,246,0.07)",
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: "rgba(139,92,246,0.12)",
+  },
+  limitBannerText: {
+    flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", color: "#8B5CF6",
+  },
 
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
 
@@ -488,4 +570,30 @@ const modalStyles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
   },
   title: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
+});
+
+const limitStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center", justifyContent: "center", padding: 32,
+  },
+  card: {
+    backgroundColor: "#fff", borderRadius: 20,
+    padding: 28, alignItems: "center", gap: 14, width: "100%", maxWidth: 360,
+  },
+  iconWrap: {
+    width: 64, height: 64, borderRadius: 20,
+    backgroundColor: "rgba(139,92,246,0.1)",
+    alignItems: "center", justifyContent: "center",
+  },
+  title: { fontSize: 20, fontFamily: "Inter_700Bold", color: COLORS.text },
+  desc: {
+    fontSize: 14, fontFamily: "Inter_400Regular",
+    color: COLORS.textSecondary, textAlign: "center", lineHeight: 20,
+  },
+  btn: {
+    backgroundColor: "#8B5CF6", borderRadius: 12,
+    paddingHorizontal: 28, paddingVertical: 13, marginTop: 4,
+  },
+  btnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });
