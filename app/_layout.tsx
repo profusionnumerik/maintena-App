@@ -362,8 +362,10 @@ function RootLayoutNav() {
       if (!inOnboarding) router.replace("/(onboarding)");
       return;
     }
-    const coProActive = currentCopro.status === "active";
-    if (!isSubscribed && !coProActive) {
+    // Bloquer si l'essai est expiré et pas d'abonnement actif
+    // Note : on NE vérifie plus currentCopro.status === "active" car ce champ
+    // est toujours "active" à la création — isSubscribed couvre déjà trial + abonnement.
+    if (!isSubscribed) {
       if (!inBlocked) router.replace("/(blocked)");
       return;
     }

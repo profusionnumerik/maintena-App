@@ -56,6 +56,10 @@ interface AuthContextValue {
   userType: UserType | null;
   hasRentalSetup: boolean;
   rentalInfo: RentalInfo | null;
+  /** Profil bailleur : companyType, siret, companyName, agenceName */
+  rentalProfile: { companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string } | null;
+  /** Vrai si le bailleur a un SIRET renseigné ou est une société → plan Pro requis */
+  isPro: boolean;
   setUserType: (type: UserType) => Promise<void>;
   resetUserType: () => Promise<void>;
   markRentalSetup: () => Promise<void>;
@@ -126,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userType, setUserTypeState] = useState<UserType | null>(null);
   const [hasRentalSetup, setHasRentalSetup] = useState(false);
   const [rentalInfo, setRentalInfo] = useState<RentalInfo | null>(null);
+  const [rentalProfile, setRentalProfile] = useState<{ companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // isLoading reste true tant que Firebase Auth OU les données Firestore ne sont pas prêtes
@@ -141,6 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserTypeState(null);
         setHasRentalSetup(false);
         setRentalInfo(null);
+        setRentalProfile(null);
         setUserDataLoading(false);
       }
       if (u?.uid) registerPushToken(u.uid).catch(() => {});
@@ -164,6 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUserTypeState((data.userType as UserType) ?? null);
           setHasRentalSetup(data.hasRentalSetup === true);
           setRentalInfo((data.rentalInfo as RentalInfo) ?? null);
+          setRentalProfile(data.rentalProfile ?? null);
         }
         setUserDataLoading(false);
       },
@@ -365,6 +372,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ────────────────────────────────────────────────────────────────────────────
 
+  // Un bailleur est "Pro" s'il a un SIRET ou est une société → plan gratuit non applicable
+  const isPro = useMemo(
+    () => rentalProfile?.companyType === "société" || !!rentalProfile?.siret,
+    [rentalProfile]
+  );
+
   const value = useMemo(
     () => ({
       user,
@@ -373,6 +386,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userType,
       hasRentalSetup,
       rentalInfo,
+      rentalProfile,
+      isPro,
       error,
       clearError,
       login,
@@ -386,7 +401,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       user, isLoading, isSuperAdmin,
-      userType, hasRentalSetup, rentalInfo,
+      userType, hasRentalSetup, rentalInfo, rentalProfile, isPro,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]
