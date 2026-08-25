@@ -23,6 +23,7 @@ import {
   INVENTORY_TYPE_LABELS, INVENTORY_TYPE_COLORS,
   INVENTORY_STATUS_LABELS, INVENTORY_STATUS_COLORS,
 } from "@/shared/types";
+import { TenantHamburgerButton } from "@/components/tenant/TenantDrawer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -665,8 +666,8 @@ export default function TenantHome() {
     >
       {/* Header */}
       <View style={[h.bar, { paddingTop, paddingHorizontal: 20 }]}>
-        <View style={h.left}>
-          <View style={h.dot} />
+        <TenantHamburgerButton />
+        <View style={{ flex: 1, marginLeft: 8 }}>
           <Text style={h.title}>Espace Locataire</Text>
         </View>
         <View style={h.right}>
@@ -675,9 +676,6 @@ export default function TenantHome() {
               <Text style={h.badgeText}>{pendingCount}</Text>
             </View>
           )}
-          <Pressable style={h.logoutBtn} onPress={handleLogout} hitSlop={10}>
-            <Ionicons name="log-out-outline" size={19} color="rgba(255,255,255,0.6)" />
-          </Pressable>
         </View>
       </View>
 

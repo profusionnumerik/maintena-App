@@ -11,6 +11,7 @@ import {
   arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -56,6 +57,7 @@ interface AuthContextValue {
   hasRentalSetup: boolean;
   rentalInfo: RentalInfo | null;
   setUserType: (type: UserType) => Promise<void>;
+  resetUserType: () => Promise<void>;
   markRentalSetup: () => Promise<void>;
   // ────────────────────────────────────────────────
   error: string | null;
@@ -346,6 +348,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Pas besoin d'appeler setUserTypeState : onSnapshot le met à jour automatiquement
   }, [user?.uid]);
 
+  /** Réinitialise le type d'utilisateur → redirige vers l'onboarding */
+  const resetUserType = useCallback(async () => {
+    if (!user?.uid) return;
+    await updateDoc(doc(db, "users", user.uid), {
+      userType: deleteField(),
+      hasRentalSetup: deleteField(),
+    });
+  }, [user?.uid]);
+
   /** Marque le module Location comme configuré (premier logement créé) */
   const markRentalSetup = useCallback(async () => {
     if (!user?.uid) return;
@@ -370,13 +381,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       resetPassword,
       setUserType,
+      resetUserType,
       markRentalSetup,
     }),
     [
       user, isLoading, isSuperAdmin,
       userType, hasRentalSetup, rentalInfo,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
-      setUserType, markRentalSetup,
+      setUserType, resetUserType, markRentalSetup,
     ]
   );
 

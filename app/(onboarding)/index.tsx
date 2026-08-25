@@ -1,43 +1,98 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { Image, Pressable, StyleSheet, Text, View, Platform, Alert, ActivityIndicator } from "react-native";
+import {
+  Image, Pressable, ScrollView, StyleSheet,
+  Text, View, Platform, ActivityIndicator,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
+import { wConfirm } from "@/shared/dialogs";
+
+// ─── Pill feature ─────────────────────────────────────────────────────────────
+
+function Pill({ icon, label, color }: { icon: string; label: string; color: string }) {
+  return (
+    <View style={[pill.wrap, { borderColor: `${color}30`, backgroundColor: `${color}12` }]}>
+      <Ionicons name={icon as any} size={13} color={color} />
+      <Text style={[pill.text, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Carte de choix ───────────────────────────────────────────────────────────
+
+function ChoiceCard({
+  icon, iconBg, iconColor, title, desc, onPress, loading = false, accent = false,
+}: {
+  icon: string; iconBg: string; iconColor: string;
+  title: string; desc: string;
+  onPress: () => void; loading?: boolean; accent?: boolean;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        card.wrap,
+        accent && { borderColor: `${iconColor}30`, backgroundColor: `${iconColor}08` },
+        pressed && card.pressed,
+      ]}
+      onPress={onPress}
+      disabled={loading}
+    >
+      <View style={[card.icon, { backgroundColor: iconBg }]}>
+        {loading
+          ? <ActivityIndicator size="small" color={iconColor} />
+          : <Ionicons name={icon as any} size={24} color={iconColor} />}
+      </View>
+      <View style={card.body}>
+        <Text style={card.title}>{title}</Text>
+        <Text style={card.desc}>{desc}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.2)" />
+    </Pressable>
+  );
+}
+
+// ─── Section header ───────────────────────────────────────────────────────────
+
+function SectionLabel({ label, color }: { label: string; color: string }) {
+  return (
+    <View style={sec.row}>
+      <View style={[sec.bar, { backgroundColor: color }]} />
+      <Text style={[sec.text, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Écran principal ──────────────────────────────────────────────────────────
 
 export default function OnboardingIndex() {
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const router  = useRouter();
+  const insets  = useSafeAreaInsets();
   const { logout, user, setUserType } = useAuth();
   const { loadError, refreshCoPros, isLoading } = useCoPro();
   const [landlordLoading, setLandlordLoading] = useState(false);
-  const top = Platform.OS === "web" ? 67 : insets.top;
-  const bottom = Platform.OS === "web" ? 34 : insets.bottom;
+
+  const paddingTop    = Platform.OS === "web" ? 24 : insets.top + 24;
+  const paddingBottom = Platform.OS === "web" ? 24 : insets.bottom + 16;
 
   const handleLandlordChoice = async () => {
     setLandlordLoading(true);
     try {
       await setUserType("landlord");
-      // _layout.tsx détecte userType = "landlord" et redirige automatiquement
     } catch {
-      Alert.alert("Erreur", "Impossible de configurer votre compte. Réessayez.");
+      if (Platform.OS === "web") {
+        window.alert("Impossible de configurer votre compte. Réessayez.");
+      }
       setLandlordLoading(false);
     }
   };
 
-  const showErrorDetails = () => {
-    Alert.alert(
-      "Diagnostic Firestore",
-      `UID: ${user?.uid ?? "??"}\nEmail: ${user?.email ?? "??"}\n\nErreur: ${loadError}\n\nSolutions:\n1. Vérifiez vos règles Firestore dans Firebase Console\n2. La règle requise:\n   resource.data.adminId == request.auth.uid\n3. Ou utilisez "Récupérer avec un code"`,
-      [
-        { text: "Réessayer", onPress: refreshCoPros },
-        { text: "OK" },
-      ]
-    );
-  };
+  const handleLogout = () =>
+    wConfirm("Déconnexion", "Voulez-vous vous déconnecter ?", logout, "Se déconnecter");
 
   return (
     <LinearGradient
@@ -46,193 +101,139 @@ export default function OnboardingIndex() {
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
-      <View style={[styles.inner, { paddingTop: top + 32, paddingBottom: bottom + 24 }]}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop, paddingBottom }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── En-tête ──────────────────────────────────────────────────────── */}
         <View style={styles.brand}>
           <Image
             source={require("../../assets/images/icon.png")}
             style={styles.logoImg}
             resizeMode="contain"
           />
-          <Text style={styles.title}>Bienvenue sur Maintena</Text>
+          <Text style={styles.title}>Maintena</Text>
           <Text style={styles.subtitle}>
-            Gérez vos interventions, prestataires et alertes{"\n"}depuis une seule application.
+            Copropriété, location, états des lieux{"\n"}et interventions — tout en un.
           </Text>
-          <View style={styles.featureRow}>
-            <View style={styles.featureItem}>
-              <Ionicons name="construct-outline" size={15} color="rgba(255,255,255,0.6)" />
-              <Text style={styles.featureLabel}>Interventions</Text>
-            </View>
-            <View style={styles.featureDot} />
-            <View style={styles.featureItem}>
-              <Ionicons name="people-outline" size={15} color="rgba(255,255,255,0.6)" />
-              <Text style={styles.featureLabel}>Prestataires</Text>
-            </View>
-            <View style={styles.featureDot} />
-            <View style={styles.featureItem}>
-              <Ionicons name="notifications-outline" size={15} color="rgba(255,255,255,0.6)" />
-              <Text style={styles.featureLabel}>Alertes</Text>
-            </View>
+
+          {/* Pills couvrant tous les usages */}
+          <View style={styles.pillRow}>
+            <Pill icon="business-outline"      label="Copropriété"     color="#60A5FA" />
+            <Pill icon="key-outline"            label="Location"        color="#A78BFA" />
+            <Pill icon="clipboard-outline"      label="États des lieux" color="#34D399" />
+            <Pill icon="construct-outline"      label="Interventions"   color="#FBBF24" />
           </View>
         </View>
 
+        {/* ── Erreur chargement ─────────────────────────────────────────────── */}
         {loadError && (
-          <Pressable style={styles.errorBanner} onPress={showErrorDetails}>
+          <Pressable
+            style={styles.errorBanner}
+            onPress={() => refreshCoPros()}
+          >
             <Ionicons name="warning" size={16} color="#FF6B35" />
             <Text style={styles.errorText}>
-              Vos copropriétés n'ont pas pu être chargées.{"\n"}
-              <Text style={styles.errorLink}>Appuyez pour voir le diagnostic</Text>
+              Vos copropriétés n'ont pas pu être chargées. Appuyez pour réessayer.
             </Text>
           </Pressable>
         )}
 
-        <View style={styles.cards}>
-          <Pressable
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            onPress={() => router.push("/(onboarding)/create")}
-          >
-            <View style={[styles.cardIcon, { backgroundColor: "rgba(37,99,235,0.12)" }]}>
-              <Ionicons name="add-circle" size={28} color={COLORS.primary} />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>Créer une copropriété</Text>
-              <Text style={styles.cardDesc}>
-                Je suis admin ou gestionnaire et je veux configurer ma copropriété
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
-          </Pressable>
+        {/* ── SECTION 1 : Copropriété & Syndic ────────────────────────────── */}
+        <View style={styles.section}>
+          <SectionLabel label="Copropriété & Syndic" color="#60A5FA" />
 
-          <Pressable
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+          <ChoiceCard
+            icon="add-circle-outline"
+            iconBg="rgba(37,99,235,0.15)"
+            iconColor={COLORS.primary}
+            title="Créer ma copropriété"
+            desc="Admin ou gestionnaire — configurez votre résidence et invitez les membres"
+            onPress={() => router.push("/(onboarding)/create")}
+          />
+
+          <ChoiceCard
+            icon="qr-code-outline"
+            iconBg="rgba(14,186,170,0.15)"
+            iconColor={COLORS.teal}
+            title="Rejoindre avec un code"
+            desc={loadError
+              ? "Entrez votre code prestataire pour récupérer l'accès admin"
+              : "J'ai reçu un code d'invitation pour rejoindre une résidence existante"}
             onPress={() => router.push("/(onboarding)/join")}
-          >
-            <View style={[styles.cardIcon, { backgroundColor: "rgba(14,186,170,0.12)" }]}>
-              <Ionicons name="qr-code" size={28} color={COLORS.teal} />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>Rejoindre avec un code</Text>
-              <Text style={styles.cardDesc}>
-                {loadError
-                  ? "Admin : entrez votre code prestataire pour récupérer l'accès admin"
-                  : "J'ai un code d'invitation pour rejoindre une copropriété existante"}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
-          </Pressable>
+          />
 
           {loadError && (
-            <Pressable
-              style={({ pressed }) => [styles.card, styles.recoverCard, pressed && styles.cardPressed]}
+            <ChoiceCard
+              icon="refresh-outline"
+              iconBg="rgba(255,107,53,0.12)"
+              iconColor="#FF6B35"
+              title={isLoading ? "Chargement…" : "Réessayer le chargement"}
+              desc="Tentative de récupération de vos copropriétés existantes"
               onPress={refreshCoPros}
-              disabled={isLoading}
-            >
-              <View style={[styles.cardIcon, { backgroundColor: "rgba(255,107,53,0.12)" }]}>
-                <Ionicons name="refresh" size={28} color="#FF6B35" />
-              </View>
-              <View style={styles.cardText}>
-                <Text style={[styles.cardTitle, { color: "#FF6B35" }]}>
-                  {isLoading ? "Chargement..." : "Réessayer le chargement"}
-                </Text>
-                <Text style={styles.cardDesc}>
-                  Tentative de récupération de vos copropriétés existantes
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#FF6B35" />
-            </Pressable>
+              loading={isLoading}
+            />
           )}
         </View>
 
-        {/* ── Module Location — Bailleur & Locataire ───────────────────── */}
-        <View style={styles.dividerRow}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerLabel}>ou</Text>
-          <View style={styles.dividerLine} />
-        </View>
+        {/* ── SECTION 2 : Location ────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <SectionLabel label="Module location" color="#A78BFA" />
 
-        <View style={styles.locationCards}>
-          <Pressable
-            style={({ pressed }) => [styles.card, styles.landlordCard, pressed && styles.cardPressed]}
+          <ChoiceCard
+            icon="home-outline"
+            iconBg="rgba(139,92,246,0.15)"
+            iconColor="#8B5CF6"
+            title="Je suis bailleur"
+            desc="Gérez vos logements, loyers, états des lieux et interventions locataires"
             onPress={handleLandlordChoice}
-            disabled={landlordLoading}
-          >
-            <View style={[styles.cardIcon, { backgroundColor: "rgba(139,92,246,0.12)" }]}>
-              {landlordLoading
-                ? <ActivityIndicator size="small" color="#8B5CF6" />
-                : <Ionicons name="key" size={28} color="#8B5CF6" />
-              }
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>Je suis bailleur</Text>
-              <Text style={styles.cardDesc}>
-                Je mets des logements en location et je veux suivre mes locataires et interventions
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
-          </Pressable>
+            loading={landlordLoading}
+            accent
+          />
 
-          <Pressable
-            style={({ pressed }) => [styles.card, styles.tenantCard, pressed && styles.cardPressed]}
+          <ChoiceCard
+            icon="person-outline"
+            iconBg="rgba(20,212,198,0.15)"
+            iconColor={COLORS.teal}
+            title="Je suis locataire"
+            desc="Mon bailleur m'a envoyé un code d'invitation — accédez à votre espace"
             onPress={() => router.push("/(onboarding)/join-rental")}
-          >
-            <View style={[styles.cardIcon, { backgroundColor: "rgba(234,179,8,0.12)" }]}>
-              <Ionicons name="mail-open" size={28} color="#D97706" />
-            </View>
-            <View style={styles.cardText}>
-              <Text style={styles.cardTitle}>J'ai une invitation</Text>
-              <Text style={styles.cardDesc}>
-                Mon bailleur m'a envoyé un code — je veux accéder à mon espace locataire
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={COLORS.textMuted} />
-          </Pressable>
+            accent
+          />
         </View>
-        {/* ─────────────────────────────────────────────────────────────── */}
 
-        <Pressable style={styles.logoutBtn} onPress={logout}>
-          <Text style={styles.logoutText}>Se déconnecter</Text>
+        {/* ── Déconnexion ──────────────────────────────────────────────────── */}
+        <Pressable style={styles.logoutBtn} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={14} color="rgba(255,255,255,0.3)" />
+          <Text style={styles.logoutText}>Se déconnecter ({user?.email})</Text>
         </Pressable>
-      </View>
+      </ScrollView>
     </LinearGradient>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  inner: { flex: 1, paddingHorizontal: 20, justifyContent: "space-between" },
-  brand: { alignItems: "center", gap: 12 },
-  logoImg: {
-    width: 80, height: 80, borderRadius: 22,
-  },
+  root:    { flex: 1 },
+  scroll:  { paddingHorizontal: 20, gap: 24 },
+
+  brand:   { alignItems: "center", gap: 10 },
+  logoImg: { width: 64, height: 64, borderRadius: 18 },
   title: {
-    fontSize: 26, fontFamily: "Inter_700Bold",
-    color: "#fff", textAlign: "center", letterSpacing: -0.5,
+    fontSize: 28, fontFamily: "Inter_700Bold",
+    color: "#fff", letterSpacing: -0.8,
   },
   subtitle: {
     fontSize: 14, fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.5)", textAlign: "center", lineHeight: 20,
+    color: "rgba(255,255,255,0.5)", textAlign: "center", lineHeight: 21,
   },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 6,
+  pillRow: {
+    flexDirection: "row", flexWrap: "wrap",
+    justifyContent: "center", gap: 8, marginTop: 4,
   },
-  featureItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  featureLabel: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.45)",
-  },
-  featureDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
+
   errorBanner: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: "rgba(255,107,53,0.12)",
@@ -243,56 +244,47 @@ const styles = StyleSheet.create({
     flex: 1, fontSize: 13, fontFamily: "Inter_400Regular",
     color: "rgba(255,255,255,0.7)", lineHeight: 18,
   },
-  errorLink: {
-    fontFamily: "Inter_600SemiBold", color: "#FF6B35",
+
+  section: { gap: 10 },
+
+  logoutBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 8,
   },
-  cards: { gap: 14 },
-  card: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 18, padding: 18,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
-  },
-  recoverCard: {
-    borderColor: "rgba(255,107,53,0.2)",
-    backgroundColor: "rgba(255,107,53,0.05)",
-  },
-  cardPressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
-  cardIcon: {
-    width: 52, height: 52, borderRadius: 16,
-    alignItems: "center", justifyContent: "center",
-  },
-  cardText: { flex: 1, gap: 4 },
-  cardTitle: {
-    fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff",
-  },
-  cardDesc: {
-    fontSize: 12, fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.5)", lineHeight: 16,
-  },
-  logoutBtn: { alignItems: "center", paddingVertical: 8 },
   logoutText: {
-    fontSize: 13, fontFamily: "Inter_500Medium",
-    color: "rgba(255,255,255,0.35)",
-  },
-  // ── Bailleur / Locataire ──
-  locationCards: { gap: 10 },
-  tenantCard: {
-    borderColor: "rgba(234,179,8,0.2)",
-    backgroundColor: "rgba(234,179,8,0.05)",
-  },
-  dividerRow: {
-    flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4,
-  },
-  dividerLine: {
-    flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.1)",
-  },
-  dividerLabel: {
     fontSize: 12, fontFamily: "Inter_400Regular",
     color: "rgba(255,255,255,0.3)",
   },
-  landlordCard: {
-    borderColor: "rgba(139,92,246,0.2)",
-    backgroundColor: "rgba(139,92,246,0.05)",
+});
+
+const pill = StyleSheet.create({
+  wrap: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1,
   },
+  text: { fontSize: 11, fontFamily: "Inter_500Medium" },
+});
+
+const card = StyleSheet.create({
+  wrap: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+  },
+  pressed: { opacity: 0.75, transform: [{ scale: 0.98 }] },
+  icon: {
+    width: 46, height: 46, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+  },
+  body:  { flex: 1, gap: 3 },
+  title: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  desc:  { fontSize: 12, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)", lineHeight: 16 },
+});
+
+const sec = StyleSheet.create({
+  row:  { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 2 },
+  bar:  { width: 3, height: 14, borderRadius: 2 },
+  text: { fontSize: 11, fontFamily: "Inter_600SemiBold", letterSpacing: 0.5, textTransform: "uppercase" },
 });

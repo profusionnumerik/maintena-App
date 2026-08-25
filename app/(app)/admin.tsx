@@ -44,7 +44,7 @@ function InviteCodePreview({ code, isPrestataireRole }: { code: string | null; i
 export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, isSuperAdmin, logout, deleteAccount } = useAuth();
+  const { user, isSuperAdmin, logout, deleteAccount, resetUserType } = useAuth();
   const { currentCopro, currentRole, members, copros, switchCoPro, deleteCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
   const [adminTab, setAdminTab] = useState<"copro" | "membres" | "config" | "compte">("copro");
   const [copiedCode, setCopiedCode] = useState(false);
@@ -1618,16 +1618,28 @@ export default function AdminScreen() {
 
       {adminTab === "compte" && (
       <View style={styles.accountSection}>
+        {/* Changer de profil */}
+        <Pressable
+          style={styles.logoutRow}
+          onPress={() => wConfirm(
+            "Changer de profil",
+            "Vous allez retourner à l'écran de sélection de profil. Vos données restent intactes.",
+            async () => { try { await resetUserType(); } catch {} },
+            "Changer",
+          )}
+        >
+          <Ionicons name="swap-horizontal-outline" size={18} color={COLORS.textSecondary} />
+          <Text style={[styles.logoutText, { color: COLORS.textSecondary }]}>Changer de profil</Text>
+        </Pressable>
+
         <Pressable style={styles.logoutRow} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={18} color={COLORS.danger} />
           <Text style={styles.logoutText}>Se déconnecter</Text>
         </Pressable>
-        {isAdmin && (
-          <Pressable style={styles.deleteAccountRow} onPress={handleDeleteAccount}>
-            <Ionicons name="trash-outline" size={16} color={COLORS.textMuted} />
-            <Text style={styles.deleteAccountText}>Supprimer mon compte</Text>
-          </Pressable>
-        )}
+        <Pressable style={styles.deleteAccountRow} onPress={handleDeleteAccount}>
+          <Ionicons name="trash-outline" size={16} color={COLORS.textMuted} />
+          <Text style={styles.deleteAccountText}>Supprimer mon compte</Text>
+        </Pressable>
       </View>
       )}
     </ScrollView>

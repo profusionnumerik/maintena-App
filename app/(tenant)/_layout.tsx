@@ -1,5 +1,12 @@
 import { Stack } from "expo-router";
+import { TenantNavProvider } from "@/context/TenantNavContext";
+import { TenantDrawer } from "@/components/tenant/TenantDrawer";
 
 export default function TenantLayout() {
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <TenantNavProvider>
+      <Stack screenOptions={{ headerShown: false }} />
+      <TenantDrawer />
+    </TenantNavProvider>
+  );
 }
