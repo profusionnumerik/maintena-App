@@ -150,15 +150,19 @@ function equipmentHtml(report: InventoryReport): string {
   `;
 }
 
-function sigBlock(label: string, name: string, record?: { status?: string; signedAt?: string } | null): string {
+function sigBlock(label: string, name: string, record?: { status?: string; signedAt?: string; signatureImageUrl?: string } | null): string {
   const signed = record?.status === "signed";
+  const imgUrl = record?.signatureImageUrl ?? null;
   return `
     <div class="sig-block">
       <div class="sig-label">${label}</div>
       <div class="sig-name">${esc(name)}</div>
       ${signed
-        ? `<div class="sig-date">Signé électroniquement le ${fmtDt(record?.signedAt)}</div>
-           <div class="sig-stamp">✓ SIGNATURE ÉLECTRONIQUE</div>`
+        ? `${imgUrl
+            ? `<div class="sig-img-wrap"><img src="${imgUrl}" class="sig-img" alt="Signature ${label}" /></div>`
+            : `<div class="sig-stamp">✓ SIGNATURE ÉLECTRONIQUE</div>`
+          }
+           <div class="sig-date">Signé électroniquement le ${fmtDt(record?.signedAt)}</div>`
         : `<div class="sig-pending">Signature en attente</div>
            <div class="sig-line"></div>`
       }
@@ -366,6 +370,8 @@ export function generateInventoryHtml(
     margin: 0 auto;
     margin-top: 20px;
   }
+  .sig-img-wrap { margin: 6px 0; display: flex; justify-content: center; }
+  .sig-img { max-width: 100%; height: 80px; object-fit: contain; }
 
   /* ── Misc ── */
   .empty { color: #94a3b8; font-style: italic; font-size: 9.5pt; padding: 8px 4px; }

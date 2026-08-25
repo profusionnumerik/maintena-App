@@ -165,7 +165,7 @@ export default function TenantInterventions() {
   const insets  = useSafeAreaInsets();
   const router  = useRouter();
   const { rentalInfo } = useAuth();
-  const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
+  const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
   const [interventions, setInterventions] = useState<PropertyIntervention[]>([]);
   const [loading, setLoading]             = useState(true);

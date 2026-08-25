@@ -279,7 +279,7 @@ export default function RentalDashboard() {
     }
   }, []);
 
-  const paddingTop = Platform.OS === "web" ? 67 + 24 : insets.top + 16;
+  const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
 
   return (
     <View style={styles.root}>

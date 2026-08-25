@@ -222,7 +222,7 @@ export default function EtatsDesLieux() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [user?.uid]);
 
-  const paddingTop = Platform.OS === "web" ? 67 + 20 : insets.top + 16;
+  const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
 
   return (
     <View style={s.root}>

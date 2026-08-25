@@ -8,6 +8,7 @@ import {
   ActivityIndicator, Alert, Dimensions, Linking, Modal, PanResponder,
   Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 import { Path, Svg, SvgXml } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -80,7 +81,10 @@ function formatDate(iso: string) { return new Date(iso).toLocaleDateString("fr-F
 
 async function openUrl(url: string) {
   if (Platform.OS === "web") { Linking.openURL(url); return; }
-  Linking.openURL(url);
+  // Navigateur intégré → bouton "Fermer" pour revenir à l'app
+  await WebBrowser.openBrowserAsync(url, {
+    presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+  }).catch(() => Linking.openURL(url));
 }
 
 // ─── Modale Création ──────────────────────────────────────────────────────────
@@ -193,6 +197,9 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
 
   // Signature bailleur
   const [showSign, setShowSign]       = useState(false);
+  const [showInvoiceRef, setShowInvoiceRef] = useState(false);   // étape saisie réf. facture
+  const [invoiceRef, setInvoiceRef]   = useState("");
+  const [pendingSignOffer, setPendingSignOffer] = useState<DevisOffer | null>(null);
   const [signOffer, setSignOffer]     = useState<DevisOffer | null>(null);
   const [signing, setSigning]         = useState(false);
   const [strokes, setStrokes]         = useState<{x:number;y:number}[][]>([]);
@@ -269,7 +276,18 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
     return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}` + pts.slice(1).map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
   }
 
-  const openSign = async (offer: DevisOffer) => {
+  const openSign = (offer: DevisOffer) => {
+    // Étape 1 : demander la référence de facture avant la signature
+    setPendingSignOffer(offer);
+    setInvoiceRef(offer.invoiceRef ?? "");
+    setShowCompare(false);
+    setTimeout(() => setShowInvoiceRef(true), 300);
+  };
+
+  const proceedToSign = async () => {
+    if (!invoiceRef.trim()) { wa("Référence requise", "Saisissez la référence de la facture avant de signer."); return; }
+    const offer = pendingSignOffer!;
+    setShowInvoiceRef(false);
     setSignOffer(offer);
     setStrokes([]); strokesRef.current = []; setLiveStroke([]); currentStroke.current = [];
     setAppliedSaved(false); setSavedSignSvg(null);
@@ -278,7 +296,6 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
       const svg = snap.data()?.signatureModelSvg ?? null;
       setSavedSignSvg(svg); if (svg) setAppliedSaved(true);
     } catch {}
-    setShowCompare(false);
     setTimeout(() => setShowSign(true), 300);
   };
 
@@ -300,7 +317,7 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
       const res = await fetch(`${getApiUrl().replace(/\/$/, "")}/api/rental/devis/landlord-sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ propertyId: intervention.propertyId, interventionId: intervention.id, offerId: signOffer.id, svgBase64 }),
+        body: JSON.stringify({ propertyId: intervention.propertyId, interventionId: intervention.id, offerId: signOffer.id, svgBase64, invoiceRef: invoiceRef.trim() }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? "Erreur serveur");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -598,6 +615,57 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
         </View>
       </Modal>
 
+      {/* ── Modal saisie référence de facture ──────────────────────────────── */}
+      <Modal visible={showInvoiceRef} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowInvoiceRef(false)}>
+        <View style={[dt.root, { paddingTop: insets.top + 20 }]}>
+          <View style={dt.header}>
+            <Pressable onPress={() => setShowInvoiceRef(false)}><Text style={dt.cancelText}>Annuler</Text></Pressable>
+            <Text style={dt.modalTitle}>Référence facture</Text>
+            <Pressable onPress={proceedToSign}><Text style={[dt.validateText]}>Continuer →</Text></Pressable>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20, gap: 20 }} keyboardShouldPersistTaps="handled">
+            <View style={dt.invoiceBanner}>
+              <Ionicons name="receipt-outline" size={20} color="#7C3AED" />
+              <View style={{ flex: 1 }}>
+                <Text style={dt.invoiceBannerTitle}>Référence de la facture</Text>
+                <Text style={dt.invoiceBannerDesc}>Cette référence sera affichée sur le bon pour accord signé.</Text>
+              </View>
+            </View>
+            <View>
+              <Text style={dt.invoiceLabel}>N° de facture / référence *</Text>
+              <TextInput
+                style={dt.invoiceInput}
+                value={invoiceRef}
+                onChangeText={setInvoiceRef}
+                placeholder="Ex : FAC-2025-001, 2025/123…"
+                placeholderTextColor={COLORS.textMuted}
+                autoCapitalize="characters"
+                returnKeyType="done"
+                autoFocus
+              />
+              <Text style={dt.invoiceHint}>Obligatoire — visible sur le document signé par les deux parties.</Text>
+            </View>
+            {pendingSignOffer && (
+              <View style={dt.invoiceOfferCard}>
+                <Text style={dt.invoiceOfferLabel}>Bon pour accord concerné</Text>
+                <Text style={dt.invoiceOfferName}>{pendingSignOffer.contactName}</Text>
+                {pendingSignOffer.priceTTC !== undefined && (
+                  <Text style={dt.invoiceOfferPrice}>{formatPrice(pendingSignOffer.priceTTC)} TTC</Text>
+                )}
+              </View>
+            )}
+            <Pressable
+              style={[dt.invoiceSubmitBtn, !invoiceRef.trim() && { opacity: 0.45 }]}
+              onPress={proceedToSign}
+              disabled={!invoiceRef.trim()}
+            >
+              <Ionicons name="create-outline" size={18} color="#fff" />
+              <Text style={dt.invoiceSubmitText}>Confirmer et apposer la signature</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* ── Modal signature bailleur ────────────────────────────────────────── */}
       <Modal visible={showSign} animationType="slide" presentationStyle="fullScreen">
         <View style={[dt.root, { paddingTop: insets.top + 16 }]}>
@@ -616,11 +684,16 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
             {signOffer && (
               <View style={dt.signBanner}>
                 <Ionicons name="document-text-outline" size={16} color="#7C3AED" />
-                <Text style={dt.signBannerText} numberOfLines={3}>
-                  Bon pour accord — {intervention.title}{"\n"}
-                  <Text style={{ fontFamily: "Inter_700Bold" }}>{signOffer.contactName}</Text>
-                  {signOffer.priceTTC !== undefined ? ` · ${formatPrice(signOffer.priceTTC)} TTC` : ""}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={dt.signBannerText} numberOfLines={2}>
+                    Bon pour accord — {intervention.title}{"\n"}
+                    <Text style={{ fontFamily: "Inter_700Bold" }}>{signOffer.contactName}</Text>
+                    {signOffer.priceTTC !== undefined ? ` · ${formatPrice(signOffer.priceTTC)} TTC` : ""}
+                  </Text>
+                  {invoiceRef.trim() ? (
+                    <Text style={dt.signBannerRef}>Réf. facture : {invoiceRef.trim()}</Text>
+                  ) : null}
+                </View>
               </View>
             )}
 
@@ -676,7 +749,7 @@ function DetailModal({ intervention, onClose, landlordUid }: { intervention: Int
 
 export default function RentalInterventions() {
   const insets = useSafeAreaInsets();
-  const paddingTop = Platform.OS === "web" ? 67 + 24 : insets.top + 16;
+  const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
   const { user } = useAuth();
 
   const [interventions, setInterventions] = useState<InterventionWithProperty[]>([]);
@@ -955,6 +1028,39 @@ const dt = StyleSheet.create({
   applySigBtn:       { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
   applySigBtnActive: { backgroundColor: "#EDE9FE", borderColor: "#7C3AED" },
   applySigBtnText:   { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+
+  // Modale référence facture
+  modalTitle:        { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  validateText:      { fontSize: 15, fontFamily: "Inter_700Bold", color: "#7C3AED" },
+  signBannerRef:     { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#7C3AED", marginTop: 2 },
+  invoiceBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 12,
+    backgroundColor: "#F5F3FF", borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: "#DDD6FE",
+  },
+  invoiceBannerTitle: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#4C1D95", marginBottom: 2 },
+  invoiceBannerDesc:  { fontSize: 12, fontFamily: "Inter_400Regular", color: "#6D28D9", lineHeight: 17 },
+  invoiceLabel:  { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary, marginBottom: 6 },
+  invoiceInput: {
+    backgroundColor: "#fff", borderWidth: 1.5, borderColor: "#8B5CF6",
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.text,
+    letterSpacing: 0.5,
+  },
+  invoiceHint: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 6 },
+  invoiceOfferCard: {
+    backgroundColor: COLORS.surfaceAlt, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: COLORS.border, gap: 2,
+  },
+  invoiceOfferLabel: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  invoiceOfferName:  { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
+  invoiceOfferPrice: { fontSize: 13, fontFamily: "Inter_500Medium", color: "#7C3AED" },
+  invoiceSubmitBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+    backgroundColor: "#7C3AED", borderRadius: 14,
+    paddingVertical: 15, marginTop: 4,
+  },
+  invoiceSubmitText: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff" },
 });
 
 // ptsToPath helper (exposé pour le composant Modal)

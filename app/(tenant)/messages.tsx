@@ -264,7 +264,7 @@ export default function TenantMessages() {
   const { user, rentalInfo } = useAuth();
   const flatRef  = useRef<FlatList>(null);
 
-  const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
+  const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
   const paddingBot = Math.max(insets.bottom + 16, 24);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);

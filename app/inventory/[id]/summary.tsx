@@ -4,11 +4,12 @@
  * Bailleur : peut finaliser, signer, archiver.
  * Locataire : peut consulter et ajouter une observation.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Modal, Platform, Pressable,
-  ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Dimensions, Modal, PanResponder,
+  Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { Path, Svg, SvgXml } from "react-native-svg";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,9 +18,13 @@ import * as Sharing from "expo-sharing";
 import {
   collection, doc, getDocs, onSnapshot, updateDoc,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
+
+const SIG_W = Math.min(Dimensions.get("window").width - 48, 360);
+const SIG_H = 160;
 import { generateInventoryHtml } from "@/lib/inventoryPdf";
 import {
   InventoryReport, InventoryRoom, InventoryStatus,
@@ -54,6 +59,20 @@ export default function SummaryScreen() {
   const [observations, setObservations]               = useState("");
   const [generatingPdf, setGeneratingPdf]             = useState(false);
 
+  // ── Signature pad bailleur
+  const [landlordStrokes, setLandlordStrokes]   = useState<{x:number;y:number}[][]>([]);
+  const [landlordLive, setLandlordLive]         = useState<{x:number;y:number}[]>([]);
+  const landlordCurrentStroke = useRef<{x:number;y:number}[]>([]);
+  const landlordStrokesRef    = useRef<{x:number;y:number}[][]>([]);
+  const [savedSignSvg, setSavedSignSvg]         = useState<string | null>(null);
+  const [useSavedSig, setUseSavedSig]           = useState(false);
+
+  // ── Signature pad locataire
+  const [tenantStrokes, setTenantStrokes]       = useState<{x:number;y:number}[][]>([]);
+  const [tenantLive, setTenantLive]             = useState<{x:number;y:number}[]>([]);
+  const tenantCurrentStroke = useRef<{x:number;y:number}[]>([]);
+  const tenantStrokesRef    = useRef<{x:number;y:number}[][]>([]);
+
   const paddingTop = Platform.OS === "web" ? 67 + 12 : insets.top + 8;
 
   // Écoute rapport
@@ -80,6 +99,51 @@ export default function SummaryScreen() {
         setRooms(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryRoom)));
       });
   }, [id, propertyId]);
+
+  // ── PanResponder bailleur
+  const landlordPR = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true, onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true, onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => { const { locationX: x, locationY: y } = e.nativeEvent; landlordCurrentStroke.current = [{ x, y }]; setLandlordLive([{ x, y }]); },
+      onPanResponderMove: (e) => { const { locationX: x, locationY: y } = e.nativeEvent; landlordCurrentStroke.current = [...landlordCurrentStroke.current, { x, y }]; setLandlordLive([...landlordCurrentStroke.current]); },
+      onPanResponderRelease: () => { if (landlordCurrentStroke.current.length > 0) { landlordStrokesRef.current = [...landlordStrokesRef.current, landlordCurrentStroke.current]; setLandlordStrokes([...landlordStrokesRef.current]); } setLandlordLive([]); landlordCurrentStroke.current = []; },
+      onPanResponderTerminate: () => { if (landlordCurrentStroke.current.length > 0) { landlordStrokesRef.current = [...landlordStrokesRef.current, landlordCurrentStroke.current]; setLandlordStrokes([...landlordStrokesRef.current]); } setLandlordLive([]); landlordCurrentStroke.current = []; },
+    })
+  ).current;
+
+  // ── PanResponder locataire
+  const tenantPR = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true, onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true, onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => { const { locationX: x, locationY: y } = e.nativeEvent; tenantCurrentStroke.current = [{ x, y }]; setTenantLive([{ x, y }]); },
+      onPanResponderMove: (e) => { const { locationX: x, locationY: y } = e.nativeEvent; tenantCurrentStroke.current = [...tenantCurrentStroke.current, { x, y }]; setTenantLive([...tenantCurrentStroke.current]); },
+      onPanResponderRelease: () => { if (tenantCurrentStroke.current.length > 0) { tenantStrokesRef.current = [...tenantStrokesRef.current, tenantCurrentStroke.current]; setTenantStrokes([...tenantStrokesRef.current]); } setTenantLive([]); tenantCurrentStroke.current = []; },
+      onPanResponderTerminate: () => { if (tenantCurrentStroke.current.length > 0) { tenantStrokesRef.current = [...tenantStrokesRef.current, tenantCurrentStroke.current]; setTenantStrokes([...tenantStrokesRef.current]); } setTenantLive([]); tenantCurrentStroke.current = []; },
+    })
+  ).current;
+
+  function ptsToPath(pts: {x:number;y:number}[]): string {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} l0.1,0.1`;
+    return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}` + pts.slice(1).map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
+  }
+
+  async function uploadSignatureSvg(strokes: {x:number;y:number}[][], svgOverride?: string, role: "landlord" | "tenant" = "landlord"): Promise<string> {
+    let svgStr = svgOverride;
+    if (!svgStr) {
+      const pathsXml = strokes.map((pts) => `<path d="${ptsToPath(pts)}" stroke="#1E293B" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`).join("");
+      svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIG_W}" height="${SIG_H}" viewBox="0 0 ${SIG_W} ${SIG_H}" style="background:white">${pathsXml}</svg>`;
+    }
+    const blob = new Blob([svgStr], { type: "image/svg+xml" });
+    const path = `inventory-signatures/${propertyId}/${id}/${role}_${Date.now()}.svg`;
+    const sRef = storageRef(storage, path);
+    await uploadBytes(sRef, blob, { contentType: "image/svg+xml" });
+    return await getDownloadURL(sRef);
+  }
 
   const isLandlord = report?.landlordId === user?.uid;
   const isTenant   = !isLandlord && user?.uid != null;
@@ -175,11 +239,26 @@ export default function SummaryScreen() {
     }
   };
 
-  // Signature locale simplifiée (V1 — pad image)
+  // Ouvre le pad bailleur et charge la signature enregistrée si elle existe
+  const openLandlordSign = async () => {
+    setLandlordStrokes([]); landlordStrokesRef.current = []; setLandlordLive([]); landlordCurrentStroke.current = [];
+    setUseSavedSig(false); setSavedSignSvg(null);
+    try {
+      const { getDoc } = await import("firebase/firestore");
+      const snap = await getDoc(doc(db, "users", user!.uid));
+      const svg = snap.data()?.signatureModelSvg ?? null;
+      setSavedSignSvg(svg); if (svg) setUseSavedSig(true);
+    } catch {}
+    setShowSignModal(true);
+  };
+
   const handleSignLandlord = async () => {
+    const strokes = landlordStrokesRef.current;
+    if (!useSavedSig && strokes.length === 0) { Alert.alert("Signature requise", "Dessinez ou appliquez votre signature."); return; }
     setShowSignModal(false);
     setSaving(true);
     try {
+      const signatureImageUrl = await uploadSignatureSvg(strokes, useSavedSig && savedSignSvg ? savedSignSvg : undefined, "landlord");
       const sigRecord = {
         status:           "signed",
         providerType:     "local",
@@ -187,18 +266,12 @@ export default function SummaryScreen() {
         signerEmail:      user!.email ?? "",
         signerName:       report!.propertySnapshot.landlordName,
         signedAt:         new Date().toISOString(),
-        signatureImageUrl: null,
+        signatureImageUrl,
       };
-      const currentStatus: InventoryStatus = report?.signatures?.tenant?.status === "signed"
-        ? "signed"
-        : "partially_signed";
+      const currentStatus: InventoryStatus = report?.signatures?.tenant?.status === "signed" ? "signed" : "partially_signed";
       await updateDoc(
         doc(db, "properties", propertyId, "inventoryReports", id),
-        {
-          "signatures.landlord": sigRecord,
-          status: currentStatus,
-          updatedAt: new Date().toISOString(),
-        }
+        { "signatures.landlord": sigRecord, status: currentStatus, updatedAt: new Date().toISOString() }
       );
       Alert.alert("Signé ✓", "Votre signature a été enregistrée.");
     } catch {
@@ -243,9 +316,12 @@ export default function SummaryScreen() {
 
   // Signature locataire
   const handleSignTenant = async () => {
+    const strokes = tenantStrokesRef.current;
+    if (strokes.length === 0) { Alert.alert("Signature requise", "Dessinez votre signature dans le cadre."); return; }
     setShowTenantSignModal(false);
     setSaving(true);
     try {
+      const signatureImageUrl = await uploadSignatureSvg(strokes, undefined, "tenant");
       const sigRecord = {
         status:            "signed",
         providerType:      "local",
@@ -253,18 +329,12 @@ export default function SummaryScreen() {
         signerEmail:       user!.email ?? "",
         signerName:        `${report!.propertySnapshot.tenantFirstName} ${report!.propertySnapshot.tenantLastName}`,
         signedAt:          new Date().toISOString(),
-        signatureImageUrl: null,
+        signatureImageUrl,
       };
-      const currentStatus: InventoryStatus = report?.signatures?.landlord?.status === "signed"
-        ? "signed"
-        : "partially_signed";
+      const currentStatus: InventoryStatus = report?.signatures?.landlord?.status === "signed" ? "signed" : "partially_signed";
       await updateDoc(
         doc(db, "properties", propertyId, "inventoryReports", id),
-        {
-          "signatures.tenant": sigRecord,
-          status:    currentStatus,
-          updatedAt: new Date().toISOString(),
-        }
+        { "signatures.tenant": sigRecord, status: currentStatus, updatedAt: new Date().toISOString() }
       );
       Alert.alert("Signé ✓", "Votre signature a été enregistrée. L'état des lieux est maintenant complet.");
     } catch {
@@ -426,7 +496,7 @@ export default function SummaryScreen() {
               report.status !== "archived" &&
               report.signatures?.landlord?.status !== "signed"
             }
-            onSign={() => setShowSignModal(true)}
+            onSign={openLandlordSign}
           />
           <View style={s.divider} />
           <SigBlock
@@ -517,55 +587,81 @@ export default function SummaryScreen() {
         </View>
       </Modal>
 
-      {/* Modale signature bailleur */}
-      <Modal
-        visible={showSignModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSignModal(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.alertModal}>
-            <Ionicons name="create-outline" size={36} color="#8B5CF6" />
-            <Text style={s.alertTitle}>Signer en tant que bailleur</Text>
-            <Text style={s.alertDesc}>
-              En confirmant, vous apposez votre signature électronique sur ce rapport d'état des lieux au nom de{" "}
-              <Text style={{ fontFamily: "Inter_700Bold" }}>{snap.landlordName}</Text>.{"\n\n"}
-              Votre adresse IP et l'heure seront enregistrées.
-            </Text>
-            <Pressable style={s.alertConfirm} onPress={handleSignLandlord}>
-              <Text style={s.alertConfirmText}>Je signe</Text>
-            </Pressable>
-            <Pressable style={s.alertCancel} onPress={() => setShowSignModal(false)}>
-              <Text style={s.alertCancelText}>Annuler</Text>
+      {/* ── Modale signature bailleur — pad de signature ── */}
+      <Modal visible={showSignModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowSignModal(false)}>
+        <View style={[sp.root, { paddingTop: insets.top + 16 }]}>
+          <View style={sp.header}>
+            <Pressable onPress={() => setShowSignModal(false)}><Text style={sp.cancel}>Annuler</Text></Pressable>
+            <Text style={sp.headerTitle}>Signature bailleur</Text>
+            <Pressable onPress={handleSignLandlord} disabled={saving}>
+              {saving ? <ActivityIndicator size="small" color="#8B5CF6" /> : <Text style={sp.validate}>Valider</Text>}
             </Pressable>
           </View>
+          <ScrollView contentContainerStyle={sp.body} keyboardShouldPersistTaps="handled">
+            <View style={sp.infoBanner}>
+              <Ionicons name="create-outline" size={16} color="#7C3AED" />
+              <Text style={sp.infoText}>Signature de {snap.landlordName} — {INVENTORY_TYPE_LABELS[report.type]}</Text>
+            </View>
+            {savedSignSvg && (
+              <View style={[sp.savedBox, useSavedSig && sp.savedBoxActive]}>
+                <View style={sp.savedHeader}>
+                  <Ionicons name="shield-checkmark" size={14} color={useSavedSig ? "#7C3AED" : COLORS.textMuted} />
+                  <Text style={[sp.savedLabel, useSavedSig && { color: "#7C3AED" }]}>Signature enregistrée</Text>
+                  <Pressable style={[sp.applyBtn, useSavedSig && sp.applyBtnActive]} onPress={() => { setUseSavedSig(!useSavedSig); if (!useSavedSig) { setLandlordStrokes([]); landlordStrokesRef.current = []; } }}>
+                    <Text style={[sp.applyBtnText, useSavedSig && { color: "#7C3AED" }]}>{useSavedSig ? "✓ Appliquée" : "Appliquer"}</Text>
+                  </Pressable>
+                </View>
+                <SvgXml xml={savedSignSvg} width={SIG_W} height={90} />
+              </View>
+            )}
+            {(!savedSignSvg || !useSavedSig) && (
+              <>
+                <Text style={sp.hint}>Dessinez votre signature :</Text>
+                <View style={[sp.canvas, { width: SIG_W, height: SIG_H }]} pointerEvents="box-only" {...landlordPR.panHandlers}>
+                  <Svg width={SIG_W} height={SIG_H}>
+                    {landlordStrokes.map((pts, i) => <Path key={i} d={ptsToPath(pts)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />)}
+                    {landlordLive.length > 1 && <Path d={ptsToPath(landlordLive)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />}
+                  </Svg>
+                </View>
+                <Pressable style={sp.clearBtn} onPress={() => { setLandlordStrokes([]); landlordStrokesRef.current = []; setLandlordLive([]); landlordCurrentStroke.current = []; }}>
+                  <Ionicons name="trash-outline" size={13} color={COLORS.textMuted} />
+                  <Text style={sp.clearBtnText}>Effacer</Text>
+                </Pressable>
+              </>
+            )}
+            <Text style={sp.legal}>En validant, vous apposez votre signature électronique conformément à l'article 1366 du Code civil.</Text>
+          </ScrollView>
         </View>
       </Modal>
 
-      {/* Modale signature locataire */}
-      <Modal
-        visible={showTenantSignModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowTenantSignModal(false)}
-      >
-        <View style={s.overlay}>
-          <View style={s.alertModal}>
-            <Ionicons name="create-outline" size={36} color="#10B981" />
-            <Text style={s.alertTitle}>Signer en tant que locataire</Text>
-            <Text style={s.alertDesc}>
-              En confirmant, vous apposez votre signature électronique sur ce rapport d'état des lieux au nom de{" "}
-              <Text style={{ fontFamily: "Inter_700Bold" }}>{snap.tenantFirstName} {snap.tenantLastName}</Text>.{"\n\n"}
-              Votre adresse IP et l'heure seront enregistrées.
-            </Text>
-            <Pressable style={[s.alertConfirm, { backgroundColor: "#10B981" }]} onPress={handleSignTenant}>
-              <Text style={s.alertConfirmText}>Je signe</Text>
-            </Pressable>
-            <Pressable style={s.alertCancel} onPress={() => setShowTenantSignModal(false)}>
-              <Text style={s.alertCancelText}>Annuler</Text>
+      {/* ── Modale signature locataire — pad de signature ── */}
+      <Modal visible={showTenantSignModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowTenantSignModal(false)}>
+        <View style={[sp.root, { paddingTop: insets.top + 16 }]}>
+          <View style={sp.header}>
+            <Pressable onPress={() => { setShowTenantSignModal(false); setTenantStrokes([]); tenantStrokesRef.current = []; }}><Text style={sp.cancel}>Annuler</Text></Pressable>
+            <Text style={sp.headerTitle}>Signature locataire</Text>
+            <Pressable onPress={handleSignTenant} disabled={saving}>
+              {saving ? <ActivityIndicator size="small" color="#10B981" /> : <Text style={[sp.validate, { color: "#10B981" }]}>Valider</Text>}
             </Pressable>
           </View>
+          <ScrollView contentContainerStyle={sp.body} keyboardShouldPersistTaps="handled">
+            <View style={[sp.infoBanner, { borderColor: "#BBFBDA", backgroundColor: "#F0FDF4" }]}>
+              <Ionicons name="create-outline" size={16} color="#16A34A" />
+              <Text style={[sp.infoText, { color: "#166534" }]}>Signature de {snap.tenantFirstName} {snap.tenantLastName} — {INVENTORY_TYPE_LABELS[report.type]}</Text>
+            </View>
+            <Text style={sp.hint}>Dessinez votre signature :</Text>
+            <View style={[sp.canvas, { width: SIG_W, height: SIG_H }]} pointerEvents="box-only" {...tenantPR.panHandlers}>
+              <Svg width={SIG_W} height={SIG_H}>
+                {tenantStrokes.map((pts, i) => <Path key={i} d={ptsToPath(pts)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />)}
+                {tenantLive.length > 1 && <Path d={ptsToPath(tenantLive)} stroke="#1E293B" strokeWidth={2.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />}
+              </Svg>
+            </View>
+            <Pressable style={sp.clearBtn} onPress={() => { setTenantStrokes([]); tenantStrokesRef.current = []; setTenantLive([]); tenantCurrentStroke.current = []; }}>
+              <Ionicons name="trash-outline" size={13} color={COLORS.textMuted} />
+              <Text style={sp.clearBtnText}>Effacer</Text>
+            </Pressable>
+            <Text style={sp.legal}>En validant, vous apposez votre signature électronique conformément à l'article 1366 du Code civil.</Text>
+          </ScrollView>
         </View>
       </Modal>
     </View>
@@ -772,4 +868,56 @@ const s = StyleSheet.create({
   notFound:       { fontSize: 16, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
   backBtnAlt:     { backgroundColor: COLORS.surfaceAlt, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
   backBtnAltText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+});
+
+// ── Styles pour les modales de signature (pad) ──────────────────────────────
+const sp = StyleSheet.create({
+  root:  { flex: 1, backgroundColor: COLORS.background },
+  header: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 14,
+    backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  headerTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  cancel:   { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+  validate: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#8B5CF6" },
+  body: { padding: 20, gap: 16 },
+
+  infoBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#F5F3FF", borderRadius: 10, padding: 10,
+    borderWidth: 1, borderColor: "#DDD6FE",
+  },
+  infoText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "#6D28D9" },
+
+  savedBox: {
+    borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceAlt, padding: 10, gap: 8,
+  },
+  savedBoxActive: { borderColor: "#8B5CF6", backgroundColor: "#F5F3FF" },
+  savedHeader:  { flexDirection: "row", alignItems: "center", gap: 8 },
+  savedLabel:   { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+  applyBtn: {
+    borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5,
+    backgroundColor: COLORS.surfaceAlt, borderWidth: 1, borderColor: COLORS.border,
+  },
+  applyBtnActive: { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" },
+  applyBtnText:   { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
+
+  hint: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
+  canvas: {
+    borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.border,
+    backgroundColor: "#fff", overflow: "hidden", alignSelf: "center",
+  },
+  clearBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-end",
+    paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: COLORS.surfaceAlt, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border,
+  },
+  clearBtnText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+
+  legal: {
+    fontSize: 11, fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted, lineHeight: 16, textAlign: "center",
+  },
 });

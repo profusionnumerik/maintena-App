@@ -501,7 +501,7 @@ function CreateModal({
 
 export default function RentalQuittances() {
   const insets = useSafeAreaInsets();
-  const paddingTop = Platform.OS === "web" ? 67 + 24 : insets.top + 16;
+  const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
   const { user } = useAuth();
 
   const [quittances, setQuittances]       = useState<Quittance[]>([]);

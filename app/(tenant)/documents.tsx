@@ -182,7 +182,7 @@ function DocumentCard({ doc: pdoc }: { doc: PropertyDocument }) {
 export default function TenantDocuments() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
+  const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
   const { user, rentalInfo } = useAuth();
 
   const [reports, setReports]     = useState<InventoryReport[]>([]);

@@ -7310,8 +7310,8 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
       const { uid } = await adminAuth.verifyIdToken(idToken);
 
-      const { propertyId, interventionId, offerId, svgBase64 } = req.body as {
-        propertyId: string; interventionId: string; offerId: string; svgBase64: string;
+      const { propertyId, interventionId, offerId, svgBase64, invoiceRef } = req.body as {
+        propertyId: string; interventionId: string; offerId: string; svgBase64: string; invoiceRef?: string;
       };
       if (!propertyId || !interventionId || !offerId || !svgBase64)
         return res.status(400).json({ error: "Paramètres manquants" });
@@ -7344,7 +7344,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       }
 
       const landlordSignedAt = new Date().toISOString();
-      devis[idx] = { ...devis[idx], landlordSignatureUrl, landlordSignedAt };
+      devis[idx] = { ...devis[idx], landlordSignatureUrl, landlordSignedAt, ...(invoiceRef ? { invoiceRef } : {}) };
       await intRef.update({ devis });
 
       // Générer le PDF bon pour accord
@@ -7731,7 +7731,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       page.drawText("Maintena — Gestion locative", { x: M, y: height - 62, size: 9, font: regular, color: rgb(0.85, 0.80, 0.95) });
       const signedAtStr = offer.landlordSignedAt ?? new Date().toISOString();
       page.drawText(`Date : ${fmtDate(signedAtStr)}`, { x: width - M - 145, y: height - 44, size: 9, font: regular, color: white });
-      page.drawText(`Réf. : ${offer.id.slice(-10).toUpperCase()}`, { x: width - M - 145, y: height - 58, size: 9, font: regular, color: rgb(0.85, 0.80, 0.95) });
+      page.drawText(`Réf. doc : ${offer.id.slice(-10).toUpperCase()}`, { x: width - M - 145, y: height - 58, size: 9, font: regular, color: rgb(0.85, 0.80, 0.95) });
 
       const colW = (W - 16) / 2; const colX2 = M + colW + 16;
       let y = height - 78 - 22;
@@ -7765,14 +7765,73 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       y -= 10;
       page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.90, 0.94) }); y -= 20;
 
-      const sigW = (W - 16) / 2;
-      page.drawText("SIGNATURE PRESTATAIRE", { x: M, y, size: 8, font: bold, color: purple }); y -= 14;
-      if (offer.signedAt) { page.drawText("Signé électroniquement le " + fmtDate(offer.signedAt), { x: M, y, size: 9, font: regular, color: gray }); }
-      let yRight = y + 14;
-      page.drawText("SIGNATURE BAILLEUR", { x: M + sigW + 16, y: yRight, size: 8, font: bold, color: purple }); yRight -= 14;
-      if (offer.landlordSignedAt) { page.drawText("Signé électroniquement le " + fmtDate(offer.landlordSignedAt), { x: M + sigW + 16, y: yRight, size: 9, font: regular, color: gray }); }
-      y -= 40;
+      // ── Référence de facture (obligatoire depuis la signature bailleur) ────
+      if (offer.invoiceRef) {
+        page.drawText("RÉFÉRENCE DE FACTURE", { x: M, y, size: 8, font: bold, color: purple }); y -= 16;
+        // Fond coloré pour la référence
+        const refBoxH = 30;
+        page.drawRectangle({ x: M, y: y - refBoxH + 8, width: W, height: refBoxH, color: rgb(0.96, 0.94, 1.0), borderColor: rgb(0.55, 0.36, 0.97), borderWidth: 0.7, borderRadius: 4 });
+        page.drawText(trunc(offer.invoiceRef, 60), { x: M + 12, y: y - refBoxH + 18, size: 13, font: bold, color: purple });
+        y -= refBoxH + 14;
+        page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.90, 0.94) }); y -= 20;
+      }
 
+      // ── Section signatures (images SVG → PNG embeddées) ──────────────────
+      const sigW = (W - 16) / 2;
+      const sigBoxH = 100;
+
+      // Charger et convertir les signatures SVG → PNG avec @resvg/resvg-js
+      let proSigImage: any = null;
+      let landlordSigImage: any = null;
+      try {
+        const { Resvg } = await import("@resvg/resvg-js");
+        if (offer.signatureUrl) {
+          const r = await fetch(offer.signatureUrl);
+          if (r.ok) {
+            const svgText = await r.text();
+            const resvg = new Resvg(svgText, { background: "white" });
+            proSigImage = await pdfDoc.embedPng(resvg.render().asPng());
+          }
+        }
+        if (offer.landlordSignatureUrl) {
+          const r2 = await fetch(offer.landlordSignatureUrl);
+          if (r2.ok) {
+            const svgText2 = await r2.text();
+            const resvg2 = new Resvg(svgText2, { background: "white" });
+            landlordSigImage = await pdfDoc.embedPng(resvg2.render().asPng());
+          }
+        }
+      } catch (sigErr: any) {
+        console.error("[rental-pdf] Erreur conversion signature SVG:", sigErr?.message);
+      }
+
+      // Colonne gauche — prestataire
+      page.drawText("SIGNATURE PRESTATAIRE", { x: M, y, size: 8, font: bold, color: purple }); y -= 12;
+      if (offer.signedAt) { page.drawText("Signé électroniquement le " + fmtDate(offer.signedAt), { x: M, y, size: 8, font: regular, color: gray }); }
+      const ySigLeft = y - 8;
+      page.drawRectangle({ x: M, y: ySigLeft - sigBoxH, width: sigW, height: sigBoxH, borderColor: rgb(0.88, 0.90, 0.94), borderWidth: 0.5, color: rgb(0.98, 0.98, 0.99) });
+      if (proSigImage) {
+        const dims = proSigImage.scaleToFit(sigW - 16, sigBoxH - 16);
+        page.drawImage(proSigImage, { x: M + (sigW - dims.width) / 2, y: ySigLeft - sigBoxH + (sigBoxH - dims.height) / 2, width: dims.width, height: dims.height });
+      } else if (offer.signedAt) {
+        page.drawText("✓ Signé électroniquement", { x: M + 10, y: ySigLeft - sigBoxH / 2, size: 9, font: bold, color: purple });
+      }
+
+      // Colonne droite — bailleur
+      const xRight = M + sigW + 16;
+      let yR = y + 12;
+      page.drawText("SIGNATURE BAILLEUR", { x: xRight, y: yR, size: 8, font: bold, color: purple }); yR -= 12;
+      if (offer.landlordSignedAt) { page.drawText("Signé électroniquement le " + fmtDate(offer.landlordSignedAt), { x: xRight, y: yR, size: 8, font: regular, color: gray }); }
+      const ySigRight = yR - 8;
+      page.drawRectangle({ x: xRight, y: ySigRight - sigBoxH, width: sigW, height: sigBoxH, borderColor: rgb(0.88, 0.90, 0.94), borderWidth: 0.5, color: rgb(0.98, 0.98, 0.99) });
+      if (landlordSigImage) {
+        const dims2 = landlordSigImage.scaleToFit(sigW - 16, sigBoxH - 16);
+        page.drawImage(landlordSigImage, { x: xRight + (sigW - dims2.width) / 2, y: ySigRight - sigBoxH + (sigBoxH - dims2.height) / 2, width: dims2.width, height: dims2.height });
+      } else if (offer.landlordSignedAt) {
+        page.drawText("✓ Signé électroniquement", { x: xRight + 10, y: ySigRight - sigBoxH / 2, size: 9, font: bold, color: purple });
+      }
+
+      y = Math.min(ySigLeft, ySigRight) - sigBoxH - 18;
       page.drawText("En signant le présent bon pour accord, le bailleur et le prestataire", { x: M, y, size: 8, font: regular, color: gray }); y -= 12;
       page.drawText("acceptent le devis susmentionné dans les termes et conditions qui y figurent.", { x: M, y, size: 8, font: regular, color: gray });
 

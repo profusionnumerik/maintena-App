@@ -7,7 +7,11 @@ import {
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Platform, StyleSheet, Text, View } from "react-native";
+import {
+  Image, Platform, Pressable, StyleSheet, Text,
+  useWindowDimensions, View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -16,53 +20,279 @@ import { CoProProvider, useCoPro } from "@/context/CoProContext";
 import { InterventionsProvider } from "@/context/InterventionsContext";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-function WebNavbar() {
-  if (Platform.OS !== "web") return null;
-  const { user } = useAuth();
+SplashScreen.preventAutoHideAsync();
+const queryClient = new QueryClient();
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NavItem = {
+  icon: string;
+  label: string;
+  route: string;
+  segment: string;
+};
+
+// ─── Navigation par type d'utilisateur ───────────────────────────────────────
+
+const LANDLORD_NAV: NavItem[] = [
+  { icon: "home-outline",       label: "Tableau de bord", route: "/(rental)",                 segment: "(rental)" },
+  { icon: "construct-outline",  label: "Interventions",   route: "/(rental)/interventions",   segment: "interventions" },
+  { icon: "document-text-outline", label: "Quittances",   route: "/(rental)/quittances",      segment: "quittances" },
+  { icon: "clipboard-outline",  label: "États des lieux", route: "/(rental)/etats-des-lieux", segment: "etats-des-lieux" },
+  { icon: "people-outline",     label: "Professionnels",  route: "/(rental)/professionnels",  segment: "professionnels" },
+];
+
+const SYNDIC_NAV: NavItem[] = [
+  { icon: "home-outline",       label: "Tableau de bord", route: "/(app)",                      segment: "(app)" },
+  { icon: "construct-outline",  label: "Interventions",   route: "/(app)/interventions",         segment: "interventions" },
+  { icon: "cash-outline",       label: "Finances",        route: "/(app)/conseil-finances",      segment: "conseil-finances" },
+  { icon: "calendar-outline",   label: "Entretien",       route: "/(app)/entretien",             segment: "entretien" },
+  { icon: "people-outline",     label: "Annuaire",        route: "/(app)/annuaire-prestataires", segment: "annuaire-prestataires" },
+  { icon: "bar-chart-outline",  label: "Statistiques",    route: "/(app)/stats",                 segment: "stats" },
+];
+
+const TENANT_NAV: NavItem[] = [
+  { icon: "home-outline",       label: "Accueil",         route: "/(tenant)",                  segment: "(tenant)" },
+  { icon: "alert-circle-outline", label: "Signalements",  route: "/(tenant)/interventions",    segment: "interventions" },
+  { icon: "document-outline",   label: "Documents",       route: "/(tenant)/documents",        segment: "documents" },
+  { icon: "chatbubble-outline", label: "Messagerie",      route: "/(tenant)/messages",         segment: "messages" },
+];
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────────
+
+function WebSidebar({ compact }: { compact: boolean }) {
+  const { user, userType, isSuperAdmin } = useAuth();
+  const router  = useRouter();
+  const segments = useSegments();
+
   if (!user) return null;
+
+  let items: NavItem[] = [];
+  if (userType === "landlord") items = LANDLORD_NAV;
+  else if (userType === "tenant") items = TENANT_NAV;
+  else items = SYNDIC_NAV;
+
+  const activeSegment = (segments as string[])[1] ?? (segments as string[])[0] ?? "";
+
   return (
-    <View style={webNav.bar}>
-      <View style={webNav.left}>
-        <Image
-          source={require("../assets/images/icon.png")}
-          style={webNav.logo}
-          resizeMode="contain"
-        />
-        <Text style={webNav.brand}>Maintena</Text>
+    <View style={[sb.root, compact && sb.rootCompact]}>
+      {/* Brand */}
+      <View style={sb.brand}>
+        <Image source={require("../assets/images/icon.png")} style={sb.logo} resizeMode="contain" />
+        {!compact && <Text style={sb.brandText}>Maintena</Text>}
+      </View>
+
+      {/* Module badge */}
+      {!compact && (
+        <View style={sb.moduleBadge}>
+          <Text style={sb.moduleText}>
+            {userType === "landlord" ? "🏠 Gestion locative"
+              : userType === "tenant" ? "🔑 Espace locataire"
+              : "🏢 Copropriété"}
+          </Text>
+        </View>
+      )}
+
+      {/* Separator */}
+      <View style={sb.sep} />
+
+      {/* Nav items */}
+      <View style={sb.nav}>
+        {items.map((item) => {
+          const active = activeSegment === item.segment ||
+            (item.segment === "(rental)" && activeSegment === "(rental)") ||
+            (item.segment === "(app)" && activeSegment === "(app)") ||
+            (item.segment === "(tenant)" && activeSegment === "(tenant)");
+          return (
+            <Pressable
+              key={item.route}
+              style={[sb.navItem, compact && sb.navItemCompact, active && sb.navItemActive]}
+              onPress={() => router.push(item.route as any)}
+            >
+              <Ionicons
+                name={item.icon as any}
+                size={compact ? 22 : 18}
+                color={active ? "#8B5CF6" : "rgba(255,255,255,0.55)"}
+              />
+              {!compact && (
+                <Text style={[sb.navLabel, active && sb.navLabelActive]}>{item.label}</Text>
+              )}
+              {active && <View style={sb.activeBar} />}
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Bottom: user info */}
+      <View style={sb.bottom}>
+        <View style={sb.sep} />
+        <View style={[sb.userRow, compact && sb.userRowCompact]}>
+          <View style={sb.avatar}>
+            <Text style={sb.avatarText}>
+              {(user.email ?? "?")[0].toUpperCase()}
+            </Text>
+          </View>
+          {!compact && (
+            <View style={{ flex: 1 }}>
+              <Text style={sb.userName} numberOfLines={1}>{user.email}</Text>
+              <Text style={sb.userRole}>
+                {isSuperAdmin ? "Super admin"
+                  : userType === "landlord" ? "Bailleur"
+                  : userType === "tenant" ? "Locataire"
+                  : "Gestionnaire"}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
-const webNav = StyleSheet.create({
-  bar: {
-    position: "fixed" as any,
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 56,
+const sb = StyleSheet.create({
+  root: {
+    width: 220,
+    backgroundColor: "#0B1628",
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255,255,255,0.06)",
+    flexDirection: "column",
+    paddingBottom: 16,
+  },
+  rootCompact: { width: 64 },
+  brand: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 16, paddingTop: 20, paddingBottom: 12,
+  },
+  logo: { width: 32, height: 32, borderRadius: 9 },
+  brandText: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#fff", letterSpacing: -0.3 },
+  moduleBadge: {
+    marginHorizontal: 12, marginBottom: 4,
+    backgroundColor: "rgba(139,92,246,0.12)",
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5,
+    borderWidth: 1, borderColor: "rgba(139,92,246,0.2)",
+  },
+  moduleText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "rgba(167,139,250,0.9)" },
+  sep: { height: 1, backgroundColor: "rgba(255,255,255,0.06)", marginVertical: 8, marginHorizontal: 12 },
+  nav: { flex: 1, paddingHorizontal: 8, gap: 2 },
+  navItem: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10,
+    position: "relative",
+  },
+  navItemCompact: { justifyContent: "center", paddingHorizontal: 0 },
+  navItemActive: { backgroundColor: "rgba(139,92,246,0.13)" },
+  navLabel: { fontSize: 13, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.55)", flex: 1 },
+  navLabelActive: { color: "#C4B5FD", fontFamily: "Inter_600SemiBold" },
+  activeBar: {
+    position: "absolute", left: 0, top: 6, bottom: 6,
+    width: 3, borderRadius: 2, backgroundColor: "#8B5CF6",
+  },
+  bottom: { paddingHorizontal: 8 },
+  userRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4, paddingVertical: 8 },
+  userRowCompact: { justifyContent: "center" },
+  avatar: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(139,92,246,0.25)", alignItems: "center", justifyContent: "center",
+  },
+  avatarText: { fontSize: 13, fontFamily: "Inter_700Bold", color: "#C4B5FD" },
+  userName: { fontSize: 11, fontFamily: "Inter_500Medium", color: "rgba(255,255,255,0.7)", flex: 1 },
+  userRole: { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.35)" },
+});
+
+// ─── Hub Layout (web seulement) ────────────────────────────────────────────
+
+function WebHubLayout({ children }: { children: React.ReactNode }) {
+  const { width } = useWindowDimensions();
+  const { user }  = useAuth();
+
+  const isDesktop = width >= 1024;
+  const isTablet  = width >= 768 && width < 1024;
+  const isMobile  = width < 768;
+
+  // Mobile → UI normale plein écran (pas de hub)
+  if (isMobile) return <View style={{ flex: 1 }}>{children}</View>;
+
+  // Desktop / Tablette : toujours le hub (même pendant le chargement de l'auth)
+  const sidebarW    = isTablet ? 64 : 220;
+  const contentMaxW = isDesktop ? 560 : 480;
+
+  return (
+    <View style={hub.root}>
+      {/* Top bar */}
+      <View style={hub.topBar}>
+        <View style={[hub.topBarLeft, { width: sidebarW }]} />
+        <View style={hub.topBarCenter}>
+          <Text style={hub.topBarTitle}>Maintena</Text>
+          <Text style={hub.topBarSub}>Gestion immobilière</Text>
+        </View>
+        <View style={hub.topBarRight}>
+          <View style={hub.topBarDot} />
+          <Text style={hub.topBarStatus}>En ligne</Text>
+        </View>
+      </View>
+
+      {/* Body */}
+      <View style={hub.body}>
+        {/* Sidebar — n'apparaît qu'une fois connecté */}
+        {user ? <WebSidebar compact={isTablet} /> : <View style={{ width: sidebarW, backgroundColor: "#0B1628" }} />}
+
+        {/* Zone de contenu centrée */}
+        <View style={hub.contentZone}>
+          <View style={[hub.contentCard, { maxWidth: contentMaxW }]}>
+            {children}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const HUB_TOP = 52;
+
+const hub = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#0F1E33" },
+
+  topBar: {
+    height: HUB_TOP,
+    backgroundColor: "#0B1628",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 24,
-    backgroundColor: "rgba(11,22,40,0.96)",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.07)",
-    zIndex: 1000,
-    backdropFilter: "blur(12px)" as any,
   },
-  left: { flexDirection: "row", alignItems: "center", gap: 10 },
-  logo: { width: 30, height: 30, borderRadius: 8 },
-  brand: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-    color: "#ffffff",
-    letterSpacing: -0.3,
+  topBarLeft:   { alignItems: "center", justifyContent: "center" },
+  topBarCenter: { flex: 1, alignItems: "center" },
+  topBarTitle:  { fontSize: 15, fontFamily: "Inter_700Bold", color: "#fff", letterSpacing: -0.2 },
+  topBarSub:    { fontSize: 10, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.35)" },
+  topBarRight:  { flexDirection: "row", alignItems: "center", gap: 6, paddingRight: 20 },
+  topBarDot:    { width: 7, height: 7, borderRadius: 4, backgroundColor: "#22C55E" },
+  topBarStatus: { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)" },
+
+  body: {
+    flex: 1,
+    flexDirection: "row",
+  },
+
+  contentZone: {
+    flex: 1,
+    alignItems: "center",
+    backgroundColor: "#0F1E33",
+    paddingVertical: 0,
+  },
+
+  contentCard: {
+    flex: 1,
+    width: "100%",
+    backgroundColor: "#F7F8FC",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 40,
+    overflow: "hidden" as const,
   },
 });
 
-SplashScreen.preventAutoHideAsync();
-const queryClient = new QueryClient();
+// ─── Router principal ─────────────────────────────────────────────────────────
 
 function RootLayoutNav() {
   const { user, isLoading: authLoading, isSuperAdmin, userType, hasRentalSetup } = useAuth();
@@ -71,7 +301,6 @@ function RootLayoutNav() {
   const router = useRouter();
   const segmentsSafe = [...segments] as string[];
 
-  // ── Maintenance mode ────────────────────────────────────────────────────
   const [isMaintenance, setIsMaintenance] = useState(false);
 
   useEffect(() => {
@@ -80,10 +309,8 @@ function RootLayoutNav() {
     });
     return unsub;
   }, []);
-  // ────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // authLoading inclut désormais le chargement userType depuis Firestore
     if (authLoading || coProLoading) return;
 
     const inAuth             = segmentsSafe[0] === "(auth)";
@@ -102,78 +329,50 @@ function RootLayoutNav() {
     const secondSegment      = segmentsSafe[1];
     const inCreateCopro      = inOnboarding && secondSegment === "create";
 
-    // Maintenance : redirige tout le monde sauf le superadmin
     if (isMaintenance && !isSuperAdmin) {
       if (!inMaintenance) router.replace("/maintenance");
       return;
     }
-    // Si la maintenance est levée et qu'on est sur l'écran maintenance → sortir
     if (!isMaintenance && inMaintenance) {
       router.replace(user ? "/(app)" : "/(auth)");
       return;
     }
-
-    // Non authentifié
     if (!user) {
       if (!inAuth && !inLegal) router.replace("/(auth)");
       return;
     }
-
-    // Super admin
     if (isSuperAdmin) {
-      if (!inSuperAdmin && !inApp && !inModal && !inLegal) {
-        router.replace("/(superadmin)");
-      }
+      if (!inSuperAdmin && !inApp && !inModal && !inLegal) router.replace("/(superadmin)");
       return;
     }
-
-    // ── MODULE LOCATION — Bailleur ─────────────────────────────────────────
     if (userType === "landlord") {
       if (!hasRentalSetup) {
-        // Premier lancement : créer son premier logement
         if (!inRentalOnboarding) router.replace("/(rental-onboarding)");
       } else {
-        // Dashboard bailleur (+ détail logement + état des lieux)
         if (!inRental && !inRentalOnboarding && !inProperty && !inInventory) router.replace("/(rental)");
       }
       return;
     }
-
-    // ── MODULE LOCATION — Locataire ────────────────────────────────────────
     if (userType === "tenant") {
-      // Autorise les routes inventory (états des lieux) et documents locataire
       const inTenantDocuments = segmentsSafe[0] === "documents";
       if (!inTenant && !inInventory && !inTenantDocuments) router.replace("/(tenant)");
       return;
     }
-
-    // ── MODULE COPROPRIÉTÉ — flux existant (copro / undefined / both) ──────
     if (!currentCopro) {
       if (!inOnboarding) router.replace("/(onboarding)");
       return;
     }
-
     const coProActive = currentCopro.status === "active";
     if (!isSubscribed && !coProActive) {
       if (!inBlocked) router.replace("/(blocked)");
       return;
     }
-
     if (!inApp && !inModal && !inCreateCopro && !inLegal) {
       router.replace("/(app)");
     }
   }, [
-    user,
-    authLoading,
-    coProLoading,
-    currentCopro,
-    isSuperAdmin,
-    isSubscribed,
-    isMaintenance,
-    userType,
-    hasRentalSetup,
-    segments,
-    router,
+    user, authLoading, coProLoading, currentCopro,
+    isSuperAdmin, isSubscribed, isMaintenance, userType, hasRentalSetup, segments, router,
   ]);
 
   return (
@@ -185,15 +384,12 @@ function RootLayoutNav() {
       <Stack.Screen name="(superadmin)" />
       <Stack.Screen name="(legal)" />
       <Stack.Screen name="maintenance" />
-      {/* ── Module Location ── */}
       <Stack.Screen name="(rental-onboarding)" />
       <Stack.Screen name="(rental)" />
       <Stack.Screen name="(tenant)" />
-      {/* ── Modals partagés ── */}
       <Stack.Screen name="add" options={{ presentation: "modal", headerShown: false }} />
       <Stack.Screen name="intervention/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="property/[id]" options={{ headerShown: false }} />
-      {/* ── Module État des lieux ── */}
       <Stack.Screen name="inventory/create" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]/rooms" options={{ headerShown: false }} />
@@ -205,6 +401,8 @@ function RootLayoutNav() {
     </Stack>
   );
 }
+
+// ─── Root ─────────────────────────────────────────────────────────────────────
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -220,13 +418,30 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) return null;
 
+  if (Platform.OS === "web") {
+    return (
+      <KeyboardProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <CoProProvider>
+              <InterventionsProvider>
+                <WebHubLayout>
+                  <RootLayoutNav />
+                </WebHubLayout>
+              </InterventionsProvider>
+            </CoProProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </KeyboardProvider>
+    );
+  }
+
   return (
     <KeyboardProvider>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <CoProProvider>
             <InterventionsProvider>
-              <WebNavbar />
               <RootLayoutNav />
             </InterventionsProvider>
           </CoProProvider>

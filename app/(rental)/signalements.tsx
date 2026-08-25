@@ -288,7 +288,7 @@ function DetailModal({
 
 export default function RentalSignalements() {
   const insets = useSafeAreaInsets();
-  const paddingTop = Platform.OS === "web" ? 67 + 24 : insets.top + 16;
+  const paddingTop = Platform.OS === "web" ? 16 : insets.top + 16;
   const { user } = useAuth();
 
   const [reports, setReports]         = useState<TenantReport[]>([]);

@@ -564,7 +564,7 @@ export default function TenantHome() {
   const router = useRouter();
   const { user, logout, rentalInfo } = useAuth();
 
-  const paddingTop = Platform.OS === "web" ? 67 + 16 : insets.top + 12;
+  const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
   const [property, setProperty]       = useState<RentalProperty | null>(null);
   const [propLoading, setPropLoading] = useState(true);
@@ -714,60 +714,54 @@ export default function TenantHome() {
         <View style={p.section}>
           <Text style={p.sectionLabel}>Signalements</Text>
 
-          {/* 3 cartes de navigation */}
+          {/* Grille 2 colonnes + CTA pleine largeur */}
           <View style={p.sigGrid}>
-            {/* Mes signalements */}
-            <Pressable
-              style={({ pressed }) => [p.sigCard, p.sigCardPrimary, pressed && { opacity: 0.85 }]}
-              onPress={() => setSigView("list")}
-            >
-              <View style={[p.sigCardIcon, { backgroundColor: "rgba(245,158,11,0.2)" }]}>
-                <Ionicons name="list" size={22} color="#F59E0B" />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={p.sigCardTitle}>Mes signalements</Text>
-                <Text style={p.sigCardSub}>
-                  {activeReports.length === 0
-                    ? "Aucun en cours"
-                    : `${activeReports.length} actif${activeReports.length > 1 ? "s" : ""}${pendingCount > 0 ? ` · ${pendingCount} nouveau${pendingCount > 1 ? "x" : ""}` : ""}`}
-                </Text>
-              </View>
-              {pendingCount > 0 && (
-                <View style={p.pendingDot} />
-              )}
-              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
-            </Pressable>
+            {/* Ligne 1 : Mes signalements + Archivés côte à côte */}
+            <View style={p.sigRow}>
+              <Pressable
+                style={({ pressed }) => [p.sigTile, p.sigTilePrimary, pressed && { opacity: 0.82 }]}
+                onPress={() => setSigView("list")}
+              >
+                <View style={[p.sigTileIcon, { backgroundColor: "rgba(245,158,11,0.22)" }]}>
+                  <Ionicons name="list" size={22} color="#F59E0B" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={p.sigTileTitle}>Mes signalements</Text>
+                  <Text style={p.sigTileSub}>
+                    {activeReports.length === 0
+                      ? "Aucun en cours"
+                      : `${activeReports.length} actif${activeReports.length > 1 ? "s" : ""}`}
+                  </Text>
+                </View>
+                {pendingCount > 0 && <View style={p.pendingDot} />}
+              </Pressable>
 
-            {/* Ajouter */}
+              <Pressable
+                style={({ pressed }) => [p.sigTile, p.sigTileArchive, pressed && { opacity: 0.82 }]}
+                onPress={() => setSigView("archived")}
+              >
+                <View style={[p.sigTileIcon, { backgroundColor: "rgba(99,102,241,0.18)" }]}>
+                  <Ionicons name="archive" size={20} color="#818CF8" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[p.sigTileTitle, { color: "rgba(255,255,255,0.75)" }]}>Archivés</Text>
+                  <Text style={p.sigTileSub}>
+                    {archivedReports.length === 0 ? "Aucun" : `${archivedReports.length} archivé${archivedReports.length > 1 ? "s" : ""}`}
+                  </Text>
+                </View>
+              </Pressable>
+            </View>
+
+            {/* Ligne 2 : Nouveau signalement — bouton CTA pleine largeur */}
             <Pressable
-              style={({ pressed }) => [p.sigCard, p.sigCardAdd, pressed && { opacity: 0.85 }]}
+              style={({ pressed }) => [p.sigCta, pressed && { opacity: 0.86 }]}
               onPress={() => setShowModal(true)}
             >
-              <View style={[p.sigCardIcon, { backgroundColor: "rgba(139,92,246,0.2)" }]}>
-                <Ionicons name="add-circle" size={22} color="#8B5CF6" />
+              <View style={[p.sigCtaIcon, { backgroundColor: "rgba(139,92,246,0.25)" }]}>
+                <Ionicons name="add-circle" size={20} color="#A78BFA" />
               </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={p.sigCardTitle}>Nouveau signalement</Text>
-                <Text style={p.sigCardSub}>Signaler un problème</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
-            </Pressable>
-
-            {/* Archivés */}
-            <Pressable
-              style={({ pressed }) => [p.sigCard, p.sigCardArchive, pressed && { opacity: 0.85 }]}
-              onPress={() => setSigView("archived")}
-            >
-              <View style={[p.sigCardIcon, { backgroundColor: "rgba(99,102,241,0.15)" }]}>
-                <Ionicons name="archive" size={20} color="#818CF8" />
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={[p.sigCardTitle, { color: "rgba(255,255,255,0.7)" }]}>Archivés</Text>
-                <Text style={p.sigCardSub}>
-                  {archivedReports.length === 0 ? "Aucun archivé" : `${archivedReports.length} signalement${archivedReports.length > 1 ? "s" : ""}`}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.3)" />
+              <Text style={p.sigCtaText}>Nouveau signalement</Text>
+              <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
             </Pressable>
           </View>
         </View>
@@ -910,19 +904,29 @@ const p = StyleSheet.create({
   sectionLabel: { fontSize: 10, fontFamily: "Inter_700Bold", color: "rgba(255,255,255,0.3)", letterSpacing: 1.2, textTransform: "uppercase" },
 
   // Signalements grid
-  sigGrid:        { gap: 8 },
-  sigCard: {
-    flexDirection: "row", alignItems: "center", gap: 14,
-    borderRadius: 16, padding: 16,
-    borderWidth: 1,
+  // Signalements — nouvelle grille
+  sigGrid: { gap: 8 },
+  sigRow:  { flexDirection: "row", gap: 8 },
+
+  sigTile: {
+    flex: 1, borderRadius: 16, padding: 14, gap: 10,
+    borderWidth: 1, minHeight: 90,
   },
-  sigCardPrimary: { backgroundColor: "rgba(245,158,11,0.1)", borderColor: "rgba(245,158,11,0.2)" },
-  sigCardAdd:     { backgroundColor: "rgba(139,92,246,0.1)", borderColor: "rgba(139,92,246,0.2)" },
-  sigCardArchive: { backgroundColor: "rgba(99,102,241,0.07)", borderColor: "rgba(99,102,241,0.15)" },
-  sigCardIcon:    { width: 44, height: 44, borderRadius: 13, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  sigCardTitle:   { fontSize: 14, fontFamily: "Inter_700Bold", color: "#fff" },
-  sigCardSub:     { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)" },
-  pendingDot:     { width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444" },
+  sigTilePrimary: { backgroundColor: "rgba(245,158,11,0.1)", borderColor: "rgba(245,158,11,0.2)" },
+  sigTileArchive: { backgroundColor: "rgba(99,102,241,0.07)", borderColor: "rgba(99,102,241,0.15)" },
+  sigTileIcon:    { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  sigTileTitle:   { fontSize: 13, fontFamily: "Inter_700Bold", color: "#fff", marginBottom: 2 },
+  sigTileSub:     { fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.45)", lineHeight: 14 },
+
+  sigCta: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "rgba(139,92,246,0.1)", borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: "rgba(139,92,246,0.22)",
+  },
+  sigCtaIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  sigCtaText: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#C4B5FD" },
+
+  pendingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444" },
 
   // Services grid
   servicesGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },

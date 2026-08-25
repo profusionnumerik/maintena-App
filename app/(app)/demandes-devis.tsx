@@ -1,6 +1,7 @@
 import * as Haptics from "expo-haptics";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from "expo-web-browser";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -47,10 +48,16 @@ async function openOrShareDevis(url: string, contactName: string) {
         UTI: ext === "pdf" ? "com.adobe.pdf" : "public.image",
       });
     } else {
-      Linking.openURL(url);
+      // Navigateur intégré → bouton "Fermer" pour revenir
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+      }).catch(() => Linking.openURL(url));
     }
   } catch {
-    Linking.openURL(url);
+    // Fallback : navigateur intégré
+    await WebBrowser.openBrowserAsync(url, {
+      presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+    }).catch(() => Linking.openURL(url));
   }
 }
 
@@ -915,7 +922,9 @@ export default function DemandesDevisScreen() {
                               style={[styles.bonCommandeBtn, { backgroundColor: "#475569", marginTop: 2 }]}
                               onPress={() => {
                                 const apiBase = getApiUrl().replace(/\/$/, "");
-                                Linking.openURL(`${apiBase}/bon-de-commande/${o.signatureToken}`);
+                                WebBrowser.openBrowserAsync(`${apiBase}/bon-de-commande/${o.signatureToken}`, {
+                                  presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+                                }).catch(() => Linking.openURL(`${apiBase}/bon-de-commande/${o.signatureToken}`));
                               }}
                             >
                               <Ionicons name="globe-outline" size={15} color="#fff" />
