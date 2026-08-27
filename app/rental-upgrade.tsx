@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 
-const CONTACT_EMAIL = "contact@maintena.app";
+const CONTACT_EMAIL = "contact@maintena-pro.fr";
 
 // ─── Données des plans ────────────────────────────────────────────────────────
 
