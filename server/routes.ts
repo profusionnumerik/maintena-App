@@ -685,7 +685,7 @@ async function sendActivationEmail(
     return;
   }
 
-  const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
   await resendClient.client.emails.send({
     from: fromAddress,
@@ -770,7 +770,7 @@ async function sendAdminNotification(params: {
   if (!adminEmail) return;
   let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
   try { resendClient = await getUncachableResendClient(); } catch { return; }
-  const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
   const isDemo = params.type === "demo";
   const badge = isDemo
     ? `<span style="background:#EFF6FF;color:#2563EB;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">🔗 Accès Démo</span>`
@@ -828,8 +828,8 @@ async function sendGuestInviteEmail(params: {
     return false;
   }
 
-  const primaryFrom = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
-  const fallbackFrom = "Maintena <onboarding@resend.dev>";
+  const primaryFrom = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
+  const fallbackFrom = "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
   const htmlBody = `
 <!DOCTYPE html>
@@ -1165,7 +1165,7 @@ async function generateSignedDevisPdf(params: {
     });
 
     // Mention outil (très discrète)
-    page.drawText("Généré via Maintena — art. 1366 C. civ.", {
+    page.drawText("Généré via Maintena (Profusion Numérik) — art. 1366 C. civ.", {
       x: width - M - 165, y: 22, size: 6, font: regular, color: lgray,
     });
 
@@ -1216,7 +1216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(503).json({ error: "Resend non initialisé", detail: e?.message });
     }
 
-    const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
     try {
       const result = await resendClient.client.emails.send({
         from,
@@ -2134,7 +2134,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json({ sent: true });
       }
 
-      const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+      const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>";
       await resendClient.client.emails.send({
         from,
         to: email,
@@ -2198,7 +2198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(503).json({ error: "Service email non disponible." });
     }
 
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
     try {
       await resendClient.client.emails.send({
@@ -2298,7 +2298,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p style="color:var(--muted);font-size:14px;margin-bottom:32px;">Dernière mise à jour : mai 2026</p>
 
       <h2>1. Objet</h2>
-      <p>Maintena est une application destinée à la gestion et au suivi des interventions en copropriété, éditée par ProFusion Numérik (SIREN 932 117 500).</p>
+      <p>Maintena est une application destinée à la gestion et au suivi des interventions en copropriété et de l'immobilier locatif, éditée et gérée par <strong>Profusion Numérik</strong> (SIREN 932 117 500). Maintena n'est pas une entité juridique indépendante.</p>
 
       <h2>2. Utilisateurs</h2>
       <p>L'application est accessible aux syndics, prestataires et copropriétaires ou occupants autorisés. Chaque profil dispose de droits d'accès adaptés à sa fonction.</p>
@@ -2361,7 +2361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // fallback: send email notification when Firebase Admin is unavailable
       try {
         const resendClient = await getUncachableResendClient();
-        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
         await resendClient.client.emails.send({
           from: fromAddress,
           to: process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "bijourobert1@gmail.com",
@@ -3315,7 +3315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const daysLeft = Math.ceil((expiry.getTime() - now.getTime()) / 86400000);
         if (daysLeft <= 0 || daysLeft > 7) { skipped.push(d.id); continue; }
 
-        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
         await resendClient.client.emails.send({
           from: fromAddress,
           to: d.id,
@@ -3505,7 +3505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ sent: false, reason: "resend_unavailable" });
       }
 
-      const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
       await resendClient.client.emails.send({
         from: fromAddress,
@@ -3602,7 +3602,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json({ sent: 0, reason: "resend_unavailable" });
     }
 
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
     const typeColors: Record<string, string> = {
       info: "#2563EB", eau: "#0EBAAA", chauffage: "#F59E0B", travaux: "#8B5CF6", urgent: "#EF4444",
@@ -3703,7 +3703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try { resendClient = await getUncachableResendClient(); }
     catch { return res.json({ sent: 0, reason: "resend_unavailable" }); }
 
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
     const optionsHtml = (options as string[]).map((opt, i) =>
       `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:8px;background:#F8FAFF;border-radius:10px;border:1px solid #E2E8F0;">
         <div style="width:22px;height:22px;border-radius:50%;border:2px solid #2563EB;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#2563EB;">${i + 1}</div>
@@ -4066,7 +4066,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try { resendClient = await getUncachableResendClient(); }
     catch { return res.json({ sent: false, reason: "resend_unavailable" }); }
 
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
     try {
       await resendClient.client.emails.send({
@@ -4199,7 +4199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try { resendClient2 = await getUncachableResendClient(); }
     catch { return res.json({ sent: false, reason: "resend_unavailable" }); }
 
-    const fromAddress2 = resendClient2.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress2 = resendClient2.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
     try {
       await resendClient2.client.emails.send({
@@ -4725,7 +4725,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const rc = await getUncachableResendClient();
           await rc.client.emails.send({
-            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: rc.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
             to: payload.copro.adminEmail,
             subject: `⚠️ Mission refusée — ${payload.intervention.title}`,
             html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;"><h2 style="color:#991b1b;">Mission refusée par le prestataire</h2><p>Le prestataire <strong>${payload.provider.name}</strong> a refusé l'intervention <strong>${payload.intervention.title}</strong> (${payload.copro.name}).</p><p>Vous pouvez réattribuer cette intervention depuis l'application.</p></div>`,
@@ -4769,7 +4769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (action === "refused" && payload.copro.adminEmail) {
         try {
           const resendClient = await getUncachableResendClient();
-          const fromAddr = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+          const fromAddr = resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>";
           await resendClient.client.emails.send({
             from: fromAddr,
             to: payload.copro.adminEmail,
@@ -4909,7 +4909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ? `<div style="margin-top:16px;"><div style="font-size:13px;color:#64748b;margin-bottom:8px;">Vos photos :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map(url => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>`
           : "";
         await rc.client.emails.send({
-          from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: rc.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
           to: payload.provider.email,
           subject: `✅ Compte-rendu transmis — ${payload.intervention.title}`,
           html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
@@ -4951,7 +4951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? `<div style="margin-top:12px;"><div style="font-size:12px;color:#64748b;margin-bottom:6px;">Photos du prestataire :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map(url => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>`
             : "";
           await rc.client.emails.send({
-            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: rc.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
             to: payload.copro.adminEmail,
             subject: `📋 Compte-rendu reçu — ${payload.intervention.title}`,
             html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
@@ -5453,7 +5453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (resendClient) {
         await Promise.all(emailsToSend.map(({ to, name, link }) =>
           resendClient.client.emails.send({
-            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
             to,
             subject: `Demande de devis — ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
             html: `
@@ -5584,7 +5584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (resendClient && offer.contactEmail) {
         await resendClient.client.emails.send({
-          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
           to: offer.contactEmail,
           subject: `Votre devis a été retenu — ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
           html: `
@@ -6967,7 +6967,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     // Envoi email
     try {
       const resendClient = await getUncachableResendClient();
-      const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
       const baseUrl = process.env.EXPO_PUBLIC_APP_DOWNLOAD_URL ?? "https://maintena-pro.fr";
       const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
 
@@ -7405,7 +7405,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       if (resendClient) {
         await Promise.all(emailsToSend.map(({ to, name, link }) =>
           resendClient.client.emails.send({
-            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
             to,
             subject: `Demande de devis — ${escapeHtml(intervention.title)} (${escapeHtml(propertyAddress)})`,
             html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
@@ -7499,7 +7499,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
 
       if (resendClient && offer.contactEmail) {
         await resendClient.client.emails.send({
-          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: resendClient.fromEmail ?? "Maintena — Profusion Numérik <noreply@maintena-pro.fr>",
           to: offer.contactEmail,
           subject: `Votre devis a été retenu — ${escapeHtml(intervention.title)}`,
           html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">

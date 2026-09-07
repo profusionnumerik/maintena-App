@@ -27,7 +27,7 @@ export default function CguScreen() {
 
           <Section
             title="2. Objet"
-            text="Maintena est une application de gestion et de suivi des interventions en copropriété, destinée aux syndics, prestataires et résidents. Elle est disponible sur Android via Google Play et en version web."
+            text="Maintena est une application de gestion et de suivi des interventions en copropriété, gérée par Profusion Numérik. Elle est destinée aux syndics, prestataires et résidents, disponible sur Android via Google Play et en version web."
           />
 
           <Section

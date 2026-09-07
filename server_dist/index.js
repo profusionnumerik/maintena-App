@@ -565,7 +565,7 @@ async function sendActivationEmail(adminEmail, coProName, inviteCode) {
     console.warn("Resend not connected \u2014 email non envoy\xE9:", e);
     return;
   }
-  const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
   await resendClient.client.emails.send({
     from: fromAddress,
     to: adminEmail,
@@ -645,7 +645,7 @@ async function sendAdminNotification(params) {
   } catch {
     return;
   }
-  const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+  const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
   const isDemo = params.type === "demo";
   const badge = isDemo ? `<span style="background:#EFF6FF;color:#2563EB;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">\u{1F517} Acc\xE8s D\xE9mo</span>` : `<span style="background:#D1FAE5;color:#065F46;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;">\u2713 Essai 30 jours</span>`;
   const expiryLine = isDemo && params.demoExpiresInDays ? `<tr><td style="color:#94A3B8;padding:4px 0;font-size:13px;">Dur\xE9e d\xE9mo</td><td style="font-weight:600;color:#0F172A;font-size:13px;">${params.demoExpiresInDays} jours</td></tr>` : "";
@@ -685,8 +685,8 @@ async function sendGuestInviteEmail(params) {
     console.warn("Resend non disponible \u2014 email prestataire non envoy\xE9:", e);
     return false;
   }
-  const primaryFrom = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
-  const fallbackFrom = "Maintena <onboarding@resend.dev>";
+  const primaryFrom = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
+  const fallbackFrom = "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
   const htmlBody = `
 <!DOCTYPE html>
 <html lang="fr">
@@ -1008,7 +1008,7 @@ async function generateSignedDevisPdf(params) {
       font: regular,
       color: gray
     });
-    page.drawText("G\xE9n\xE9r\xE9 via Maintena \u2014 art. 1366 C. civ.", {
+    page.drawText("G\xE9n\xE9r\xE9 via Maintena (Profusion Num\xE9rik) \u2014 art. 1366 C. civ.", {
       x: width - M - 165,
       y: 22,
       size: 6,
@@ -1054,7 +1054,7 @@ async function registerRoutes(app2) {
     } catch (e) {
       return res.status(503).json({ error: "Resend non initialis\xE9", detail: e?.message });
     }
-    const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     try {
       const result = await resendClient.client.emails.send({
         from,
@@ -1776,7 +1776,7 @@ async function registerRoutes(app2) {
       } catch {
         return res.status(200).json({ sent: true });
       }
-      const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+      const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>";
       await resendClient.client.emails.send({
         from,
         to: email,
@@ -1836,7 +1836,7 @@ async function registerRoutes(app2) {
       console.warn("Resend not connected \u2014 email non envoy\xE9:", e);
       return res.status(503).json({ error: "Service email non disponible." });
     }
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     try {
       await resendClient.client.emails.send({
         from: fromAddress,
@@ -1929,7 +1929,7 @@ async function registerRoutes(app2) {
       <p style="color:var(--muted);font-size:14px;margin-bottom:32px;">Derni\xE8re mise \xE0 jour : mai 2026</p>
 
       <h2>1. Objet</h2>
-      <p>Maintena est une application destin\xE9e \xE0 la gestion et au suivi des interventions en copropri\xE9t\xE9, \xE9dit\xE9e par ProFusion Num\xE9rik (SIREN 932 117 500).</p>
+      <p>Maintena est une application destin\xE9e \xE0 la gestion et au suivi des interventions en copropri\xE9t\xE9 et de l'immobilier locatif, \xE9dit\xE9e et g\xE9r\xE9e par <strong>Profusion Num\xE9rik</strong> (SIREN 932 117 500). Maintena n'est pas une entit\xE9 juridique ind\xE9pendante.</p>
 
       <h2>2. Utilisateurs</h2>
       <p>L'application est accessible aux syndics, prestataires et copropri\xE9taires ou occupants autoris\xE9s. Chaque profil dispose de droits d'acc\xE8s adapt\xE9s \xE0 sa fonction.</p>
@@ -1987,7 +1987,7 @@ async function registerRoutes(app2) {
     } else {
       try {
         const resendClient = await getUncachableResendClient();
-        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
         await resendClient.client.emails.send({
           from: fromAddress,
           to: process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "bijourobert1@gmail.com",
@@ -2849,7 +2849,7 @@ async function registerRoutes(app2) {
           skipped.push(d.id);
           continue;
         }
-        const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
         await resendClient.client.emails.send({
           from: fromAddress,
           to: d.id,
@@ -2988,7 +2988,7 @@ async function registerRoutes(app2) {
         console.warn("Resend not connected \u2014 signalement email non envoy\xE9:", e);
         return res.json({ sent: false, reason: "resend_unavailable" });
       }
-      const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
       await resendClient.client.emails.send({
         from: fromAddress,
         to: adminEmail,
@@ -3067,7 +3067,7 @@ async function registerRoutes(app2) {
     } catch {
       return res.json({ sent: 0, reason: "resend_unavailable" });
     }
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     const typeColors = {
       info: "#2563EB",
       eau: "#0EBAAA",
@@ -3161,7 +3161,7 @@ async function registerRoutes(app2) {
     } catch {
       return res.json({ sent: 0, reason: "resend_unavailable" });
     }
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     const optionsHtml = options.map(
       (opt, i) => `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:8px;background:#F8FAFF;border-radius:10px;border:1px solid #E2E8F0;">
         <div style="width:22px;height:22px;border-radius:50%;border:2px solid #2563EB;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#2563EB;">${i + 1}</div>
@@ -3472,7 +3472,7 @@ async function registerRoutes(app2) {
     } catch {
       return res.json({ sent: false, reason: "resend_unavailable" });
     }
-    const fromAddress = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     try {
       await resendClient.client.emails.send({
         from: fromAddress,
@@ -3602,7 +3602,7 @@ async function registerRoutes(app2) {
     } catch {
       return res.json({ sent: false, reason: "resend_unavailable" });
     }
-    const fromAddress2 = resendClient2.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const fromAddress2 = resendClient2.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
     try {
       await resendClient2.client.emails.send({
         from: fromAddress2,
@@ -4017,7 +4017,7 @@ async function registerRoutes(app2) {
         try {
           const rc = await getUncachableResendClient();
           await rc.client.emails.send({
-            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
             to: payload.copro.adminEmail,
             subject: `\u26A0\uFE0F Mission refus\xE9e \u2014 ${payload.intervention.title}`,
             html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;"><h2 style="color:#991b1b;">Mission refus\xE9e par le prestataire</h2><p>Le prestataire <strong>${payload.provider.name}</strong> a refus\xE9 l'intervention <strong>${payload.intervention.title}</strong> (${payload.copro.name}).</p><p>Vous pouvez r\xE9attribuer cette intervention depuis l'application.</p></div>`
@@ -4055,7 +4055,7 @@ async function registerRoutes(app2) {
       if (action === "refused" && payload.copro.adminEmail) {
         try {
           const resendClient = await getUncachableResendClient();
-          const fromAddr = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+          const fromAddr = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>";
           await resendClient.client.emails.send({
             from: fromAddr,
             to: payload.copro.adminEmail,
@@ -4179,7 +4179,7 @@ async function registerRoutes(app2) {
         const categoryLabel = CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category;
         const photosHtml = completionPhotos.length > 0 ? `<div style="margin-top:16px;"><div style="font-size:13px;color:#64748b;margin-bottom:8px;">Vos photos :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map((url) => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>` : "";
         await rc.client.emails.send({
-          from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
           to: payload.provider.email,
           subject: `\u2705 Compte-rendu transmis \u2014 ${payload.intervention.title}`,
           html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
@@ -4217,7 +4217,7 @@ async function registerRoutes(app2) {
           const categoryLabel = CATEGORY_LABELS_SERVER[payload.intervention.category] ?? payload.intervention.category;
           const adminPhotosHtml = completionPhotos.length > 0 ? `<div style="margin-top:12px;"><div style="font-size:12px;color:#64748b;margin-bottom:6px;">Photos du prestataire :</div><div style="display:flex;flex-wrap:wrap;gap:8px;">${completionPhotos.map((url) => `<a href="${url}" target="_blank"><img src="${url}" alt="photo" style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div></div>` : "";
           await rc.client.emails.send({
-            from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
             to: payload.copro.adminEmail,
             subject: `\u{1F4CB} Compte-rendu re\xE7u \u2014 ${payload.intervention.title}`,
             html: `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
@@ -4670,7 +4670,7 @@ async function registerRoutes(app2) {
       if (resendClient) {
         await Promise.all(emailsToSend.map(
           ({ to, name, link }) => resendClient.client.emails.send({
-            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
             to,
             subject: `Demande de devis \u2014 ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
             html: `
@@ -4786,7 +4786,7 @@ async function registerRoutes(app2) {
       }
       if (resendClient && offer.contactEmail) {
         await resendClient.client.emails.send({
-          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
           to: offer.contactEmail,
           subject: `Votre devis a \xE9t\xE9 retenu \u2014 ${escapeHtml(demande.title)} (${escapeHtml(coProName)})`,
           html: `
@@ -6024,7 +6024,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     });
     try {
       const resendClient = await getUncachableResendClient();
-      const from = resendClient.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
       const baseUrl = process.env.EXPO_PUBLIC_APP_DOWNLOAD_URL ?? "https://maintena-pro.fr";
       const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
       await resendClient.client.emails.send({
@@ -6369,7 +6369,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       if (resendClient) {
         await Promise.all(emailsToSend.map(
           ({ to, name, link }) => resendClient.client.emails.send({
-            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            from: resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
             to,
             subject: `Demande de devis \u2014 ${escapeHtml(intervention.title)} (${escapeHtml(propertyAddress)})`,
             html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
@@ -6448,7 +6448,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       }
       if (resendClient && offer.contactEmail) {
         await resendClient.client.emails.send({
-          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          from: resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <noreply@maintena-pro.fr>",
           to: offer.contactEmail,
           subject: `Votre devis a \xE9t\xE9 retenu \u2014 ${escapeHtml(intervention.title)}`,
           html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
