@@ -32,9 +32,17 @@ const PLAN_COPRO_LABELS: Record<string, string> = {
   business: "Jusqu'à 30 copropriétés",
 };
 
+const PLAN_RENTAL_ROWS = [
+  { label: "Gratuit",   price: "0 €",      period: "",      limit: "1 logement · 1 locataire" },
+  { label: "Starter",   price: "4,99 €",   period: "/mois", limit: "4 logements · 4 locataires" },
+  { label: "Pro",       price: "14,99 €",  period: "/mois", limit: "15 logements · 15 locataires" },
+  { label: "Business",  price: "34,99 €",  period: "/mois", limit: "Illimité · 100 locataires inclus" },
+];
+
 function PricingSection() {
-  const [open, setOpen] = useState(false);
-  const plans = Object.entries(PLAN_PRICES) as [keyof typeof PLAN_PRICES, typeof PLAN_PRICES[keyof typeof PLAN_PRICES]][];
+  const [open, setOpen]   = useState(false);
+  const [tab,  setTab]    = useState<"copro" | "rental">("copro");
+  const coproPlans = Object.entries(PLAN_PRICES) as [keyof typeof PLAN_PRICES, typeof PLAN_PRICES[keyof typeof PLAN_PRICES]][];
 
   return (
     <View style={pricing.container}>
@@ -53,17 +61,55 @@ function PricingSection() {
 
       {open && (
         <View style={pricing.grid}>
-          {plans.map(([plan, info]) => (
-            <View key={plan} style={pricing.planCard}>
-              <Text style={pricing.planName}>{info.label}</Text>
-              <Text style={pricing.planPrice}>{info.monthly.toFixed(2).replace(".", ",")} €/mois</Text>
-              <Text style={pricing.planLimit}>{PLAN_COPRO_LABELS[plan]}</Text>
-            </View>
-          ))}
-          <View style={pricing.note}>
-            <Ionicons name="gift-outline" size={13} color="#6ee7b7" />
-            <Text style={pricing.noteText}>30 jours d'essai gratuit · Sans engagement · Sans carte bancaire</Text>
+          {/* Onglets modules */}
+          <View style={pricing.tabs}>
+            <Pressable
+              style={[pricing.tabBtn, tab === "copro" && pricing.tabBtnActive]}
+              onPress={() => setTab("copro")}
+            >
+              <Ionicons name="business-outline" size={12} color={tab === "copro" ? "#fff" : "rgba(255,255,255,0.5)"} />
+              <Text style={[pricing.tabText, tab === "copro" && pricing.tabTextActive]}>Copropriété</Text>
+            </Pressable>
+            <Pressable
+              style={[pricing.tabBtn, tab === "rental" && pricing.tabBtnActive]}
+              onPress={() => setTab("rental")}
+            >
+              <Ionicons name="home-outline" size={12} color={tab === "rental" ? "#fff" : "rgba(255,255,255,0.5)"} />
+              <Text style={[pricing.tabText, tab === "rental" && pricing.tabTextActive]}>Location</Text>
+            </Pressable>
           </View>
+
+          {tab === "copro" && (
+            <>
+              {coproPlans.map(([plan, info]) => (
+                <View key={plan} style={pricing.planCard}>
+                  <Text style={pricing.planName}>{info.label}</Text>
+                  <Text style={pricing.planPrice}>{info.monthly.toFixed(2).replace(".", ",")} €/mois</Text>
+                  <Text style={pricing.planLimit}>{PLAN_COPRO_LABELS[plan]}</Text>
+                </View>
+              ))}
+              <View style={pricing.note}>
+                <Ionicons name="gift-outline" size={13} color="#6ee7b7" />
+                <Text style={pricing.noteText}>30 jours d'essai gratuit · Sans engagement · Sans carte bancaire</Text>
+              </View>
+            </>
+          )}
+
+          {tab === "rental" && (
+            <>
+              {PLAN_RENTAL_ROWS.map((p) => (
+                <View key={p.label} style={pricing.planCard}>
+                  <Text style={pricing.planName}>{p.label}</Text>
+                  <Text style={pricing.planPrice}>{p.price}{p.period}</Text>
+                  <Text style={pricing.planLimit}>{p.limit}</Text>
+                </View>
+              ))}
+              <View style={pricing.note}>
+                <Ionicons name="home-outline" size={13} color="#6ee7b7" />
+                <Text style={pricing.noteText}>Plan gratuit inclus · Passez à un plan supérieur depuis l'app</Text>
+              </View>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -879,5 +925,34 @@ const pricing = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "rgba(255,255,255,0.45)",
     flex: 1,
+  },
+  tabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  tabBtnActive: {
+    backgroundColor: "rgba(59,130,246,0.25)",
+    borderColor: "rgba(59,130,246,0.5)",
+  },
+  tabText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    color: "rgba(255,255,255,0.5)",
+  },
+  tabTextActive: {
+    color: "#fff",
   },
 });
