@@ -1645,6 +1645,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (event.type === "checkout.session.completed") {
         const session = event.data.object as Stripe.Checkout.Session;
 
+        // ── Module Location : activation plan bailleur ───────────────────────
+        if (session.metadata?.module === "rental") {
+          const landlordId   = session.metadata.landlordId;
+          const plan         = session.metadata.plan ?? "starter";
+          const customerId   = typeof session.customer === "string" ? session.customer : "";
+          const subscriptionId = typeof session.subscription === "string" ? session.subscription : "";
+          const now          = new Date().toISOString();
+
+          if (landlordId) {
+            await db.collection("users").doc(landlordId).set(
+              {
+                rentalProfile: {
+                  plan,
+                  rentalStripeCustomerId:    customerId || null,
+                  rentalStripeSubscriptionId: subscriptionId || null,
+                  rentalPlanActivatedAt:     now,
+                },
+              },
+              { merge: true }
+            );
+            console.log(`[rental-webhook] Plan "${plan}" activé pour landlord ${landlordId}`);
+          }
+          return res.json({ received: true });
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         const userId = session.metadata?.userId;
         const coProId = session.metadata?.coProId;
         const adminEmail = session.metadata?.adminEmail;
@@ -1777,6 +1803,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const subscription = event.data.object as Stripe.Subscription;
         const subscriptionId = subscription.id;
         const now = new Date().toISOString();
+
+        // Annulation plan bailleur (module rental)
+        const rentalUsersSnap = await db
+          .collection("users")
+          .where("rentalProfile.rentalStripeSubscriptionId", "==", subscriptionId)
+          .get();
+        for (const doc of rentalUsersSnap.docs) {
+          await doc.ref.set(
+            { rentalProfile: { plan: "free", rentalPlanCanceledAt: now } },
+            { merge: true }
+          );
+          console.log(`[rental-webhook] Plan annulé → "free" pour ${doc.id}`);
+        }
 
         const usersSnap = await db
           .collection("users")
@@ -2631,6 +2670,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p class="subtitle">Le paiement n’a pas été finalisé. Vous pouvez réessayer à tout moment sans perdre vos informations.</p>
       <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l'application</a>
       <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour à l’accueil</a>
+    </div>
+  </div>`));
+  });
+
+  // ─── Rental : pages de retour Stripe ─────────────────────────────────────────
+
+  app.get("/rental-payment-success", (req: Request, res: Response) => {
+    const plan = (req.query.plan as string) ?? "";
+    const PLAN_LABELS: Record<string, string> = {
+      starter:  "Starter (4,99 €/mois)",
+      pro:      "Pro (14,99 €/mois)",
+      business: "Business (34,99 €/mois)",
+    };
+    const planLabel = PLAN_LABELS[plan] ?? "votre abonnement";
+    res.send(pageShell("Paiement confirmé — Maintena", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">🎉</div>
+      <h1>Paiement confirmé !</h1>
+      <p class="subtitle">Le plan <strong>${planLabel}</strong> est maintenant actif sur votre compte bailleur.</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted);">Fermez cette fenêtre et retournez dans l'application Maintena — votre plan est déjà mis à jour.</p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:20px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l'application</a>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@maintena-pro.fr" style="color:var(--blue);">contact@maintena-pro.fr</a></p>
     </div>
   </div>`));
   });
@@ -6723,6 +6785,77 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
 </html>`;
   }
 
+  // ── Prix Stripe pour les plans bailleur ─────────────────────────────────────
+  function getRentalPriceId(plan: string): string | undefined {
+    switch (plan) {
+      case "starter":  return process.env.STRIPE_RENTAL_PRICE_STARTER;
+      case "pro":      return process.env.STRIPE_RENTAL_PRICE_PRO;
+      case "business": return process.env.STRIPE_RENTAL_PRICE_BUSINESS;
+      default:         return undefined;
+    }
+  }
+
+  /**
+   * POST /api/rental/create-checkout-session
+   * Crée une session Stripe Checkout pour un plan bailleur.
+   * Body: { plan: "starter"|"pro"|"business", landlordEmail: string }
+   */
+  app.post("/api/rental/create-checkout-session", async (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization ?? "";
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return res.status(401).json({ error: "Non authentifié." });
+
+    let decoded: any;
+    try { decoded = await getAuth().verifyIdToken(token); }
+    catch { return res.status(401).json({ error: "Token invalide." }); }
+
+    const { plan, landlordEmail } = req.body as { plan?: string; landlordEmail?: string };
+    if (!plan || !["starter", "pro", "business"].includes(plan)) {
+      return res.status(400).json({ error: "Plan invalide." });
+    }
+
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.status(503).json({ error: "Paiement non configuré. Contactez contact@maintena-pro.fr." });
+    }
+
+    const priceId = getRentalPriceId(plan);
+    if (!priceId) {
+      return res.status(503).json({ error: `Prix Stripe manquant pour le plan "${plan}". Contactez contact@maintena-pro.fr.` });
+    }
+
+    const PLAN_LABELS: Record<string, string> = {
+      starter: "Starter — 4,99€/mois",
+      pro:     "Pro — 14,99€/mois",
+      business:"Business — 34,99€/mois",
+    };
+
+    try {
+      const baseUrl = getBaseUrl(req);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        customer_email: landlordEmail ?? undefined,
+        line_items: [{ price: priceId, quantity: 1 }],
+        subscription_data: {
+          metadata: { module: "rental", plan, landlordId: decoded.uid },
+        },
+        metadata: {
+          module:      "rental",
+          landlordId:  decoded.uid,
+          plan,
+        },
+        success_url: `${baseUrl}/rental-payment-success?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+        cancel_url:  `${baseUrl}/rental-upgrade`,
+      });
+
+      return res.json({ url: session.url, plan, label: PLAN_LABELS[plan] });
+    } catch (e: any) {
+      console.error("[rental-checkout] Stripe error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur Stripe." });
+    }
+  });
+
   /** Invite un locataire dans un logement — crée le doc tenant + l'invitation + envoie l'email */
   app.post("/api/rental/invite-tenant", async (req: Request, res: Response) => {
     const decoded = await extractAuthenticatedUser(req);
@@ -6752,10 +6885,21 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       ? (landlordDoc.data()?.displayName ?? "Votre bailleur")
       : "Votre bailleur";
 
-    // ── Limite plan gratuit : 1 locataire total ──────────────────────────────
+    // ── Limite locataires selon le plan ─────────────────────────────────────
     const rentalProfile = landlordDoc.data()?.rentalProfile ?? {};
-    const landlordIsPro = rentalProfile.companyType === "société" || !!rentalProfile.siret;
-    if (!landlordIsPro) {
+    const rawPlan: string = rentalProfile.plan ?? "";
+    const TENANT_LIMITS: Record<string, number> = {
+      free: 1, starter: 4, pro: 15, business: 100,
+    };
+    const tenantLimit = TENANT_LIMITS[rawPlan] ?? 1; // défaut : gratuit = 1
+    const planLabel   = rawPlan === "starter" ? "Starter"
+                      : rawPlan === "pro"     ? "Pro"
+                      : rawPlan === "business"? "Business"
+                      : "Gratuit";
+
+    // Business : illimité au-delà de 100 est géré par facturation — on ne bloque pas côté serveur
+    const shouldCheck = rawPlan !== "business";
+    if (shouldCheck) {
       const propertiesSnap = await db.collection("properties")
         .where("landlordId", "==", decoded.uid).get();
       let totalActiveTenants = 0;
@@ -6764,10 +6908,12 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
           .where("status", "in", ["active", "invited"]).get();
         totalActiveTenants += tenantsSnap.size;
       }
-      if (totalActiveTenants >= 1) {
+      if (totalActiveTenants >= tenantLimit) {
         return res.status(403).json({
-          error: "Plan gratuit limité à 1 locataire. Passez à l'offre Pro pour gérer plusieurs locataires.",
-          code: "FREE_TENANT_LIMIT",
+          error: `Plan ${planLabel} limité à ${tenantLimit} locataire${tenantLimit > 1 ? "s" : ""}. Passez au plan supérieur pour inviter davantage de locataires.`,
+          code: "TENANT_PLAN_LIMIT",
+          currentPlan: rawPlan || "free",
+          tenantLimit,
         }) as any;
       }
     }

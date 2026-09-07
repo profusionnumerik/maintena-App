@@ -804,7 +804,7 @@ export default function PropertyDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router  = useRouter();
   const insets  = useSafeAreaInsets();
-  const { user, isPro } = useAuth();
+  const { user, planLimits } = useAuth();
 
   const [property, setProperty]     = useState<RentalProperty | null>(null);
   const [tenants, setTenants]       = useState<PropertyTenant[]>([]);
@@ -922,14 +922,14 @@ export default function PropertyDetail() {
         <View style={s.sectionRow}>
           <Text style={s.sectionTitle}>Locataire{activeTenants.length > 1 ? "s" : ""}{activeTenants.length > 0 ? ` (${activeTenants.length})` : ""}</Text>
           <Pressable
-            style={[s.inviteBtn, (!isPro && activeTenants.length >= 1) && s.inviteBtnLocked]}
-            onPress={() => (!isPro && activeTenants.length >= 1)
+            style={[s.inviteBtn, activeTenants.length >= planLimits.tenants && s.inviteBtnLocked]}
+            onPress={() => activeTenants.length >= planLimits.tenants
               ? router.push("/rental-upgrade" as any)
               : setShowInvite(true)
             }
           >
-            <Ionicons name={(!isPro && activeTenants.length >= 1) ? "lock-closed" : "person-add"} size={15} color="#fff" />
-            <Text style={s.inviteBtnText}>{(!isPro && activeTenants.length >= 1) ? "Pro" : "Inviter"}</Text>
+            <Ionicons name={activeTenants.length >= planLimits.tenants ? "lock-closed" : "person-add"} size={15} color="#fff" />
+            <Text style={s.inviteBtnText}>{activeTenants.length >= planLimits.tenants ? "Upgrade" : "Inviter"}</Text>
           </Pressable>
         </View>
         {activeTenants.length === 0 ? (

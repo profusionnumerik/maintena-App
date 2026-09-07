@@ -34,6 +34,7 @@ import { auth, db } from "@/lib/firebase";
 import { apiRequest } from "@/lib/query-client";
 import { registerPushToken } from "@/lib/notifications";
 import type { UserType, RentalInfo } from "@/shared/types";
+import { type RentalPlan, type PlanLimits, PLAN_LIMITS, resolvePlan } from "@/shared/plans";
 
 const SUPER_ADMIN_EMAIL =
   process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "admin@example.com";
@@ -56,9 +57,13 @@ interface AuthContextValue {
   userType: UserType | null;
   hasRentalSetup: boolean;
   rentalInfo: RentalInfo | null;
-  /** Profil bailleur : companyType, siret, companyName, agenceName */
-  rentalProfile: { companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string } | null;
-  /** Vrai si le bailleur a un SIRET renseigné ou est une société → plan Pro requis */
+  /** Profil bailleur : companyType, siret, companyName, agenceName, plan */
+  rentalProfile: { companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string; plan?: RentalPlan } | null;
+  /** Plan d'abonnement actif : "free" | "starter" | "pro" | "business" */
+  rentalPlan: RentalPlan;
+  /** Limites du plan actif (logements, locataires, stockage) */
+  planLimits: PlanLimits;
+  /** Vrai si le bailleur est sur un plan payant (starter, pro ou business) */
   isPro: boolean;
   setUserType: (type: UserType) => Promise<void>;
   resetUserType: () => Promise<void>;
@@ -130,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userType, setUserTypeState] = useState<UserType | null>(null);
   const [hasRentalSetup, setHasRentalSetup] = useState(false);
   const [rentalInfo, setRentalInfo] = useState<RentalInfo | null>(null);
-  const [rentalProfile, setRentalProfile] = useState<{ companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string } | null>(null);
+  const [rentalProfile, setRentalProfile] = useState<{ companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string; plan?: RentalPlan } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // isLoading reste true tant que Firebase Auth OU les données Firestore ne sont pas prêtes
@@ -372,10 +377,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ────────────────────────────────────────────────────────────────────────────
 
-  // Un bailleur est "Pro" s'il a un SIRET ou est une société → plan gratuit non applicable
-  const isPro = useMemo(
-    () => rentalProfile?.companyType === "société" || !!rentalProfile?.siret,
+  // Plan résolu : lit rentalProfile.plan, fallback "free"
+  const rentalPlan = useMemo<RentalPlan>(
+    () => resolvePlan(rentalProfile?.plan),
     [rentalProfile]
+  );
+  const planLimits = useMemo<PlanLimits>(
+    () => PLAN_LIMITS[rentalPlan],
+    [rentalPlan]
+  );
+  // isPro = vrai si le bailleur a un plan payant OU un SIRET/société (transition)
+  const isPro = useMemo(
+    () => rentalPlan !== "free" || rentalProfile?.companyType === "société" || !!rentalProfile?.siret,
+    [rentalPlan, rentalProfile]
   );
 
   const value = useMemo(
@@ -387,6 +401,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       hasRentalSetup,
       rentalInfo,
       rentalProfile,
+      rentalPlan,
+      planLimits,
       isPro,
       error,
       clearError,
@@ -401,7 +417,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       user, isLoading, isSuperAdmin,
-      userType, hasRentalSetup, rentalInfo, rentalProfile, isPro,
+      userType, hasRentalSetup, rentalInfo, rentalProfile, rentalPlan, planLimits, isPro,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]

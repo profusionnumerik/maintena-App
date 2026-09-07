@@ -241,15 +241,11 @@ function PropertyCard({ property }: { property: RentalProperty }) {
   );
 }
 
-// ─── Limite plan gratuit ──────────────────────────────────────────────────────
-
-const FREE_PROPERTY_LIMIT = 1;
-
 // ─── Écran principal ──────────────────────────────────────────────────────────
 
 export default function RentalDashboard() {
   const insets  = useSafeAreaInsets();
-  const { user, isPro } = useAuth();
+  const { user, rentalPlan, planLimits } = useAuth();
   const router  = useRouter();
 
   const [properties, setProperties] = useState<RentalProperty[]>([]);
@@ -275,9 +271,8 @@ export default function RentalDashboard() {
     return unsub;
   }, [user?.uid]);
 
-  // Les pros (SIRET / société) doivent payer — limite gratuit ne s'applique qu'aux particuliers
-  // Pour l'instant on bloque aussi les pros tant qu'il n'y a pas de paiement en place
-  const atLimit = !isPro && properties.length >= FREE_PROPERTY_LIMIT;
+  const propertyLimit = planLimits.properties; // Infinity si Business
+  const atLimit = properties.length >= propertyLimit;
 
   const handlePressAdd = useCallback(() => {
     if (atLimit) {
@@ -288,7 +283,7 @@ export default function RentalDashboard() {
   }, [atLimit]);
 
   const handleSaveProperty = useCallback(async (data: Omit<RentalProperty, "id">) => {
-    if (!isPro && properties.length >= FREE_PROPERTY_LIMIT) {
+    if (properties.length >= propertyLimit) {
       setShowModal(false);
       setShowLimitModal(true);
       throw new Error("limit");
@@ -317,9 +312,9 @@ export default function RentalDashboard() {
             <Text style={styles.subtitle}>
               {properties.length === 0
                 ? "Aucun logement enregistré"
-                : isPro
+                : propertyLimit === Infinity
                   ? `${properties.length} logement${properties.length > 1 ? "s" : ""}`
-                  : `${properties.length} / ${FREE_PROPERTY_LIMIT} logement${properties.length > 1 ? "s" : ""} (plan gratuit)`}
+                  : `${properties.length} / ${propertyLimit} logement${properties.length > 1 ? "s" : ""} (plan ${planLimits.label})`}
             </Text>
           )}
         </View>
@@ -336,12 +331,12 @@ export default function RentalDashboard() {
         </Pressable>
       </View>
 
-      {/* Bandeau limite plan gratuit */}
+      {/* Bandeau limite plan */}
       {atLimit && !loading && (
         <Pressable style={styles.limitBanner} onPress={() => setShowLimitModal(true)}>
           <Ionicons name="lock-closed-outline" size={14} color="#8B5CF6" />
           <Text style={styles.limitBannerText}>
-            Limite du plan gratuit atteinte · 1 logement max
+            Limite plan {planLimits.label} atteinte · {propertyLimit} logement{propertyLimit > 1 ? "s" : ""} max
           </Text>
           <Ionicons name="chevron-forward" size={14} color="#8B5CF6" />
         </Pressable>
@@ -418,11 +413,11 @@ export default function RentalDashboard() {
             </View>
             <Text style={limitStyles.title}>Plan gratuit</Text>
             <Text style={limitStyles.desc}>
-              Le plan gratuit est limité à{" "}
-              <Text style={{ fontFamily: "Inter_700Bold" }}>1 logement et 1 locataire</Text>.
+              Le plan <Text style={{ fontFamily: "Inter_700Bold" }}>{planLimits.label}</Text> est limité à{" "}
+              <Text style={{ fontFamily: "Inter_700Bold" }}>{propertyLimit} logement{propertyLimit > 1 ? "s" : ""}</Text>.
             </Text>
             <Text style={limitStyles.desc}>
-              Passez Pro pour gérer plusieurs logements et locataires sans limite.
+              Passez au plan supérieur pour gérer plus de logements et de locataires.
             </Text>
             <Pressable
               style={({ pressed }) => [limitStyles.btnPro, pressed && { opacity: 0.85 }]}

@@ -333,14 +333,66 @@ async function deleteUserData(uid) {
   const db = getAdminDb();
   const adminAuth = getAdminAuthInstance();
   if (!db || !adminAuth) throw new Error("Firebase Admin indisponible");
-  const batch = db.batch();
-  batch.delete(db.collection("users").doc(uid));
+  async function deleteSubCollection(parentRef, subCol) {
+    const snap = await parentRef.collection(subCol).get();
+    if (snap.empty) return;
+    const chunks = [];
+    for (let i = 0; i < snap.docs.length; i += 400) chunks.push(snap.docs.slice(i, i + 400));
+    for (const chunk of chunks) {
+      const b = db.batch();
+      chunk.forEach((d) => b.delete(d.ref));
+      await b.commit();
+    }
+  }
+  const batch1 = db.batch();
+  batch1.delete(db.collection("users").doc(uid));
   const coprosSnap = await db.collection("copros").get();
   for (const coproDoc of coprosSnap.docs) {
     const members = await db.collection("copros").doc(coproDoc.id).collection("members").where("uid", "==", uid).get();
-    members.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+    members.docs.forEach((d) => batch1.delete(d.ref));
   }
-  await batch.commit();
+  await batch1.commit();
+  const propertiesSnap = await db.collection("properties").where("landlordId", "==", uid).get();
+  for (const propDoc of propertiesSnap.docs) {
+    const ref = propDoc.ref;
+    const SUB_COLS = [
+      "interventions",
+      "messages",
+      "documents",
+      "devis",
+      "inventoryReports",
+      "quotes",
+      "notifications"
+    ];
+    for (const sub of SUB_COLS) {
+      await deleteSubCollection(ref, sub);
+    }
+    await ref.delete();
+  }
+  const tenantPropsSnap = await db.collection("properties").where("rentalInfo.tenantUserId", "==", uid).get();
+  if (!tenantPropsSnap.empty) {
+    const b = db.batch();
+    tenantPropsSnap.docs.forEach(
+      (d) => b.update(d.ref, {
+        "rentalInfo.tenantUserId": null,
+        "rentalInfo.tenantEmail": null,
+        "rentalInfo.tenantName": null
+      })
+    );
+    await b.commit();
+  }
+  const inviteSnap = await db.collection("inviteCodes").where("ownerUid", "==", uid).get();
+  if (!inviteSnap.empty) {
+    const b = db.batch();
+    inviteSnap.docs.forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
+  const delReqSnap = await db.collection("accountDeletionRequests").where("uid", "==", uid).get();
+  if (!delReqSnap.empty) {
+    const b = db.batch();
+    delReqSnap.docs.forEach((d) => b.delete(d.ref));
+    await b.commit();
+  }
   await adminAuth.deleteUser(uid);
 }
 function sha256(value) {
@@ -1345,6 +1397,28 @@ async function registerRoutes(app2) {
     try {
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
+        if (session.metadata?.module === "rental") {
+          const landlordId = session.metadata.landlordId;
+          const plan = session.metadata.plan ?? "starter";
+          const customerId2 = typeof session.customer === "string" ? session.customer : "";
+          const subscriptionId2 = typeof session.subscription === "string" ? session.subscription : "";
+          const now2 = (/* @__PURE__ */ new Date()).toISOString();
+          if (landlordId) {
+            await db2.collection("users").doc(landlordId).set(
+              {
+                rentalProfile: {
+                  plan,
+                  rentalStripeCustomerId: customerId2 || null,
+                  rentalStripeSubscriptionId: subscriptionId2 || null,
+                  rentalPlanActivatedAt: now2
+                }
+              },
+              { merge: true }
+            );
+            console.log(`[rental-webhook] Plan "${plan}" activ\xE9 pour landlord ${landlordId}`);
+          }
+          return res.json({ received: true });
+        }
         const userId = session.metadata?.userId;
         const coProId = session.metadata?.coProId;
         const adminEmail = session.metadata?.adminEmail;
@@ -1455,6 +1529,14 @@ async function registerRoutes(app2) {
         const subscription = event.data.object;
         const subscriptionId = subscription.id;
         const now = (/* @__PURE__ */ new Date()).toISOString();
+        const rentalUsersSnap = await db2.collection("users").where("rentalProfile.rentalStripeSubscriptionId", "==", subscriptionId).get();
+        for (const doc of rentalUsersSnap.docs) {
+          await doc.ref.set(
+            { rentalProfile: { plan: "free", rentalPlanCanceledAt: now } },
+            { merge: true }
+          );
+          console.log(`[rental-webhook] Plan annul\xE9 \u2192 "free" pour ${doc.id}`);
+        }
         const usersSnap = await db2.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
         const coprosSnap = await db2.collection("copros").where("stripeSubscriptionId", "==", subscriptionId).get();
         const batch = db2.batch();
@@ -2201,6 +2283,26 @@ async function registerRoutes(app2) {
       <p class="subtitle">Le paiement n\u2019a pas \xE9t\xE9 finalis\xE9. Vous pouvez r\xE9essayer \xE0 tout moment sans perdre vos informations.</p>
       <a href="/" style="display:inline-block;margin-top:8px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour \xE0 l'application</a>
       <a href="/" style="display:inline-block;margin-top:12px;color:var(--muted);font-size:14px;">Retour \xE0 l\u2019accueil</a>
+    </div>
+  </div>`));
+  });
+  app2.get("/rental-payment-success", (req, res) => {
+    const plan = req.query.plan ?? "";
+    const PLAN_LABELS = {
+      starter: "Starter (4,99 \u20AC/mois)",
+      pro: "Pro (14,99 \u20AC/mois)",
+      business: "Business (34,99 \u20AC/mois)"
+    };
+    const planLabel = PLAN_LABELS[plan] ?? "votre abonnement";
+    res.send(pageShell("Paiement confirm\xE9 \u2014 Maintena", `
+  <div class="m-container" style="max-width:520px;">
+    <div class="m-card" style="text-align:center;">
+      <div style="font-size:56px;margin-bottom:16px;">\u{1F389}</div>
+      <h1>Paiement confirm\xE9 !</h1>
+      <p class="subtitle">Le plan <strong>${planLabel}</strong> est maintenant actif sur votre compte bailleur.</p>
+      <p style="margin-top:8px;font-size:14px;color:var(--muted);">Fermez cette fen\xEAtre et retournez dans l'application Maintena \u2014 votre plan est d\xE9j\xE0 mis \xE0 jour.</p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:20px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour \xE0 l'application</a>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@maintena-pro.fr" style="color:var(--blue);">contact@maintena-pro.fr</a></p>
     </div>
   </div>`));
   });
@@ -5773,6 +5875,69 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
 </body>
 </html>`;
   }
+  function getRentalPriceId(plan) {
+    switch (plan) {
+      case "starter":
+        return process.env.STRIPE_RENTAL_PRICE_STARTER;
+      case "pro":
+        return process.env.STRIPE_RENTAL_PRICE_PRO;
+      case "business":
+        return process.env.STRIPE_RENTAL_PRICE_BUSINESS;
+      default:
+        return void 0;
+    }
+  }
+  app2.post("/api/rental/create-checkout-session", async (req, res) => {
+    const authHeader = req.headers.authorization ?? "";
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return res.status(401).json({ error: "Non authentifi\xE9." });
+    let decoded;
+    try {
+      decoded = await getAuth().verifyIdToken(token);
+    } catch {
+      return res.status(401).json({ error: "Token invalide." });
+    }
+    const { plan, landlordEmail } = req.body;
+    if (!plan || !["starter", "pro", "business"].includes(plan)) {
+      return res.status(400).json({ error: "Plan invalide." });
+    }
+    const stripe = getStripe();
+    if (!stripe) {
+      return res.status(503).json({ error: "Paiement non configur\xE9. Contactez contact@maintena-pro.fr." });
+    }
+    const priceId = getRentalPriceId(plan);
+    if (!priceId) {
+      return res.status(503).json({ error: `Prix Stripe manquant pour le plan "${plan}". Contactez contact@maintena-pro.fr.` });
+    }
+    const PLAN_LABELS = {
+      starter: "Starter \u2014 4,99\u20AC/mois",
+      pro: "Pro \u2014 14,99\u20AC/mois",
+      business: "Business \u2014 34,99\u20AC/mois"
+    };
+    try {
+      const baseUrl = getBaseUrl(req);
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        payment_method_types: ["card"],
+        customer_email: landlordEmail ?? void 0,
+        line_items: [{ price: priceId, quantity: 1 }],
+        subscription_data: {
+          metadata: { module: "rental", plan, landlordId: decoded.uid }
+        },
+        metadata: {
+          module: "rental",
+          landlordId: decoded.uid,
+          plan
+        },
+        success_url: `${baseUrl}/rental-payment-success?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+        cancel_url: `${baseUrl}/rental-upgrade`
+      });
+      return res.json({ url: session.url, plan, label: PLAN_LABELS[plan] });
+    } catch (e) {
+      console.error("[rental-checkout] Stripe error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur Stripe." });
+    }
+  });
   app2.post("/api/rental/invite-tenant", async (req, res) => {
     const decoded = await extractAuthenticatedUser(req);
     if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
@@ -5791,6 +5956,33 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     const propertyAddress = `${property.address}${aptSuffix}, ${property.postalCode} ${property.city}`;
     const landlordDoc = await db2.collection("users").doc(decoded.uid).get();
     const landlordName = landlordDoc.exists ? landlordDoc.data()?.displayName ?? "Votre bailleur" : "Votre bailleur";
+    const rentalProfile = landlordDoc.data()?.rentalProfile ?? {};
+    const rawPlan = rentalProfile.plan ?? "";
+    const TENANT_LIMITS = {
+      free: 1,
+      starter: 4,
+      pro: 15,
+      business: 100
+    };
+    const tenantLimit = TENANT_LIMITS[rawPlan] ?? 1;
+    const planLabel = rawPlan === "starter" ? "Starter" : rawPlan === "pro" ? "Pro" : rawPlan === "business" ? "Business" : "Gratuit";
+    const shouldCheck = rawPlan !== "business";
+    if (shouldCheck) {
+      const propertiesSnap = await db2.collection("properties").where("landlordId", "==", decoded.uid).get();
+      let totalActiveTenants = 0;
+      for (const propDoc of propertiesSnap.docs) {
+        const tenantsSnap = await propDoc.ref.collection("tenants").where("status", "in", ["active", "invited"]).get();
+        totalActiveTenants += tenantsSnap.size;
+      }
+      if (totalActiveTenants >= tenantLimit) {
+        return res.status(403).json({
+          error: `Plan ${planLabel} limit\xE9 \xE0 ${tenantLimit} locataire${tenantLimit > 1 ? "s" : ""}. Passez au plan sup\xE9rieur pour inviter davantage de locataires.`,
+          code: "TENANT_PLAN_LIMIT",
+          currentPlan: rawPlan || "free",
+          tenantLimit
+        });
+      }
+    }
     let token = "";
     for (let attempts = 0; attempts < 5; attempts++) {
       const candidate = randomBytes(3).toString("hex").toUpperCase();
@@ -6106,12 +6298,702 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       return res.status(500).json({ error: "internal_error" });
     }
   });
+  app2.post("/api/rental/devis/send-requests", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "");
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const { propertyId, interventionId, contactIds } = req.body;
+      if (!propertyId || !interventionId || !Array.isArray(contactIds) || contactIds.length === 0)
+        return res.status(400).json({ error: "propertyId, interventionId et contactIds requis" });
+      if (contactIds.length > 3)
+        return res.status(400).json({ error: "Maximum 3 prestataires" });
+      const db2 = getAdminDb();
+      const propSnap = await db2.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists || propSnap.data()?.landlordId !== uid)
+        return res.status(403).json({ error: "Non autoris\xE9" });
+      const propertyData = propSnap.data();
+      const propertyAddress = [propertyData.address, propertyData.city].filter(Boolean).join(", ");
+      const intRef = db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId);
+      const intSnap = await intRef.get();
+      if (!intSnap.exists) return res.status(404).json({ error: "Intervention introuvable" });
+      const intervention = intSnap.data();
+      const crypto = await import("crypto");
+      const baseUrl = getBaseUrl(req);
+      const contactSnaps = await Promise.all(
+        contactIds.map((id) => db2.collection("users").doc(uid).collection("providerContacts").doc(id).get())
+      );
+      const existingDevis = intervention.devis ?? [];
+      const newDevis = existingDevis.filter((o) => o.submitted);
+      const emailsToSend = [];
+      for (const snap of contactSnaps) {
+        if (!snap.exists) continue;
+        const contact = snap.data();
+        if (!contact.email) continue;
+        const alreadySubmitted = existingDevis.find((o) => o.contactId === snap.id && o.submitted);
+        if (alreadySubmitted) {
+          newDevis.push(alreadySubmitted);
+          continue;
+        }
+        const token = crypto.default.randomBytes(20).toString("hex");
+        const offerId = snap.id + "_" + Date.now();
+        const offer = {
+          id: offerId,
+          contactId: snap.id,
+          contactName: `${contact.firstName} ${contact.lastName}`,
+          contactCompany: contact.company ?? "",
+          contactEmail: contact.email,
+          token,
+          submitted: false
+        };
+        newDevis.push(offer);
+        await db2.collection("rentalDevisTokens").doc(token).set({
+          propertyId,
+          interventionId,
+          offerId,
+          token,
+          contactName: offer.contactName,
+          contactCompany: offer.contactCompany,
+          createdAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        emailsToSend.push({ to: contact.email, name: `${contact.firstName} ${contact.lastName}`, link: `${baseUrl}/rental-devis-form/${token}` });
+      }
+      await intRef.update({ devis: newDevis, devisStatus: "requested" });
+      let resendClient;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+      }
+      if (resendClient) {
+        await Promise.all(emailsToSend.map(
+          ({ to, name, link }) => resendClient.client.emails.send({
+            from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+            to,
+            subject: `Demande de devis \u2014 ${escapeHtml(intervention.title)} (${escapeHtml(propertyAddress)})`,
+            html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
+<div style="max-width:580px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+  <p style="color:#0f172a;font-size:15px;margin:0 0 6px 0">Bonjour ${escapeHtml(name)},</p>
+  <p style="color:#374151;font-size:15px;line-height:1.6;margin:0 0 20px 0">Un bailleur vous sollicite pour \xE9tablir un devis.</p>
+  <div style="background:#f1f5f9;border-left:4px solid #8B5CF6;border-radius:0 10px 10px 0;padding:16px 20px;margin:0 0 24px 0">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(intervention.title)}</p>
+    ${intervention.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(intervention.description)}</p>` : ""}
+    <p style="color:#64748b;font-size:13px;margin:0">Logement : <strong>${escapeHtml(propertyAddress)}</strong></p>
+  </div>
+  <a href="${link}" style="display:block;background:#8B5CF6;color:#fff;text-decoration:none;text-align:center;padding:16px;border-radius:12px;font-weight:700;margin:20px 0;font-size:16px">
+    \u{1F4CE}&nbsp;&nbsp;D\xE9poser mon devis
+  </a>
+  <p style="color:#94a3b8;font-size:13px;margin:0 0 6px 0">Si le bouton ne fonctionne pas : ${link}</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+  <p style="color:#374151;font-size:14px;margin:0">Cordialement,<br/><strong>L'\xE9quipe Maintena</strong></p>
+</div></body></html>`
+          }).catch((e) => console.error("[rental-devis email]", e?.message))
+        ));
+      }
+      return res.json({ sent: emailsToSend.length, total: newDevis.length });
+    } catch (e) {
+      console.error("/api/rental/devis/send-requests error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.post("/api/rental/devis/retain", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "");
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const { propertyId, interventionId, offerId } = req.body;
+      if (!propertyId || !interventionId || !offerId)
+        return res.status(400).json({ error: "Param\xE8tres manquants" });
+      const db2 = getAdminDb();
+      const propSnap = await db2.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists || propSnap.data()?.landlordId !== uid)
+        return res.status(403).json({ error: "Non autoris\xE9" });
+      const intRef = db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId);
+      const intSnap = await intRef.get();
+      if (!intSnap.exists) return res.status(404).json({ error: "Intervention introuvable" });
+      const intervention = intSnap.data();
+      const devis = intervention.devis ?? [];
+      const offerIdx = devis.findIndex((o) => o.id === offerId);
+      if (offerIdx === -1) return res.status(404).json({ error: "Devis introuvable" });
+      const offer = devis[offerIdx];
+      const { randomBytes: randomBytes2 } = await import("crypto");
+      const signatureToken = randomBytes2(24).toString("hex");
+      devis[offerIdx] = { ...offer, signatureToken };
+      await intRef.update({
+        selectedDevisId: offerId,
+        devisStatus: "retained",
+        closedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        devis
+      });
+      await db2.collection("rentalDevisTokens").doc(signatureToken).set({
+        type: "signature",
+        propertyId,
+        interventionId,
+        offerId,
+        contactName: offer.contactName,
+        contactEmail: offer.contactEmail,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      const propertyData = propSnap.data();
+      const propertyAddress = [propertyData.address, propertyData.city].filter(Boolean).join(", ");
+      const baseUrl = getBaseUrl(req);
+      const signLink = `${baseUrl}/sign-rental-devis/${signatureToken}`;
+      let resendClient;
+      try {
+        resendClient = await getUncachableResendClient();
+      } catch {
+      }
+      if (resendClient && offer.contactEmail) {
+        await resendClient.client.emails.send({
+          from: resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+          to: offer.contactEmail,
+          subject: `Votre devis a \xE9t\xE9 retenu \u2014 ${escapeHtml(intervention.title)}`,
+          html: `<!DOCTYPE html><html lang="fr"><body style="font-family:sans-serif;background:#f8fafc;padding:32px 16px">
+<div style="max-width:580px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.08)">
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#DCFCE7;border-radius:50%;margin-bottom:12px"><span style="font-size:32px">\u{1F3C6}</span></div>
+    <h2 style="color:#16A34A;margin:0;font-size:22px">Votre devis a \xE9t\xE9 retenu !</h2>
+  </div>
+  <p style="color:#374151;font-size:15px;margin:0 0 8px 0">Bonjour <strong>${escapeHtml(offer.contactName)}</strong>,</p>
+  <div style="background:#f1f5f9;border-left:4px solid #16A34A;border-radius:0 10px 10px 0;padding:16px 20px;margin:0 0 24px 0">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(intervention.title)}</p>
+    <p style="color:#64748b;font-size:13px;margin:0">Logement : <strong>${escapeHtml(propertyAddress)}</strong> \xB7 Montant : <strong>${offer.priceTTC?.toLocaleString("fr-FR", { style: "currency", currency: "EUR" }) ?? "\u2014"} TTC</strong></p>
+  </div>
+  <a href="${signLink}" style="display:block;background:#16A34A;color:#fff;text-decoration:none;text-align:center;padding:16px;border-radius:12px;font-weight:700;margin:20px 0;font-size:16px">\u270D\uFE0F&nbsp;&nbsp;Signer le bon pour accord</a>
+  <p style="color:#94a3b8;font-size:13px;margin:0 0 6px 0">Si le bouton ne fonctionne pas : ${signLink}</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0"/>
+  <p style="color:#374151;font-size:14px;margin:0">Cordialement,<br/><strong>L'\xE9quipe Maintena</strong></p>
+</div></body></html>`
+        }).catch((e) => console.error("[rental-signature email]", e?.message));
+      }
+      return res.json({ ok: true, signLink });
+    } catch (e) {
+      console.error("/api/rental/devis/retain error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.post("/api/rental/devis/landlord-sign", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "");
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return res.status(503).json({ error: "Firebase Admin unavailable" });
+      const { uid } = await adminAuth.verifyIdToken(idToken);
+      const { propertyId, interventionId, offerId, svgBase64, invoiceRef } = req.body;
+      if (!propertyId || !interventionId || !offerId || !svgBase64)
+        return res.status(400).json({ error: "Param\xE8tres manquants" });
+      const db2 = getAdminDb();
+      const propSnap = await db2.collection("properties").doc(propertyId).get();
+      if (!propSnap.exists || propSnap.data()?.landlordId !== uid)
+        return res.status(403).json({ error: "Non autoris\xE9" });
+      const intRef = db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId);
+      const intSnap = await intRef.get();
+      if (!intSnap.exists) return res.status(404).json({ error: "Intervention introuvable" });
+      const devis = intSnap.data().devis ?? [];
+      const idx = devis.findIndex((o) => o.id === offerId);
+      if (idx === -1) return res.status(404).json({ error: "Devis introuvable" });
+      let landlordSignatureUrl;
+      const bucket = getAdminStorage();
+      if (bucket) {
+        const { randomBytes: randomBytes2 } = await import("crypto");
+        const downloadToken = randomBytes2(16).toString("hex");
+        const storagePath = `rental-signatures/${propertyId}/${interventionId}/${offerId}_landlord.svg`;
+        const svgBuffer = Buffer.from(svgBase64, "base64");
+        await bucket.file(storagePath).save(svgBuffer, {
+          metadata: { contentType: "image/svg+xml", metadata: { firebaseStorageDownloadTokens: downloadToken } }
+        });
+        const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+        landlordSignatureUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+      }
+      const landlordSignedAt = (/* @__PURE__ */ new Date()).toISOString();
+      devis[idx] = { ...devis[idx], landlordSignatureUrl, landlordSignedAt, ...invoiceRef ? { invoiceRef } : {} };
+      await intRef.update({ devis });
+      await generateRentalDevisPdf({
+        offer: devis[idx],
+        intervention: intSnap.data(),
+        propertyData: propSnap.data(),
+        propertyId,
+        interventionId,
+        intRef
+      });
+      return res.json({ ok: true, landlordSignedAt, landlordSignatureUrl });
+    } catch (e) {
+      console.error("/api/rental/devis/landlord-sign error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.get("/rental-devis-form/:token", async (req, res) => {
+    const token = req.params.token;
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+    const tokenSnap = await db2.collection("rentalDevisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type === "signature") {
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide ou expir\xE9</h1></div></div>`));
+    }
+    const tokenData = tokenSnap.data();
+    const { propertyId, interventionId } = tokenData;
+    const intSnap = await db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId).get();
+    if (!intSnap.exists) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Intervention introuvable</h1></div></div>`));
+    const intervention = intSnap.data();
+    const offer = (intervention.devis ?? []).find((o) => o.token === token);
+    if (!offer) return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide</h1></div></div>`));
+    if (offer.submitted) {
+      return res.send(pageShell("Devis d\xE9j\xE0 soumis", `<div class="m-container"><div class="m-card"><h1>\u2705 Devis d\xE9j\xE0 soumis</h1><p>Vous avez d\xE9j\xE0 soumis un devis de <strong>${offer.priceTTC?.toLocaleString("fr-FR")} \u20AC TTC</strong>.</p></div></div>`));
+    }
+    const propSnap = await db2.collection("properties").doc(propertyId).get();
+    const propData = propSnap.data() ?? {};
+    const propertyAddress = [propData.address, propData.city].filter(Boolean).join(", ");
+    const body = `
+<div class="m-container">
+  <div class="m-card">
+    <h1>Demande de devis</h1>
+    <p class="subtitle">${escapeHtml(propertyAddress)}</p>
+    <div style="background:#f1f5f9;border-radius:12px;padding:16px;margin-bottom:24px">
+      <strong style="font-size:16px;color:#0f172a">${escapeHtml(intervention.title)}</strong>
+      ${intervention.description ? `<p style="color:#475569;margin-top:8px;font-size:14px">${escapeHtml(intervention.description)}</p>` : ""}
+    </div>
+    <p style="color:#374151;margin-bottom:20px">Bonjour <strong>${escapeHtml(tokenData.contactName)}</strong>, veuillez renseigner votre devis ci-dessous.</p>
+    <form id="devisForm" enctype="multipart/form-data">
+      <label class="m-label">Prix TTC *</label>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        <input class="m-input" type="number" id="priceTTC" name="priceTTC" min="0" step="0.01" placeholder="1 250,00" required style="flex:1;margin-bottom:0" />
+        <span style="font-weight:700;font-size:18px;color:#64748b">\u20AC</span>
+      </div>
+      <label class="m-label">Document devis *<span style="font-size:12px;font-weight:400;color:#94a3b8"> (PDF, image \u2014 max 10 Mo)</span></label>
+      <label id="fileLabel" style="display:flex;align-items:center;gap:10px;border:2px dashed #cbd5e1;border-radius:10px;padding:16px;cursor:pointer;background:#f8fafc;margin-bottom:16px">
+        <span style="font-size:24px">\u{1F4CE}</span>
+        <span id="fileName" style="color:#64748b;font-size:14px">Cliquez pour choisir un fichier\u2026</span>
+        <input type="file" id="devisFile" name="devisFile" accept=".pdf,.jpg,.jpeg,.png,.webp" required style="display:none" />
+      </label>
+      <label class="m-label">Commentaire / D\xE9tail</label>
+      <textarea class="m-input" id="description" name="description" rows="3" placeholder="Mat\xE9riaux, d\xE9lai, conditions\u2026" style="resize:vertical"></textarea>
+      <button class="m-btn" type="submit">Envoyer mon devis</button>
+    </form>
+    <div class="m-error" id="errMsg"></div>
+    <div class="m-success" id="okMsg"></div>
+  </div>
+</div>
+<script>
+document.getElementById("devisFile").addEventListener("change", function() {
+  document.getElementById("fileName").textContent = this.files[0]?.name ?? "Aucun fichier";
+  document.getElementById("fileLabel").style.borderColor = this.files[0] ? "#8B5CF6" : "#cbd5e1";
+});
+document.getElementById("devisForm").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  const btn = this.querySelector("button");
+  const errEl = document.getElementById("errMsg");
+  const okEl = document.getElementById("okMsg");
+  errEl.style.display = "none"; okEl.style.display = "none";
+  const price = parseFloat(document.getElementById("priceTTC").value);
+  const file = document.getElementById("devisFile").files[0];
+  if (!price || price <= 0) { errEl.textContent = "Veuillez saisir un montant TTC valide."; errEl.style.display="block"; return; }
+  if (!file) { errEl.textContent = "Veuillez joindre votre document devis."; errEl.style.display="block"; return; }
+  if (file.size > 10 * 1024 * 1024) { errEl.textContent = "Fichier trop volumineux (max 10 Mo)."; errEl.style.display="block"; return; }
+  btn.disabled = true; btn.textContent = "Envoi en cours\u2026";
+  try {
+    const fd = new FormData();
+    fd.append("priceTTC", String(price));
+    fd.append("description", document.getElementById("description").value);
+    fd.append("devisFile", file);
+    const r = await fetch("/rental-devis-form/${escapeHtml(token)}", { method:"POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "Erreur");
+    okEl.textContent = "\u2705 Devis soumis avec succ\xE8s. Merci !";
+    okEl.style.display = "block";
+    this.style.display = "none";
+  } catch(err) {
+    errEl.textContent = err.message;
+    errEl.style.display = "block";
+    btn.disabled = false; btn.textContent = "Envoyer mon devis";
+  }
+});
+</script>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell("Soumettre mon devis \u2014 Maintena", body, "\u2190 Accueil", "/"));
+  });
+  const rentalDevisUploadMw = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 }, fileFilter: (_req, file, cb) => {
+    cb(null, ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/jpg"].includes(file.mimetype));
+  } });
+  app2.post("/rental-devis-form/:token", rentalDevisUploadMw.single("devisFile"), async (req, res) => {
+    const token = req.params.token;
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Service indisponible" });
+    const tokenSnap = await db2.collection("rentalDevisTokens").doc(token).get();
+    if (!tokenSnap.exists) return res.status(404).json({ error: "Token invalide" });
+    const { propertyId, interventionId, offerId } = tokenSnap.data();
+    const intRef = db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId);
+    const intSnap = await intRef.get();
+    if (!intSnap.exists) return res.status(404).json({ error: "Intervention introuvable" });
+    const devis = intSnap.data().devis ?? [];
+    const idx = devis.findIndex((o) => o.token === token);
+    if (idx === -1) return res.status(404).json({ error: "Offre introuvable" });
+    if (devis[idx].submitted) return res.status(409).json({ error: "Devis d\xE9j\xE0 soumis" });
+    const priceTTC = parseFloat(req.body.priceTTC);
+    if (isNaN(priceTTC) || priceTTC <= 0) return res.status(400).json({ error: "Prix TTC invalide" });
+    const uploadedFile = req.file;
+    if (!uploadedFile) return res.status(400).json({ error: "Document devis requis" });
+    let devisFileUrl;
+    const bucket = getAdminStorage();
+    if (bucket) {
+      const ext = uploadedFile.originalname.split(".").pop() ?? "pdf";
+      const storagePath = `rental-devis/${propertyId}/${interventionId}/${offerId ?? token}.${ext}`;
+      const { randomBytes: randomBytes2 } = await import("crypto");
+      const downloadToken = randomBytes2(16).toString("hex");
+      await bucket.file(storagePath).save(uploadedFile.buffer, {
+        metadata: { contentType: uploadedFile.mimetype, metadata: { firebaseStorageDownloadTokens: downloadToken } }
+      });
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      devisFileUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+    }
+    devis[idx] = { ...devis[idx], priceTTC, description: (req.body.description ?? "").trim(), ...devisFileUrl ? { devisFileUrl } : {}, submitted: true, submittedAt: (/* @__PURE__ */ new Date()).toISOString() };
+    const anySubmitted = devis.some((o) => o.submitted);
+    await intRef.update({ devis, devisStatus: anySubmitted ? "received" : "requested" });
+    await db2.collection("rentalDevisTokens").doc(token).update({ submittedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    return res.json({ ok: true });
+  });
+  app2.get("/sign-rental-devis/:token", async (req, res) => {
+    const token = req.params.token;
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+    const tokenSnap = await db2.collection("rentalDevisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature") {
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide ou expir\xE9</h1></div></div>`));
+    }
+    const { propertyId, interventionId, offerId, contactName } = tokenSnap.data();
+    const intSnap = await db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId).get();
+    if (!intSnap.exists) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Intervention introuvable</h1></div></div>`));
+    const intervention = intSnap.data();
+    const offer = (intervention.devis ?? []).find((o) => o.id === offerId);
+    if (offer?.signedAt) {
+      return res.send(pageShell("D\xE9j\xE0 sign\xE9", `<div class="m-container"><div class="m-card"><h1>\u2705 Bon pour accord d\xE9j\xE0 sign\xE9</h1><p>Vous avez sign\xE9 le <strong>${new Date(offer.signedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}</strong>.</p></div></div>`));
+    }
+    const propSnap = await db2.collection("properties").doc(propertyId).get();
+    const propData = propSnap.data() ?? {};
+    const propertyAddress = [propData.address, propData.city].filter(Boolean).join(", ");
+    const today = (/* @__PURE__ */ new Date()).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const body = `
+<div class="m-container"><div class="m-card">
+  <h1>Bon pour accord</h1>
+  <p class="subtitle">${escapeHtml(propertyAddress)}</p>
+  <div style="background:#f1f5f9;border-left:4px solid #16A34A;border-radius:0 10px 10px 0;padding:16px 20px;margin-bottom:24px">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 6px 0">${escapeHtml(intervention.title)}</p>
+    ${intervention.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(intervention.description)}</p>` : ""}
+    <p style="color:#16A34A;font-size:15px;font-weight:700;margin:0">Montant retenu : ${offer?.priceTTC?.toLocaleString("fr-FR", { style: "currency", currency: "EUR" }) ?? "\u2014"} TTC</p>
+  </div>
+  <p style="color:#374151;font-size:14px;margin-bottom:6px">Prestataire : <strong>${escapeHtml(contactName)}</strong></p>
+  <p style="color:#374151;font-size:14px;margin-bottom:20px">Date : <strong>${today}</strong></p>
+  <p style="color:#374151;font-size:15px;font-weight:600;margin-bottom:10px">Votre signature *</p>
+  <div style="position:relative;margin-bottom:8px">
+    <canvas id="sigCanvas" width="520" height="180" style="border:2px solid #16A34A;border-radius:12px;cursor:crosshair;touch-action:none;display:block;max-width:100%;background:#fff"></canvas>
+    <button id="clearBtn" type="button" style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.9);border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#64748b">Effacer</button>
+  </div>
+  <p style="color:#94a3b8;font-size:12px;margin-bottom:20px">En signant, j'accepte les termes du bon pour accord ci-dessus.</p>
+  <button id="submitBtn" style="display:block;width:100%;background:#16A34A;color:#fff;border:none;padding:16px;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer">\u2705 Signer et valider</button>
+  <div class="m-error" id="errMsg"></div>
+  <div class="m-success" id="okMsg"></div>
+</div></div>
+<script>
+const canvas = document.getElementById("sigCanvas");
+const ctx = canvas.getContext("2d");
+ctx.strokeStyle = "#1e293b"; ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.lineJoin = "round";
+let drawing = false, isEmpty = true;
+function getPos(e) { const r = canvas.getBoundingClientRect(); const scaleX = canvas.width/r.width; const scaleY = canvas.height/r.height; const src = e.touches ? e.touches[0] : e; return { x: (src.clientX-r.left)*scaleX, y: (src.clientY-r.top)*scaleY }; }
+canvas.addEventListener("mousedown", (e) => { drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); });
+canvas.addEventListener("mousemove", (e) => { if(!drawing) return; isEmpty=false; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); });
+canvas.addEventListener("mouseup", () => drawing=false);
+canvas.addEventListener("mouseleave", () => drawing=false);
+canvas.addEventListener("touchstart", (e) => { e.preventDefault(); drawing=true; const p=getPos(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); }, {passive:false});
+canvas.addEventListener("touchmove", (e) => { e.preventDefault(); if(!drawing) return; isEmpty=false; const p=getPos(e); ctx.lineTo(p.x,p.y); ctx.stroke(); }, {passive:false});
+canvas.addEventListener("touchend", () => drawing=false);
+document.getElementById("clearBtn").addEventListener("click", () => { ctx.clearRect(0,0,canvas.width,canvas.height); isEmpty=true; });
+document.getElementById("submitBtn").addEventListener("click", async () => {
+  if(isEmpty) { const e=document.getElementById("errMsg"); e.textContent="Veuillez signer avant de valider."; e.style.display="block"; return; }
+  const btn=document.getElementById("submitBtn"); const errEl=document.getElementById("errMsg"); const okEl=document.getElementById("okMsg");
+  errEl.style.display="none"; okEl.style.display="none"; btn.disabled=true; btn.textContent="Envoi en cours\u2026";
+  try {
+    const dataUrl=canvas.toDataURL("image/png"); const blob=await (await fetch(dataUrl)).blob();
+    const fd=new FormData(); fd.append("signature",blob,"signature.png");
+    const r=await fetch("/sign-rental-devis/${token}",{method:"POST",body:fd});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Erreur");
+    okEl.textContent="\u2705 Bon pour accord sign\xE9 avec succ\xE8s. Merci !"; okEl.style.display="block";
+    document.getElementById("sigCanvas").style.display="none"; document.getElementById("clearBtn").style.display="none"; btn.style.display="none";
+  } catch(err) { errEl.textContent=err.message; errEl.style.display="block"; btn.disabled=false; btn.textContent="\u2705 Signer et valider"; }
+});
+</script>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell("Signer le bon pour accord \u2014 Maintena", body));
+  });
+  const rentalSignUploadMw = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+  app2.post("/sign-rental-devis/:token", rentalSignUploadMw.single("signature"), async (req, res) => {
+    const token = req.params.token;
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Service indisponible" });
+    const tokenSnap = await db2.collection("rentalDevisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature")
+      return res.status(404).json({ error: "Token invalide" });
+    const { propertyId, interventionId, offerId } = tokenSnap.data();
+    const intRef = db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId);
+    const intSnap = await intRef.get();
+    if (!intSnap.exists) return res.status(404).json({ error: "Intervention introuvable" });
+    const devis = intSnap.data().devis ?? [];
+    const idx = devis.findIndex((o) => o.id === offerId);
+    if (idx === -1) return res.status(404).json({ error: "Devis introuvable" });
+    if (devis[idx].signedAt) return res.status(409).json({ error: "D\xE9j\xE0 sign\xE9" });
+    const signatureFile = req.file;
+    if (!signatureFile) return res.status(400).json({ error: "Signature requise" });
+    let signatureUrl;
+    const bucket = getAdminStorage();
+    if (bucket) {
+      const { randomBytes: randomBytes2 } = await import("crypto");
+      const downloadToken = randomBytes2(16).toString("hex");
+      const storagePath = `rental-signatures/${propertyId}/${interventionId}/${offerId}.png`;
+      await bucket.file(storagePath).save(signatureFile.buffer, {
+        metadata: { contentType: "image/png", metadata: { firebaseStorageDownloadTokens: downloadToken } }
+      });
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      signatureUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+    }
+    const signedAt = (/* @__PURE__ */ new Date()).toISOString();
+    devis[idx] = { ...devis[idx], signatureUrl, signedAt };
+    await intRef.update({ devis });
+    await db2.collection("rentalDevisTokens").doc(token).update({ signedAt });
+    return res.json({ ok: true, signedAt });
+  });
+  app2.get("/bon-de-commande-rental/:token", async (req, res) => {
+    const token = req.params.token;
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).send(pageShell("Indisponible", `<div class="m-container"><div class="m-card"><h1>Service indisponible</h1></div></div>`));
+    const tokenSnap = await db2.collection("rentalDevisTokens").doc(token).get();
+    if (!tokenSnap.exists || tokenSnap.data()?.type !== "signature")
+      return res.status(404).send(pageShell("Lien invalide", `<div class="m-container"><div class="m-card"><h1>Lien invalide ou expir\xE9</h1></div></div>`));
+    const { propertyId, interventionId, offerId } = tokenSnap.data();
+    const [intSnap, propSnap] = await Promise.all([
+      db2.collection("properties").doc(propertyId).collection("interventions").doc(interventionId).get(),
+      db2.collection("properties").doc(propertyId).get()
+    ]);
+    if (!intSnap.exists) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Introuvable</h1></div></div>`));
+    const intervention = intSnap.data();
+    const propData = propSnap.data() ?? {};
+    const offer = (intervention.devis ?? []).find((o) => o.id === offerId);
+    if (!offer) return res.status(404).send(pageShell("Introuvable", `<div class="m-container"><div class="m-card"><h1>Devis introuvable</h1></div></div>`));
+    const propertyAddress = [propData.address, propData.city].filter(Boolean).join(", ");
+    const fmtDate = (iso) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const fmtPrice = (n) => n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+    const bothSigned = !!(offer.signedAt && offer.landlordSignedAt);
+    const dateAccept = offer.landlordSignedAt ?? intervention.closedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+    const body = `
+<div class="m-container"><div class="m-card">
+  <div style="text-align:center;margin-bottom:28px">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:#8B5CF620;border-radius:16px;margin-bottom:12px"><span style="font-size:28px">\u{1F4CB}</span></div>
+    <h1 style="margin:0">Bon pour accord</h1>
+    ${bothSigned ? `<div style="display:inline-flex;align-items:center;gap:6px;background:#DCFCE7;color:#16A34A;padding:6px 14px;border-radius:20px;font-weight:700;font-size:13px;margin-top:10px">\u2713 Double signature</div>` : ""}
+  </div>
+  <div style="background:#f1f5f9;border-radius:12px;padding:16px;margin-bottom:24px">
+    <p style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px 0">${escapeHtml(intervention.title)}</p>
+    ${intervention.description ? `<p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 8px 0">${escapeHtml(intervention.description)}</p>` : ""}
+    <p style="color:#8B5CF6;font-size:18px;font-weight:700;margin:0">${offer.priceTTC !== void 0 ? fmtPrice(offer.priceTTC) : "\u2014"} TTC</p>
+  </div>
+  <div style="display:grid;gap:12px;margin-bottom:24px">
+    <div style="display:flex;justify-content:space-between;padding:12px;background:#f8fafc;border-radius:10px">
+      <span style="color:#64748b;font-size:13px">Logement</span>
+      <span style="font-weight:600;font-size:13px;color:#0f172a">${escapeHtml(propertyAddress)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:12px;background:#f8fafc;border-radius:10px">
+      <span style="color:#64748b;font-size:13px">Prestataire</span>
+      <span style="font-weight:600;font-size:13px;color:#0f172a">${escapeHtml(offer.contactName)}${offer.contactCompany ? ` \u2014 ${escapeHtml(offer.contactCompany)}` : ""}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:12px;background:#f8fafc;border-radius:10px">
+      <span style="color:#64748b;font-size:13px">Date d'accord</span>
+      <span style="font-weight:600;font-size:13px;color:#0f172a">${fmtDate(dateAccept)}</span>
+    </div>
+  </div>
+  <div style="display:grid;gap:10px">
+    ${offer.signatureUrl ? `<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px"><p style="font-size:12px;color:#64748b;margin:0 0 8px 0;font-weight:600">SIGNATURE PRESTATAIRE \u2014 ${offer.signedAt ? fmtDate(offer.signedAt) : "\u2014"}</p><img src="${escapeHtml(offer.signatureUrl)}" style="max-width:100%;height:80px;object-fit:contain" alt="Signature prestataire"/></div>` : `<div style="border:1px solid #FDE68A;border-radius:12px;padding:12px;background:#FFFBEB"><p style="font-size:12px;color:#D97706;margin:0">\u23F3 En attente de signature du prestataire</p></div>`}
+    ${offer.landlordSignatureUrl ? `<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px"><p style="font-size:12px;color:#64748b;margin:0 0 8px 0;font-weight:600">SIGNATURE BAILLEUR \u2014 ${offer.landlordSignedAt ? fmtDate(offer.landlordSignedAt) : "\u2014"}</p><img src="${escapeHtml(offer.landlordSignatureUrl)}" style="max-width:100%;height:80px;object-fit:contain" alt="Signature bailleur"/></div>` : `<div style="border:1px solid #FDE68A;border-radius:12px;padding:12px;background:#FFFBEB"><p style="font-size:12px;color:#D97706;margin:0">\u23F3 En attente de signature du bailleur</p></div>`}
+  </div>
+  ${offer.finalDevisUrl ? `<a href="${escapeHtml(offer.finalDevisUrl)}" style="display:block;background:#0f172a;color:#fff;text-decoration:none;text-align:center;padding:14px;border-radius:12px;font-weight:700;margin-top:20px">\u{1F4C4} T\xE9l\xE9charger le bon pour accord (PDF)</a>` : ""}
+</div></div>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(pageShell("Bon pour accord \u2014 Maintena", body));
+  });
+  async function generateRentalDevisPdf(params) {
+    const { offer, intervention, propertyData, propertyId, interventionId, intRef } = params;
+    const bucket = getAdminStorage();
+    if (!bucket) return;
+    try {
+      const { PDFDocument, rgb, StandardFonts, PageSizes } = await import("pdf-lib");
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage(PageSizes.A4);
+      const { width, height } = page.getSize();
+      const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const dark = rgb(0.06, 0.09, 0.16);
+      const gray = rgb(0.39, 0.45, 0.55);
+      const white = rgb(1, 1, 1);
+      const purple = rgb(0.42, 0.27, 0.76);
+      const M = 50;
+      const W = width - 2 * M;
+      const fmtDate = (iso) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+      const fmtMontant = (n) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " \u20AC";
+      const trunc = (s, n) => s?.length > n ? s.slice(0, n - 1) + "\u2026" : s ?? "";
+      page.drawRectangle({ x: 0, y: height - 78, width, height: 78, color: purple });
+      page.drawText("BON POUR ACCORD", { x: M, y: height - 44, size: 20, font: bold, color: white });
+      page.drawText("Maintena \u2014 Gestion locative", { x: M, y: height - 62, size: 9, font: regular, color: rgb(0.85, 0.8, 0.95) });
+      const signedAtStr = offer.landlordSignedAt ?? (/* @__PURE__ */ new Date()).toISOString();
+      page.drawText(`Date : ${fmtDate(signedAtStr)}`, { x: width - M - 145, y: height - 44, size: 9, font: regular, color: white });
+      page.drawText(`R\xE9f. doc : ${offer.id.slice(-10).toUpperCase()}`, { x: width - M - 145, y: height - 58, size: 9, font: regular, color: rgb(0.85, 0.8, 0.95) });
+      const colW = (W - 16) / 2;
+      const colX2 = M + colW + 16;
+      let y = height - 78 - 22;
+      page.drawText("DONNEUR D'ORDRE (BAILLEUR)", { x: M, y, size: 8, font: bold, color: purple });
+      y -= 14;
+      const propAddress = [propertyData.address, [propertyData.postalCode, propertyData.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+      page.drawText(trunc(propAddress || "\u2014", 50), { x: M, y, size: 10, font: bold, color: dark });
+      y -= 13;
+      const yAfterLeft = y - 6;
+      let y2 = height - 78 - 22 - 14;
+      page.drawText("PRESTATAIRE", { x: colX2, y: y2, size: 8, font: bold, color: purple });
+      y2 -= 14;
+      page.drawText(trunc(offer.contactName ?? "", 40), { x: colX2, y: y2, size: 10, font: bold, color: dark });
+      y2 -= 13;
+      if (offer.contactCompany) {
+        page.drawText(trunc(offer.contactCompany, 40), { x: colX2, y: y2, size: 9, font: regular, color: gray });
+        y2 -= 13;
+      }
+      if (offer.contactEmail) {
+        page.drawText(trunc(offer.contactEmail, 40), { x: colX2, y: y2, size: 9, font: regular, color: gray });
+      }
+      y = Math.min(yAfterLeft, y2 - 20) - 20;
+      page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.9, 0.94) });
+      y -= 20;
+      page.drawText("OBJET DE LA PRESTATION", { x: M, y, size: 8, font: bold, color: purple });
+      y -= 16;
+      page.drawText(trunc(intervention.title, 80), { x: M, y, size: 12, font: bold, color: dark });
+      y -= 14;
+      if (intervention.description) {
+        page.drawText(trunc(intervention.description, 90), { x: M, y, size: 9, font: regular, color: gray });
+        y -= 14;
+      }
+      y -= 10;
+      page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.9, 0.94) });
+      y -= 20;
+      page.drawText("MONTANT DE L'OFFRE", { x: M, y, size: 8, font: bold, color: purple });
+      y -= 18;
+      if (offer.priceTTC !== void 0) {
+        page.drawText(fmtMontant(offer.priceTTC) + " TTC", { x: M, y, size: 20, font: bold, color: dark });
+        y -= 16;
+        page.drawText("TVA selon taux applicable \u2014 se r\xE9f\xE9rer au devis du prestataire pour le d\xE9tail.", { x: M, y, size: 9, font: regular, color: gray });
+        y -= 20;
+      }
+      y -= 10;
+      page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.9, 0.94) });
+      y -= 20;
+      if (offer.invoiceRef) {
+        page.drawText("R\xC9F\xC9RENCE DE FACTURE", { x: M, y, size: 8, font: bold, color: purple });
+        y -= 16;
+        const refBoxH = 30;
+        page.drawRectangle({ x: M, y: y - refBoxH + 8, width: W, height: refBoxH, color: rgb(0.96, 0.94, 1), borderColor: rgb(0.55, 0.36, 0.97), borderWidth: 0.7, borderRadius: 4 });
+        page.drawText(trunc(offer.invoiceRef, 60), { x: M + 12, y: y - refBoxH + 18, size: 13, font: bold, color: purple });
+        y -= refBoxH + 14;
+        page.drawLine({ start: { x: M, y }, end: { x: width - M, y }, thickness: 0.5, color: rgb(0.88, 0.9, 0.94) });
+        y -= 20;
+      }
+      const sigW = (W - 16) / 2;
+      const sigBoxH = 100;
+      let proSigImage = null;
+      let landlordSigImage = null;
+      try {
+        const { Resvg } = await import("@resvg/resvg-js");
+        if (offer.signatureUrl) {
+          const r = await fetch(offer.signatureUrl);
+          if (r.ok) {
+            const svgText = await r.text();
+            const resvg = new Resvg(svgText, { background: "white" });
+            proSigImage = await pdfDoc.embedPng(resvg.render().asPng());
+          }
+        }
+        if (offer.landlordSignatureUrl) {
+          const r2 = await fetch(offer.landlordSignatureUrl);
+          if (r2.ok) {
+            const svgText2 = await r2.text();
+            const resvg2 = new Resvg(svgText2, { background: "white" });
+            landlordSigImage = await pdfDoc.embedPng(resvg2.render().asPng());
+          }
+        }
+      } catch (sigErr) {
+        console.error("[rental-pdf] Erreur conversion signature SVG:", sigErr?.message);
+      }
+      page.drawText("SIGNATURE PRESTATAIRE", { x: M, y, size: 8, font: bold, color: purple });
+      y -= 12;
+      if (offer.signedAt) {
+        page.drawText("Sign\xE9 \xE9lectroniquement le " + fmtDate(offer.signedAt), { x: M, y, size: 8, font: regular, color: gray });
+      }
+      const ySigLeft = y - 8;
+      page.drawRectangle({ x: M, y: ySigLeft - sigBoxH, width: sigW, height: sigBoxH, borderColor: rgb(0.88, 0.9, 0.94), borderWidth: 0.5, color: rgb(0.98, 0.98, 0.99) });
+      if (proSigImage) {
+        const dims = proSigImage.scaleToFit(sigW - 16, sigBoxH - 16);
+        page.drawImage(proSigImage, { x: M + (sigW - dims.width) / 2, y: ySigLeft - sigBoxH + (sigBoxH - dims.height) / 2, width: dims.width, height: dims.height });
+      } else if (offer.signedAt) {
+        page.drawText("\u2713 Sign\xE9 \xE9lectroniquement", { x: M + 10, y: ySigLeft - sigBoxH / 2, size: 9, font: bold, color: purple });
+      }
+      const xRight = M + sigW + 16;
+      let yR = y + 12;
+      page.drawText("SIGNATURE BAILLEUR", { x: xRight, y: yR, size: 8, font: bold, color: purple });
+      yR -= 12;
+      if (offer.landlordSignedAt) {
+        page.drawText("Sign\xE9 \xE9lectroniquement le " + fmtDate(offer.landlordSignedAt), { x: xRight, y: yR, size: 8, font: regular, color: gray });
+      }
+      const ySigRight = yR - 8;
+      page.drawRectangle({ x: xRight, y: ySigRight - sigBoxH, width: sigW, height: sigBoxH, borderColor: rgb(0.88, 0.9, 0.94), borderWidth: 0.5, color: rgb(0.98, 0.98, 0.99) });
+      if (landlordSigImage) {
+        const dims2 = landlordSigImage.scaleToFit(sigW - 16, sigBoxH - 16);
+        page.drawImage(landlordSigImage, { x: xRight + (sigW - dims2.width) / 2, y: ySigRight - sigBoxH + (sigBoxH - dims2.height) / 2, width: dims2.width, height: dims2.height });
+      } else if (offer.landlordSignedAt) {
+        page.drawText("\u2713 Sign\xE9 \xE9lectroniquement", { x: xRight + 10, y: ySigRight - sigBoxH / 2, size: 9, font: bold, color: purple });
+      }
+      y = Math.min(ySigLeft, ySigRight) - sigBoxH - 18;
+      page.drawText("En signant le pr\xE9sent bon pour accord, le bailleur et le prestataire", { x: M, y, size: 8, font: regular, color: gray });
+      y -= 12;
+      page.drawText("acceptent le devis susmentionn\xE9 dans les termes et conditions qui y figurent.", { x: M, y, size: 8, font: regular, color: gray });
+      const pdfBytes = await pdfDoc.save();
+      const { randomBytes: randomBytes2 } = await import("crypto");
+      const downloadToken = randomBytes2(16).toString("hex");
+      const storagePath = `rental-devis/${propertyId}/${interventionId}/${offer.id}_bon_accord.pdf`;
+      await bucket.file(storagePath).save(Buffer.from(pdfBytes), {
+        metadata: { contentType: "application/pdf", metadata: { firebaseStorageDownloadTokens: downloadToken } }
+      });
+      const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+      const finalDevisUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+      const devis = (await intRef.get()).data()?.devis ?? [];
+      const i = devis.findIndex((o) => o.id === offer.id);
+      if (i !== -1) {
+        devis[i] = { ...devis[i], finalDevisUrl };
+        await intRef.update({ devis });
+      }
+    } catch (e) {
+      console.error("[rental-pdf] Erreur:", e?.message ?? e);
+    }
+  }
+  app2.get("/", (_req, res) => {
+    const landingPath = path.resolve(process.cwd(), "public", "landing-page.html");
+    if (fs.existsSync(landingPath)) return res.sendFile(landingPath);
+    const idx = path.resolve(process.cwd(), "static-build", "index.html");
+    if (fs.existsSync(idx)) return res.sendFile(idx);
+    return res.status(503).send("Service indisponible.");
+  });
+  app2.get("/terms", (_req, res) => {
+    return res.sendFile("terms.html", { root: "public" });
+  });
   const staticBuildIndex = path.resolve(process.cwd(), "static-build", "index.html");
   const sendSPA = (_req, res) => {
     if (fs.existsSync(staticBuildIndex)) return res.sendFile(staticBuildIndex);
     return res.status(503).send("App web indisponible \u2014 static-build introuvable.");
   };
-  app2.get(["/", "/*path"], (req, res) => {
+  app2.get("/*path", (req, res) => {
     if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
     return sendSPA(req, res);
   });
