@@ -1,15 +1,18 @@
 import {
   View, Text, StyleSheet, Platform, ScrollView,
   Pressable, Modal, TextInput, Alert, ActivityIndicator,
+  PanResponder,
 } from "react-native";
+import { Path, Svg } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   collection, query, where, onSnapshot, addDoc,
   orderBy, getDocs, doc, getDoc, updateDoc,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import type { RentalProperty, PropertyTenant } from "@/shared/types";
@@ -20,18 +23,23 @@ import { generateQuittanceHtml } from "@/lib/quittancePdf";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Quittance {
-  id:              string;
-  propertyId:      string;
-  landlordId:      string;
-  tenantName:      string;
-  period:          string;    // "2026-08"
-  rentAmount:      number;
-  chargesAmount:   number;
-  paymentDate:     string;
-  quittanceNumber: string;
-  propertyLabel?:  string;
-  createdAt:       string;
+  id:                  string;
+  propertyId:          string;
+  landlordId:          string;
+  tenantName:          string;
+  period:              string;    // "2026-08"
+  rentAmount:          number;
+  chargesAmount:       number;
+  paymentDate:         string;
+  quittanceNumber:     string;
+  propertyLabel?:      string;
+  createdAt:           string;
+  signatureImageUrl?:  string;   // URL Firebase Storage signature bailleur
 }
+
+// ─── Constantes pad signature ─────────────────────────────────────────────────
+const SIG_W = 280;
+const SIG_H = 100;
 
 interface PropertyOption {
   id:         string;
@@ -295,11 +303,75 @@ function CreateModal({
   const [charges, setCharges]         = useState("");
   const [saving, setSaving]           = useState(false);
 
+  // ── Signature pad ──────────────────────────────────────────────────────────
+  const [strokes, setStrokes]       = useState<{x:number;y:number}[][]>([]);
+  const [liveStroke, setLiveStroke] = useState<{x:number;y:number}[]>([]);
+  const currentStroke               = useRef<{x:number;y:number}[]>([]);
+  const strokesRef                  = useRef<{x:number;y:number}[][]>([]);
+
+  const sigPR = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder:  () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture:  () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => {
+        const { locationX: x, locationY: y } = e.nativeEvent;
+        currentStroke.current = [{ x, y }];
+        setLiveStroke([{ x, y }]);
+      },
+      onPanResponderMove: (e) => {
+        const { locationX: x, locationY: y } = e.nativeEvent;
+        currentStroke.current = [...currentStroke.current, { x, y }];
+        setLiveStroke([...currentStroke.current]);
+      },
+      onPanResponderRelease: () => {
+        if (currentStroke.current.length > 0) {
+          strokesRef.current = [...strokesRef.current, currentStroke.current];
+          setStrokes([...strokesRef.current]);
+        }
+        setLiveStroke([]);
+        currentStroke.current = [];
+      },
+      onPanResponderTerminate: () => {
+        if (currentStroke.current.length > 0) {
+          strokesRef.current = [...strokesRef.current, currentStroke.current];
+          setStrokes([...strokesRef.current]);
+        }
+        setLiveStroke([]);
+        currentStroke.current = [];
+      },
+    })
+  ).current;
+
+  function ptsToPath(pts: {x:number;y:number}[]): string {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)} l0.1,0.1`;
+    return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}` +
+      pts.slice(1).map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
+  }
+
+  async function uploadSignature(): Promise<string | undefined> {
+    if (strokes.length === 0) return undefined;
+    const pathsXml = strokes
+      .map((pts) => `<path d="${ptsToPath(pts)}" stroke="#1E293B" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`)
+      .join("");
+    const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${SIG_W}" height="${SIG_H}" viewBox="0 0 ${SIG_W} ${SIG_H}" style="background:white">${pathsXml}</svg>`;
+    const blob   = new Blob([svgStr], { type: "image/svg+xml" });
+    const path   = `quittance-signatures/${uid}/${Date.now()}.svg`;
+    const sRef   = storageRef(storage, path);
+    await uploadBytes(sRef, blob, { contentType: "image/svg+xml" });
+    return await getDownloadURL(sRef);
+  }
+
   useEffect(() => {
     if (!visible) {
       setPropertyId(""); setTenantName(""); setTenantEmail("");
       setPeriod(currentPeriod()); setPaymentDay(new Date().getDate());
       setRentAmount(""); setCharges("");
+      setStrokes([]); setLiveStroke([]);
+      currentStroke.current = []; strokesRef.current = [];
     }
     if (visible && properties.length === 1) setPropertyId(properties[0].id);
   }, [visible, properties]);
@@ -331,6 +403,11 @@ function CreateModal({
     if (!rentAmount)        { Alert.alert("Montant du loyer manquant"); return; }
     if (!landlordName)      { Alert.alert("Profil incomplet", "Renseignez votre nom ou raison sociale dans le profil bailleur."); return; }
 
+    if (strokes.length === 0) {
+      Alert.alert("Signature requise", "Veuillez signer dans le cadre avant de générer la quittance.");
+      return;
+    }
+
     setSaving(true);
     try {
       const prop = properties.find((p) => p.id === propertyId)!;
@@ -342,7 +419,9 @@ function CreateModal({
         )
       );
 
-      const number = generateNumber(period, existing.size);
+      const number           = generateNumber(period, existing.size);
+      const signatureImageUrl = await uploadSignature();
+
       const quittanceData: Omit<Quittance, "id"> = {
         propertyId,
         landlordId:      uid,
@@ -354,6 +433,7 @@ function CreateModal({
         quittanceNumber: number,
         propertyLabel:   prop.label,
         createdAt:       new Date().toISOString(),
+        signatureImageUrl,
       };
 
       await addDoc(collection(db, "properties", propertyId, "quittances"), quittanceData);
@@ -373,6 +453,7 @@ function CreateModal({
         rentAmount:      parseFloat(rentAmount),
         chargesAmount:   parseFloat(charges || "0"),
         quittanceNumber: number,
+        signatureImageUrl,
       });
 
       await sharePdf(html, `quittance-${period}.pdf`);
@@ -501,6 +582,54 @@ function CreateModal({
               </Text>
             </View>
           )}
+
+          {/* ── Signature bailleur ── */}
+          <View style={sig.section}>
+            <View style={sig.labelRow}>
+              <Ionicons name="create-outline" size={15} color={COLORS.primary} />
+              <Text style={sig.label}>Signature du bailleur *</Text>
+            </View>
+            <Text style={sig.hint}>Signez dans le cadre ci-dessous avec votre doigt</Text>
+
+            <View style={sig.padWrap} {...sigPR.panHandlers}>
+              <Svg width={SIG_W} height={SIG_H} style={StyleSheet.absoluteFill}>
+                {strokes.map((pts, i) => (
+                  <Path
+                    key={i}
+                    d={ptsToPath(pts)}
+                    stroke="#1E293B"
+                    strokeWidth={2.5}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+                {liveStroke.length > 0 && (
+                  <Path
+                    d={ptsToPath(liveStroke)}
+                    stroke="#1E293B"
+                    strokeWidth={2.5}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </Svg>
+              {strokes.length === 0 && liveStroke.length === 0 && (
+                <Text style={sig.placeholder}>Signez ici</Text>
+              )}
+            </View>
+
+            {strokes.length > 0 && (
+              <Pressable
+                style={sig.clearBtn}
+                onPress={() => { setStrokes([]); strokesRef.current = []; setLiveStroke([]); currentStroke.current = []; }}
+              >
+                <Ionicons name="refresh-outline" size={14} color={COLORS.textMuted} />
+                <Text style={sig.clearText}>Effacer et recommencer</Text>
+              </Pressable>
+            )}
+          </View>
 
           {/* Bouton */}
           <Pressable style={create.btn} onPress={handleGenerate} disabled={saving}>
@@ -636,19 +765,20 @@ export default function RentalQuittances() {
     const prop = properties.find((p) => p.id === q.propertyId);
     if (!prop) return;
     const html = generateQuittanceHtml({
-      landlordName:    rentalProfile.companyName || userName,
-      landlordAddress: rentalProfile.landlordAddress ?? "",
-      landlordEmail:   userEmail,
-      tenantName:      q.tenantName,
-      propertyAddress: prop.address,
-      propertyCity:    prop.city,
-      propertyPostal:  prop.postalCode ?? "",
-      surface:         prop.surface,
-      period:          q.period,
-      paymentDate:     q.paymentDate,
-      rentAmount:      q.rentAmount,
-      chargesAmount:   q.chargesAmount,
-      quittanceNumber: q.quittanceNumber,
+      landlordName:      rentalProfile.companyName || userName,
+      landlordAddress:   rentalProfile.landlordAddress ?? "",
+      landlordEmail:     userEmail,
+      tenantName:        q.tenantName,
+      propertyAddress:   prop.address,
+      propertyCity:      prop.city,
+      propertyPostal:    prop.postalCode ?? "",
+      surface:           prop.surface,
+      period:            q.period,
+      paymentDate:       q.paymentDate,
+      rentAmount:        q.rentAmount,
+      chargesAmount:     q.chargesAmount,
+      quittanceNumber:   q.quittanceNumber,
+      signatureImageUrl: q.signatureImageUrl,
     });
     await sharePdf(html, `quittance-${q.period}.pdf`);
   };
@@ -902,4 +1032,44 @@ const create = StyleSheet.create({
     paddingVertical: 14, marginTop: 4,
   },
   btnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+});
+
+const sig = StyleSheet.create({
+  section: {
+    marginBottom: 16,
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    paddingTop: 16,
+  },
+  labelRow: {
+    flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4,
+  },
+  label: {
+    fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text,
+  },
+  hint: {
+    fontSize: 11, fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted, marginBottom: 10,
+  },
+  padWrap: {
+    width: SIG_W, height: SIG_H,
+    borderWidth: 1.5, borderColor: COLORS.primary,
+    borderRadius: 10, borderStyle: "dashed",
+    backgroundColor: "#F8FAFF",
+    alignSelf: "center",
+    overflow: "hidden",
+    justifyContent: "center", alignItems: "center",
+  },
+  placeholder: {
+    fontSize: 13, fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted, pointerEvents: "none",
+  },
+  clearBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    alignSelf: "center", marginTop: 8,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 8, backgroundColor: "#F1F5F9",
+  },
+  clearText: {
+    fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted,
+  },
 });

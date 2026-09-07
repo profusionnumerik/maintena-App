@@ -24,6 +24,8 @@ export interface QuittanceData {
   chargesAmount:   number;   // charges
   // Identifiant
   quittanceNumber: string;   // "QUI-202608-001"
+  // Signature
+  signatureImageUrl?: string; // URL Firebase Storage (SVG/PNG)
 }
 
 function formatMoney(amount: number): string {
@@ -147,10 +149,12 @@ export function generateQuittanceHtml(data: QuittanceData): string {
   }
   .signature-box {
     text-align: center;
-    width: 240px;
+    width: 260px;
   }
-  .sig-title { font-size: 10pt; color: #666; margin-bottom: 8px; }
-  .sig-name { font-size: 11pt; font-weight: bold; margin-bottom: 40px; }
+  .sig-title { font-size: 10pt; color: #666; margin-bottom: 8px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+  .sig-name { font-size: 11pt; font-weight: bold; margin-bottom: 6px; }
+  .sig-img { width: 240px; height: 90px; object-fit: contain; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa; display: block; margin: 0 auto 6px; }
+  .sig-placeholder { width: 240px; height: 80px; border: 1px dashed #bbb; border-radius: 6px; margin: 0 auto 6px; }
   .sig-line {
     border-top: 1px solid #999;
     margin-top: 4px;
@@ -238,7 +242,11 @@ export function generateQuittanceHtml(data: QuittanceData): string {
   <div class="signature-box">
     <div class="sig-title">Signature du bailleur</div>
     <div class="sig-name">${data.landlordName}</div>
-    <div class="sig-line">Lu et approuvé</div>
+    ${data.signatureImageUrl
+      ? `<img class="sig-img" src="${data.signatureImageUrl}" alt="Signature bailleur" />`
+      : `<div class="sig-placeholder"></div>`
+    }
+    <div class="sig-line">Lu et approuvé — Bon pour quittance</div>
   </div>
 </div>
 
