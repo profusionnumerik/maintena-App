@@ -98,6 +98,13 @@ async function sharePdf(html: string, filename: string): Promise<void> {
   }
 }
 
+// ─── Helpers SIRET ───────────────────────────────────────────────────────────
+function formatSiret(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 9) return d;
+  return d.slice(0, 9) + " " + d.slice(9);
+}
+
 // ─── Modale profil bailleur ───────────────────────────────────────────────────
 
 function RentalProfileModal({
@@ -111,7 +118,8 @@ function RentalProfileModal({
 }) {
   const insets = useSafeAreaInsets();
   const [companyName, setCompanyName]       = useState(profile.companyName ?? "");
-  const [siret, setSiret]                   = useState(profile.siret ?? "");
+  const [siret, setSiret]                   = useState(profile.siret ? formatSiret(profile.siret) : "");
+  const [siretError, setSiretError]         = useState("");
   const [address, setAddress]               = useState(profile.landlordAddress ?? "");
   const [phone, setPhone]                   = useState(profile.phone ?? "");
   const [saving, setSaving]                 = useState(false);
@@ -119,18 +127,25 @@ function RentalProfileModal({
   useEffect(() => {
     if (visible) {
       setCompanyName(profile.companyName ?? "");
-      setSiret(profile.siret ?? "");
+      setSiret(profile.siret ? formatSiret(profile.siret) : "");
+      setSiretError("");
       setAddress(profile.landlordAddress ?? "");
       setPhone(profile.phone ?? "");
     }
   }, [visible, profile]);
 
   const handleSave = async () => {
+    const cleanSiret = siret.replace(/\s/g, "");
+    if (cleanSiret && !/^\d{14}$/.test(cleanSiret)) {
+      setSiretError("Le SIRET doit contenir exactement 14 chiffres.");
+      return;
+    }
+    setSiretError("");
     setSaving(true);
     try {
       const p: RentalProfile = {
         companyName: companyName.trim() || undefined,
-        siret:       siret.trim() || undefined,
+        siret:       cleanSiret || undefined,
         landlordAddress: address.trim() || undefined,
         phone:       phone.trim() || undefined,
       };
@@ -170,15 +185,22 @@ function RentalProfileModal({
             onChangeText={setCompanyName}
           />
 
-          <Text style={prof.label}>SIRET (si société)</Text>
+          <Text style={prof.label}>
+            SIRET (si société){" "}
+            <Text style={{ fontSize: 11, color: COLORS.textMuted }}>(14 chiffres)</Text>
+          </Text>
           <TextInput
-            style={prof.input}
+            style={[prof.input, siretError ? { borderColor: "#EF4444", borderWidth: 1 } : null]}
             placeholder="ex : 123 456 789 00010"
             placeholderTextColor={COLORS.textMuted}
             value={siret}
-            onChangeText={setSiret}
+            onChangeText={(t) => { setSiret(formatSiret(t)); setSiretError(""); }}
             keyboardType="numeric"
+            maxLength={15}
           />
+          {siretError ? (
+            <Text style={{ fontSize: 12, color: "#EF4444", marginTop: 4 }}>{siretError}</Text>
+          ) : null}
 
           <Text style={prof.label}>Adresse du bailleur</Text>
           <TextInput
