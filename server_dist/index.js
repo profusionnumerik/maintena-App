@@ -300,6 +300,8 @@ function pageShell(title, body, backLabel = "\u2190 Retour \xE0 l'accueil", back
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${title} \u2014 Maintena</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <style>${SHARED_CSS}</style>
 </head>
 <body>

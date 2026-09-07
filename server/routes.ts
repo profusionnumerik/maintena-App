@@ -301,6 +301,8 @@ function pageShell(title: string, body: string, backLabel = "← Retour à l'acc
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${title} — Maintena</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <style>${SHARED_CSS}</style>
 </head>
 <body>
