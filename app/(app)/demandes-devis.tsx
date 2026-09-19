@@ -103,7 +103,7 @@ export default function DemandesDevisScreen() {
   const { user } = useAuth();
   const { currentCopro, currentRole, members } = useCoPro();
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isConseil = currentRole === "conseil";
   const canManage = isAdmin || isConseil;
 

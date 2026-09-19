@@ -371,7 +371,7 @@ export default function AddInterventionScreen() {
   const isEditMode = !!editId;
   const isReassign = reassign === "1";
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isConseil = currentRole === "conseil";
   const canManage = isAdmin || isConseil;
 

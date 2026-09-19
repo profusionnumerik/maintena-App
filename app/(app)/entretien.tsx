@@ -577,7 +577,7 @@ export default function EntretienScreen() {
   const { user } = useAuth();
   const { currentCopro, currentRole } = useCoPro();
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const canEdit = currentRole === "admin" || currentRole === "conseil";
 
   const [entretiens, setEntretiens] = useState<Entretien[]>([]);

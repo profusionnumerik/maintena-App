@@ -180,7 +180,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const allSignalements = useAllAdminSignalements(isAdmin ? copros : []);
 
   const filteredCopros = searchQuery.trim()

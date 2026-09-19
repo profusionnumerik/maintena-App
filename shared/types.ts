@@ -113,7 +113,7 @@ export interface RecurrencePattern {
 
 export type Status = "planifie" | "en_cours" | "termine";
 export type CoProStatus = "pending" | "active" | "suspended";
-export type MemberRole = "admin" | "collaborateur" | "prestataire" | "propriétaire" | "conseil";
+export type MemberRole = "admin" | "co-admin" | "collaborateur" | "prestataire" | "propriétaire" | "conseil";
 
 export interface BuildingDef {
   name: string;
@@ -246,6 +246,7 @@ export interface CoPro {
   inviteCode: string;
   ownerInviteCode?: string;
   conseilInviteCode?: string;
+  coAdminInviteCode?: string;
   stripeSessionId?: string;
   stripePaid?: boolean;
   createdAt: string;

@@ -36,7 +36,7 @@ export default function InvitePrestataireScreen() {
   const insets = useSafeAreaInsets();
   const { currentCopro, currentRole, invitePrestataire } = useCoPro();
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom;
 

@@ -127,7 +127,7 @@ export default function ConseilFinancesScreen() {
   const [liveRevoteRequest, setLiveRevoteRequest] = useState<RevoteRequest | null | undefined>(undefined);
   const [voteSaving, setVoteSaving] = useState(false);
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isConseil = currentRole === "conseil";
   const conseilMembers = members.filter((m) => m.role === "conseil");
   const tresorierUid = liveTresorierUid !== undefined ? liveTresorierUid : (currentCopro?.tresorierUid ?? null);

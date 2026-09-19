@@ -52,7 +52,7 @@ export default function BlockedScreen() {
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isExpired = userSubscription?.status === "expired";
   const isTrialExpired = isExpired && !!userSubscription?.trialEndsAt;
   const isCoProTrialExpired = !isInTrial && currentCopro?.trialEndsAt && !userSubscription?.status?.match(/^(active|trialing)$/);

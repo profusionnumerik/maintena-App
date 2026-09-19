@@ -480,7 +480,7 @@ export default function AlertsScreen() {
     addPoll, castPollVote, closePoll, deletePoll,
   } = useCoPro();
 
-  const isAdmin        = currentRole === "admin";
+  const isAdmin        = currentRole === "admin" || currentRole === "co-admin";
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
 

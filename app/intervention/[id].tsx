@@ -244,7 +244,7 @@ export default function InterventionDetailScreen() {
   const { currentCopro, currentRole } = useCoPro();
   const { user } = useAuth();
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isConseil = currentRole === "conseil";
   const isPrestataire = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";

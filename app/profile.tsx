@@ -123,7 +123,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const daysLeft = trialDaysLeft(user?.metadata?.creationTime);
   const isTrialExpired = daysLeft === 0;
   const hasPaidSub = userSubscription?.status === "active";

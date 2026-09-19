@@ -58,7 +58,7 @@ export default function AdminScreen() {
   const [generatingCatCode, setGeneratingCatCode] = useState<Category | null>(null);
   const [copiedCatCode, setCopiedCatCode] = useState<Category | null>(null);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
-  const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire" | "conseil">("collaborateur");
+  const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire" | "conseil" | "co-admin">("collaborateur");
   const [inviteCategory, setInviteCategory] = useState<Category>("nettoyage");
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
@@ -255,6 +255,15 @@ export default function AdminScreen() {
       );
     }
 
+    if (inviteRole === "co-admin") {
+      return (
+        `🏢 Invitation Maintena — ${currentCopro?.name}\n\n` +
+        `Vous êtes invité(e) en tant que co-administrateur de la résidence. Vous aurez accès à toutes les fonctionnalités de gestion.\n\n` +
+        `👉 Cliquez sur le lien pour rejoindre :\n${inviteLink}\n\n` +
+        `Code d'invitation : ${code}`
+      );
+    }
+
     // Prestataire
     return (
       `🔧 Invitation Maintena — ${currentCopro?.name}\n\n` +
@@ -270,6 +279,7 @@ export default function AdminScreen() {
     if (inviteRole === "propriétaire") return currentCopro.ownerInviteCode ?? null;
     if (inviteRole === "collaborateur") return currentCopro.inviteCode;
     if (inviteRole === "conseil") return currentCopro.conseilInviteCode ?? null;
+    if (inviteRole === "co-admin") return currentCopro.coAdminInviteCode ?? null;
     return currentCopro.categoryInviteCodes?.[inviteCategory] ?? null;
   };
 
@@ -283,6 +293,8 @@ export default function AdminScreen() {
           code = await generateCategoryCode(inviteCategory);
         } else if (inviteRole === "conseil") {
           code = await handleGenerateConseilCode();
+        } else if (inviteRole === "co-admin") {
+          code = await handleGenerateCoAdminCode();
         } else if (inviteRole === "propriétaire") {
           wa("Code manquant", "Veuillez d'abord générer le code propriétaire dans la section Codes.");
           return;
@@ -469,7 +481,9 @@ export default function AdminScreen() {
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
   const isAdmin = currentRole === "admin";
-  const hasMultipleCopros = isAdmin && copros.length > 1;
+  const isCoAdmin = currentRole === "co-admin";
+  const canManageFeatures = isAdmin || isCoAdmin;
+  const hasMultipleCopros = canManageFeatures && copros.length > 1;
 
   const handleCopyCode = async () => {
     if (!currentCopro) return;
@@ -518,6 +532,30 @@ export default function AdminScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       wa("Erreur", e.message);
+    }
+  };
+
+  const handleGenerateCoAdminCode = async (): Promise<string | null> => {
+    if (!currentCopro) return null;
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const newCode = Array.from({ length: 6 }, () =>
+      chars[Math.floor(Math.random() * chars.length)]
+    ).join("");
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      await setDoc(doc(db, "inviteCodes", newCode), {
+        coProId: currentCopro.id,
+        coProName: currentCopro.name,
+        role: "co-admin",
+        createdAt: new Date().toISOString(),
+      });
+      await updateDoc(doc(db, "copros", currentCopro.id), { coAdminInviteCode: newCode });
+      await refreshCoPros();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      return newCode;
+    } catch (e: any) {
+      wa("Erreur", e.message);
+      return null;
     }
   };
 
@@ -669,7 +707,7 @@ export default function AdminScreen() {
       contentContainerStyle={[styles.content, { paddingTop: top + 16, paddingBottom: bottom + 24 }]}
     >
       <View style={styles.pageTitleRow}>
-        <Text style={styles.pageTitle}>{isAdmin ? "Gestion" : currentRole === "propriétaire" ? "Mon accès" : currentRole === "conseil" ? "Mon espace conseil" : currentRole === "prestataire" ? "Mon espace" : "Mon compte"}</Text>
+        <Text style={styles.pageTitle}>{isAdmin ? "Gestion" : isCoAdmin ? "Gestion" : currentRole === "propriétaire" ? "Mon accès" : currentRole === "conseil" ? "Mon espace conseil" : currentRole === "prestataire" ? "Mon espace" : "Mon compte"}</Text>
         {hasMultipleCopros && currentCopro && (
           <Pressable
             style={styles.coProSwitcherBtn}
@@ -693,7 +731,7 @@ export default function AdminScreen() {
           <Text style={styles.userEmail}>{user?.email}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {isAdmin ? "Admin" : currentRole === "propriétaire" ? "Propriétaire" : currentRole === "conseil" ? "Conseil syndical" : currentRole === "prestataire" ? "Prestataire" : "Collaborateur"}
+              {isAdmin ? "Admin" : isCoAdmin ? "Co-admin" : currentRole === "propriétaire" ? "Propriétaire" : currentRole === "conseil" ? "Conseil syndical" : currentRole === "prestataire" ? "Prestataire" : "Collaborateur"}
             </Text>
           </View>
         </View>
@@ -1391,7 +1429,7 @@ export default function AdminScreen() {
                     m.role === "conseil" && { color: "#0891B2" },
                     m.role === "prestataire" && { color: "#7C3AED" },
                   ]}>
-                    {m.role === "admin" ? "Admin" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
+                    {m.role === "admin" ? "Admin" : m.role === "co-admin" ? "Co-admin ✎" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
                   </Text>
                 </Pressable>
                 {m.role === "prestataire" && (
@@ -1703,11 +1741,11 @@ export default function AdminScreen() {
 
           <Text style={styles.modalSectionLabel}>Rôle</Text>
           <View style={styles.rolePickerRow}>
-            {(["propriétaire", "collaborateur", "conseil", "prestataire"] as const).map((r) => {
+            {(["propriétaire", "collaborateur", "conseil", "co-admin", "prestataire"] as const).map((r) => {
               const active = inviteRole === r;
-              const label = r === "propriétaire" ? "Propriétaire" : r === "collaborateur" ? "Collaborateur" : r === "conseil" ? "Conseil syndical" : "Prestataire";
-              const icon = r === "propriétaire" ? "home-outline" : r === "collaborateur" ? "people-outline" : r === "conseil" ? "shield-checkmark-outline" : "construct-outline";
-              const color = r === "propriétaire" ? COLORS.teal : r === "collaborateur" ? COLORS.primary : r === "conseil" ? "#0891B2" : "#7C3AED";
+              const label = r === "propriétaire" ? "Propriétaire" : r === "collaborateur" ? "Collaborateur" : r === "conseil" ? "Conseil syndical" : r === "co-admin" ? "Co-admin" : "Prestataire";
+              const icon = r === "propriétaire" ? "home-outline" : r === "collaborateur" ? "people-outline" : r === "conseil" ? "shield-checkmark-outline" : r === "co-admin" ? "star-outline" : "construct-outline";
+              const color = r === "propriétaire" ? COLORS.teal : r === "collaborateur" ? COLORS.primary : r === "conseil" ? "#0891B2" : r === "co-admin" ? "#D97706" : "#7C3AED";
               return (
                 <Pressable
                   key={r}

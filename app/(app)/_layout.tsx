@@ -19,7 +19,7 @@ export default function AppLayout() {
     [signalements]
   );
 
-  const isAdmin = currentRole === "admin";
+  const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isOwner = currentRole === "propriétaire";
   const isPrestataire = currentRole === "prestataire";
   const isConseil = currentRole === "conseil";
