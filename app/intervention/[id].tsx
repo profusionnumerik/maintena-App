@@ -245,8 +245,10 @@ export default function InterventionDetailScreen() {
   const { user } = useAuth();
 
   const isAdmin = currentRole === "admin";
+  const isConseil = currentRole === "conseil";
   const isPrestataire = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
+  const canManage = isAdmin || isConseil;
   const canDelete = isAdmin;
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
@@ -803,7 +805,7 @@ export default function InterventionDetailScreen() {
           </Pressable>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {isAdmin && intervention.status !== "termine" && (
+            {canManage && intervention.status !== "termine" && (
               <Pressable
                 onPress={() => router.push(`/add?editId=${intervention.id}` as any)}
                 style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
@@ -1382,7 +1384,7 @@ export default function InterventionDetailScreen() {
                 </Text>
               )}
             </>
-          ) : intervention.status === "planifie" && isAdmin ? (
+          ) : intervention.status === "planifie" && canManage ? (
             <>
               <Text style={styles.ratingTitle}>En attente du prestataire</Text>
               <Text style={styles.ratingHint}>
@@ -1390,7 +1392,7 @@ export default function InterventionDetailScreen() {
                 intervention comme réalisée.
               </Text>
             </>
-          ) : intervention.status === "en_cours" && isAdmin ? (
+          ) : intervention.status === "en_cours" && canManage ? (
             <>
               <Text style={styles.ratingTitle}>Réalisée — à valider</Text>
               <Text style={styles.ratingHint}>
@@ -1430,7 +1432,7 @@ export default function InterventionDetailScreen() {
         </View>
 
         {/* Carnet d'entretien — admin uniquement, après validation */}
-        {isAdmin && intervention.status === "termine" && (
+        {canManage && intervention.status === "termine" && (
           <View style={styles.carnetCard}>
             {carnetDone ? (
               <View style={styles.carnetDoneRow}>

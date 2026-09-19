@@ -352,9 +352,10 @@ export default function InterventionsScreen() {
   const { currentCopro, currentRole, categoryFilter, copros } = useCoPro();
 
   const isAdmin        = currentRole === "admin";
+  const isConseil      = currentRole === "conseil";
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
-  const canAdd         = isAdmin;
+  const canAdd         = isAdmin || isConseil;
   const hasMultipleCopros     = isAdmin && copros.length > 1;
   const isFilteredPrestataire = isPrestataire && !!categoryFilter;
 
@@ -707,7 +708,7 @@ export default function InterventionsScreen() {
           renderItem={({ item }: { item: MaintenanceGroup }) => (
             <MaintenanceGroupCard
               group={item}
-              isAdmin={isAdmin}
+              isAdmin={isAdmin || isConseil}
               onPress={() => router.push(`/intervention/${item.nextItemId}`)}
               onRemind={() => handleSendReminder(item)}
             />

@@ -372,6 +372,8 @@ export default function AddInterventionScreen() {
   const isReassign = reassign === "1";
 
   const isAdmin = currentRole === "admin";
+  const isConseil = currentRole === "conseil";
+  const canManage = isAdmin || isConseil;
 
   const disabledCats: Category[] = currentCopro?.disabledCategories ?? [];
   const availableCategories = ALL_CATEGORIES.filter(
@@ -385,7 +387,7 @@ export default function AddInterventionScreen() {
   );
   const isCategoryLocked = currentRole === "prestataire" && !!categoryFilter;
 
-  const [status, setStatus] = useState<Status>(isAdmin ? "planifie" : "termine");
+  const [status, setStatus] = useState<Status>(canManage ? "planifie" : "termine");
   const [dateStr, setDateStr] = useState(todayDDMMYYYY());
   const [dateError, setDateError] = useState("");
 
@@ -490,7 +492,7 @@ export default function AddInterventionScreen() {
   }, [editId, getIntervention, isEditMode]);
 
   useEffect(() => {
-    if (isAdmin || isEditMode) {
+    if (canManage || isEditMode) {
       setLocationStatus("ok");
     } else if (currentCopro?.latitude && currentCopro?.longitude) {
       checkLocation();
@@ -499,7 +501,7 @@ export default function AddInterventionScreen() {
     } else {
       setLocationStatus("ok");
     }
-  }, [currentCopro, isAdmin, isEditMode]);
+  }, [currentCopro, canManage, isEditMode]);
 
   useEffect(() => {
     if (category === "nettoyage" && currentCopro?.buildingConfig) {
@@ -519,7 +521,7 @@ export default function AddInterventionScreen() {
   }, [currentRole, user]);
 
   useEffect(() => {
-    if (!currentCopro?.id || !isAdmin) return;
+    if (!currentCopro?.id || !canManage) return;
     const q = query(
       collection(db, "copros", currentCopro.id, "providerContacts"),
       orderBy("lastName", "asc")
@@ -528,7 +530,7 @@ export default function AddInterventionScreen() {
       setAnnuaireContacts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return unsub;
-  }, [currentCopro?.id, isAdmin]);
+  }, [currentCopro?.id, canManage]);
 
   const cleaningAreas = useMemo<CleaningArea[]>(() => {
     if (category !== "nettoyage" || !currentCopro?.buildingConfig) return [];
@@ -560,14 +562,14 @@ export default function AddInterventionScreen() {
 
   useEffect(() => {
     if (!category) {
-      if (currentRole === "admin") {
+      if (canManage) {
         setAssignedToUid("");
         setAssignedToName("");
       }
       return;
     }
 
-    if (currentRole !== "admin") return;
+    if (!canManage) return;
     if (providerMode === "new") return;
 
     const stillValid = availablePrestataires.some(
@@ -804,7 +806,7 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    if (isAdmin) {
+    if (canManage) {
       if (providerMode === "existing" && !assignedToUid) {
         wa(
           "Prestataire requis",
@@ -844,7 +846,7 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    if (!isAdmin && locationStatus === "far") {
+    if (!canManage && locationStatus === "far") {
       const radius = currentCopro.locationRadius ?? RADIUS_DEFAULT;
       wConfirm(
         "Trop loin du bâtiment",
@@ -856,7 +858,7 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    if (!isAdmin && locationStatus === "denied") {
+    if (!canManage && locationStatus === "denied") {
       wa("Localisation requise", "Activez la localisation dans les réglages.");
       return;
     }
@@ -868,21 +870,21 @@ export default function AddInterventionScreen() {
       providerMode === "new" ? fullProviderName(newProvider) : "";
 
     const finalAssignedToUid =
-      isAdmin && providerMode === "existing"
+      canManage && providerMode === "existing"
         ? assignedToUid
-        : !isAdmin
+        : !canManage
         ? user?.uid ?? undefined
         : undefined;
 
     const finalAssignedToName =
-      isAdmin && providerMode === "existing"
+      canManage && providerMode === "existing"
         ? assignedToName
-        : isAdmin && providerMode === "new"
+        : canManage && providerMode === "new"
         ? invitedProviderName
         : user?.displayName || user?.email || "Prestataire";
 
     const categoryInviteCode =
-      isAdmin && providerMode === "new"
+      canManage && providerMode === "new"
         ? getCategoryInviteCode(currentCopro, category)
         : "";
 
