@@ -3363,6 +3363,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Cron : rappels automatiques interventions planifiées ───────────────────
+  // Appelé chaque jour à 8h par Cloud Scheduler
+  // Envoie une notification push la veille de chaque intervention planifiée
+
+  app.post("/api/cron/intervention-reminders", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const cronSecret = req.headers["x-cron-secret"] ?? "";
+    const isCron = cronSecret !== "" && cronSecret === (process.env.CRON_SECRET ?? "");
+    if (!isCron) {
+      try { await verifySuperAdmin(req, db); } catch (e: any) {
+        return res.status(403).json({ error: "Accès refusé." });
+      }
+    }
+
+    try {
+      const now = new Date();
+      // Demain au format YYYY-MM-DD
+      const tomorrow = new Date(now.getTime() + 86400000).toISOString().split("T")[0];
+      // Dans 2 jours
+      const in2days = new Date(now.getTime() + 2 * 86400000).toISOString().split("T")[0];
+
+      // Récupérer toutes les interventions planifiées pour demain ou après-demain
+      const snap = await db.collectionGroup("interventions")
+        .where("status", "==", "planifie")
+        .get();
+
+      const sent: string[] = [];
+
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const dateVal: string = data.date ?? "";
+        // Normalise YYYY-MM-DD
+        const dateNorm = dateVal.length === 10 ? dateVal : dateVal.split("T")[0];
+
+        if (dateNorm !== tomorrow && dateNorm !== in2days) continue;
+        const daysLeft = dateNorm === tomorrow ? 1 : 2;
+
+        const assignedUid: string | undefined = data.assignedToUid;
+        if (!assignedUid) continue;
+
+        const userDoc = await db.collection("users").doc(assignedUid).get();
+        if (!userDoc.exists) continue;
+        const pushToken: string | undefined = userDoc.data()?.pushToken;
+        if (!pushToken) continue;
+
+        const coProName: string = data.coProName ?? "Copropriété";
+        const title: string = data.title ?? "Intervention";
+        const label = daysLeft === 1 ? "demain" : "dans 2 jours";
+
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: pushToken,
+            title: `⏰ Rappel intervention — ${coProName}`,
+            body: `"${title}" est prévue ${label}`,
+            data: { type: "intervention_reminder", interventionId: doc.id },
+          }),
+        }).catch(() => {});
+
+        sent.push(doc.id);
+      }
+
+      return res.json({ sent: sent.length, ids: sent });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/upload-photo", async (req: Request, res: Response) => {
     try {
       const authHeader = req.headers.authorization ?? "";

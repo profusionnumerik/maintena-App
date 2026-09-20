@@ -708,16 +708,25 @@ export default function AdminScreen() {
     >
       <View style={styles.pageTitleRow}>
         <Text style={styles.pageTitle}>{isAdmin ? "Gestion" : isCoAdmin ? "Gestion" : currentRole === "propriétaire" ? "Mon accès" : currentRole === "conseil" ? "Mon espace conseil" : currentRole === "prestataire" ? "Mon espace" : "Mon compte"}</Text>
-        {hasMultipleCopros && currentCopro && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {hasMultipleCopros && currentCopro && (
+            <Pressable
+              style={styles.coProSwitcherBtn}
+              onPress={() => router.navigate("/(app)")}
+            >
+              <Ionicons name="business-outline" size={12} color={COLORS.primary} />
+              <Text style={styles.coProSwitcherText} numberOfLines={1}>{currentCopro.name}</Text>
+              <Ionicons name="swap-horizontal" size={12} color={COLORS.primary} />
+            </Pressable>
+          )}
           <Pressable
-            style={styles.coProSwitcherBtn}
-            onPress={() => router.navigate("/(app)")}
+            onPress={() => router.push("/(legal)/guide")}
+            style={{ padding: 4 }}
+            hitSlop={8}
           >
-            <Ionicons name="business-outline" size={12} color={COLORS.primary} />
-            <Text style={styles.coProSwitcherText} numberOfLines={1}>{currentCopro.name}</Text>
-            <Ionicons name="swap-horizontal" size={12} color={COLORS.primary} />
+            <Ionicons name="help-circle-outline" size={24} color={COLORS.primary} />
           </Pressable>
-        )}
+        </View>
       </View>
 
       <View style={styles.profileCard}>
