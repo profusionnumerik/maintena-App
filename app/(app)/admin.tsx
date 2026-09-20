@@ -1619,6 +1619,17 @@ export default function AdminScreen() {
 
             <Pressable
               style={styles.infoRow}
+              onPress={() => router.push("/(legal)/guide")}
+            >
+              <View style={styles.infoLeft}>
+                <Ionicons name="book-outline" size={18} color={COLORS.primary} />
+                <Text style={styles.infoText}>Guide d'utilisation</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+            </Pressable>
+
+            <Pressable
+              style={styles.infoRow}
               onPress={() => router.push("/(legal)/contact")}
             >
               <View style={styles.infoLeft}>
