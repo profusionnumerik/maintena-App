@@ -5126,10 +5126,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (snap.empty) return res.redirect(`/team-intervention/${token}?error=lien_invalide`);
 
       const link = snap.docs[0].data();
-      const { employeeName, description } = req.body as { employeeName?: string; description?: string };
+      const body = req.body as Record<string, string>;
+      const employeeName = body.employeeName;
+      const description = body.description;
 
       if (!employeeName?.trim()) {
         return res.redirect(`/team-intervention/${token}?error=nom_requis`);
+      }
+
+      // Récupérer les cases cochées (zone_xxx = "on")
+      const checkedZones: Record<string, boolean> = {};
+      for (const key of Object.keys(body)) {
+        if (key.startsWith("zone_")) {
+          checkedZones[key.replace("zone_", "")] = body[key] === "on";
+        }
       }
 
       await db.collection("copros").doc(link.coProId)
@@ -5138,6 +5148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           employeeName: employeeName.trim(),
           companyName: link.companyName,
           description: description?.trim() ?? "",
+          zones: checkedZones,
           submittedAt: new Date().toISOString(),
           token,
         });
@@ -5175,6 +5186,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const success = req.query.success === "1";
     const error = String(req.query.error ?? "");
 
+    // Récupérer catégorie de l'intervention + config résidence
+    const interventionSnap = await db.collection("copros").doc(link.coProId)
+      .collection("interventions").doc(link.interventionId).get();
+    const interventionData = interventionSnap.exists ? (interventionSnap.data() as any) : null;
+    const category: string = interventionData?.category ?? "";
+
+    const coproSnap = await db.collection("copros").doc(link.coProId).get();
+    const coproData = coproSnap.exists ? (coproSnap.data() as any) : null;
+    const buildingConfig: BuildingConfigServer = coproData?.buildingConfig ?? DEFAULT_BUILDING_CONFIG_SERVER;
+
+    // Zones de nettoyage
+    const isNettoyage = category === "nettoyage";
+    const cleaningAreas = isNettoyage ? generateCleaningAreasServer(buildingConfig) : [];
+    const groupedAreas: Record<string, typeof cleaningAreas> = {};
+    cleaningAreas.forEach((a) => {
+      if (!groupedAreas[a.group]) groupedAreas[a.group] = [];
+      groupedAreas[a.group].push(a);
+    });
+
+    const zonesHtml = cleaningAreas.length > 0 ? `
+      <div style="margin-bottom:4px;">
+        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:12px;">Zones effectuées *</div>
+        ${Object.entries(groupedAreas).map(([group, areas]) => `
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${escapeHtml(group)}</div>
+            ${areas.map(area => `
+              <label style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;background:#f8fafc;margin-bottom:6px;cursor:pointer;">
+                <input type="checkbox" name="zone_${escapeHtml(area.id)}" value="on"
+                  style="width:18px;height:18px;accent-color:#1e40af;cursor:pointer;flex-shrink:0;" />
+                <span style="font-size:14px;color:#0f172a;">${escapeHtml(area.label)}</span>
+              </label>`).join("")}
+          </div>`).join("")}
+      </div>` : "";
+
     // Récupérer les passages déjà enregistrés
     const passagesSnap = await db.collection("copros").doc(link.coProId)
       .collection("interventions").doc(link.interventionId)
@@ -5185,10 +5230,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ? passagesSnap.docs.map(d => {
           const p = d.data();
           const date = new Date(p.submittedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+          const checkedZones = p.zones ? Object.entries(p.zones as Record<string, boolean>)
+            .filter(([, v]) => v)
+            .map(([k]) => {
+              const area = cleaningAreas.find(a => a.id === k);
+              return area ? area.label : k;
+            }).join(", ") : "";
           return `<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #e2e8f0;">
-            <div style="width:36px;height:36px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2563eb;font-size:14px;flex-shrink:0;">${escapeHtml(p.employeeName[0].toUpperCase())}</div>
-            <div>
-              <div style="font-weight:700;color:#0f172a;font-size:14px;">${escapeHtml(p.employeeName)}</div>
+            <div style="width:36px;height:36px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2563eb;font-size:14px;flex-shrink:0;">${escapeHtml((p.employeeName ?? "?")[0].toUpperCase())}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;color:#0f172a;font-size:14px;">${escapeHtml(p.employeeName ?? "")}</div>
+              ${checkedZones ? `<div style="font-size:12px;color:#2563eb;margin-top:3px;line-height:1.5;">✓ ${escapeHtml(checkedZones)}</div>` : ""}
               ${p.description ? `<div style="font-size:13px;color:#475569;margin-top:2px;">${escapeHtml(p.description)}</div>` : ""}
               <div style="font-size:11px;color:#94a3b8;margin-top:4px;">${date}</div>
             </div>
@@ -5223,19 +5275,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   <div class="m-card" style="margin-bottom:16px;">
     <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;">Déclarer mon passage</div>
-    <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Renseignez votre nom et une description de l'intervention effectuée.</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Cochez les zones effectuées et indiquez votre nom.</div>
 
-    <form method="POST" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:14px;">
+    <form method="POST" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:16px;">
       <div>
         <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Votre nom *</label>
         <input name="employeeName" type="text" placeholder="Prénom Nom" required
           style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;box-sizing:border-box;font-family:inherit;" />
       </div>
+
+      ${zonesHtml}
+
       <div>
-        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Description (optionnel)</label>
-        <textarea name="description" placeholder="Ce que vous avez fait, zones traitées…" rows="3"
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">${isNettoyage ? "Remarque (optionnel)" : "Description (optionnel)"}</label>
+        <textarea name="description" placeholder="${isNettoyage ? "Anomalie constatée, produit manquant…" : "Ce que vous avez fait…"}" rows="3"
           style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>
       </div>
+
       <button type="submit"
         style="background:#1e40af;color:#fff;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;width:100%;">
         Enregistrer mon passage
