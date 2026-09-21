@@ -45,7 +45,7 @@ export default function AdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, isSuperAdmin, logout, deleteAccount, resetUserType } = useAuth();
-  const { currentCopro, currentRole, members, copros, switchCoPro, deleteCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole } = useCoPro();
+  const { currentCopro, currentRole, members, copros, switchCoPro, deleteCoPro, refreshCoPros, userSubscription, generateCategoryCode, removeMember, changeMemberRole, updateMemberCategories } = useCoPro();
   const [adminTab, setAdminTab] = useState<"copro" | "membres" | "config" | "compte">("copro");
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedOwnerCode, setCopiedOwnerCode] = useState(false);
@@ -57,6 +57,8 @@ export default function AdminScreen() {
   const [savingCategories, setSavingCategories] = useState(false);
   const [generatingCatCode, setGeneratingCatCode] = useState<Category | null>(null);
   const [copiedCatCode, setCopiedCatCode] = useState<Category | null>(null);
+  const [editCatMember, setEditCatMember] = useState<{ uid: string; name: string; current: Category[] } | null>(null);
+  const [editCatSaving, setEditCatSaving] = useState(false);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [inviteRole, setInviteRole] = useState<"collaborateur" | "propriétaire" | "prestataire" | "conseil" | "co-admin">("collaborateur");
   const [inviteCategory, setInviteCategory] = useState<Category>("nettoyage");
@@ -1419,6 +1421,20 @@ export default function AdminScreen() {
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{m.displayName || m.email}</Text>
                   <Text style={styles.memberEmail}>{m.email}</Text>
+                  {m.role === "prestataire" && (() => {
+                    const cats: Category[] = (m as any).categoryFilters?.length
+                      ? (m as any).categoryFilters
+                      : (m as any).categoryFilter ? [(m as any).categoryFilter] : [];
+                    return cats.length > 0 ? (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                        {cats.map((c) => (
+                          <View key={c} style={{ backgroundColor: "#EDE9FE", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                            <Text style={{ fontSize: 11, color: "#7C3AED" }}>{CATEGORY_ICONS[c]} {CATEGORY_LABELS[c]}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null;
+                  })()}
                 </View>
                 <Pressable
                   style={[
@@ -1442,12 +1458,25 @@ export default function AdminScreen() {
                   </Text>
                 </Pressable>
                 {m.role === "prestataire" && (
-                  <Pressable
-                    style={styles.memberDeleteBtn}
-                    onPress={() => handleRemoveMember(m.uid, m.displayName || m.email || m.uid)}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
-                  </Pressable>
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      style={[styles.memberDeleteBtn, { backgroundColor: "#EDE9FE" }]}
+                      onPress={() => {
+                        const current: Category[] = (m as any).categoryFilters?.length
+                          ? (m as any).categoryFilters
+                          : (m as any).categoryFilter ? [(m as any).categoryFilter] : [];
+                        setEditCatMember({ uid: m.uid, name: m.displayName || m.email || m.uid, current });
+                      }}
+                    >
+                      <Ionicons name="pricetags-outline" size={15} color="#7C3AED" />
+                    </Pressable>
+                    <Pressable
+                      style={styles.memberDeleteBtn}
+                      onPress={() => handleRemoveMember(m.uid, m.displayName || m.email || m.uid)}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
+                    </Pressable>
+                  </View>
                 )}
               </View>
             ))}
@@ -1837,6 +1866,76 @@ export default function AdminScreen() {
           )}
         </View>
       </View>
+    </Modal>
+
+    {/* ── Modal édition catégories prestataire ── */}
+    <Modal
+      visible={!!editCatMember}
+      animationType="slide"
+      transparent
+      onRequestClose={() => setEditCatMember(null)}
+    >
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" }} onPress={() => setEditCatMember(null)}>
+        <Pressable style={{ backgroundColor: COLORS.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 16 }} onPress={() => {}}>
+          <Text style={{ fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text }}>
+            Activités — {editCatMember?.name}
+          </Text>
+          <Text style={{ fontSize: 14, color: COLORS.textMuted }}>Sélectionnez toutes les catégories applicables.</Text>
+          <View style={{ gap: 10 }}>
+            {ALL_CATEGORIES.map((cat) => {
+              const selected = editCatMember?.current.includes(cat) ?? false;
+              return (
+                <Pressable
+                  key={cat}
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: 12,
+                    backgroundColor: selected ? "#EDE9FE" : COLORS.background,
+                    borderRadius: 12, padding: 12,
+                    borderWidth: 1, borderColor: selected ? "#7C3AED" : COLORS.border,
+                  }}
+                  onPress={() => {
+                    if (!editCatMember) return;
+                    const next = selected
+                      ? editCatMember.current.filter((c) => c !== cat)
+                      : [...editCatMember.current, cat];
+                    setEditCatMember({ ...editCatMember, current: next });
+                  }}
+                >
+                  <Text style={{ fontSize: 20 }}>{CATEGORY_ICONS[cat]}</Text>
+                  <Text style={{ flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", color: selected ? "#7C3AED" : COLORS.text }}>
+                    {CATEGORY_LABELS[cat]}
+                  </Text>
+                  {selected && <Ionicons name="checkmark-circle" size={20} color="#7C3AED" />}
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            style={[{
+              backgroundColor: COLORS.primary, borderRadius: 14, padding: 14,
+              alignItems: "center", justifyContent: "center",
+            }, editCatSaving && { opacity: 0.6 }]}
+            disabled={editCatSaving}
+            onPress={async () => {
+              if (!editCatMember) return;
+              setEditCatSaving(true);
+              try {
+                await updateMemberCategories(editCatMember.uid, editCatMember.current);
+                setEditCatMember(null);
+              } catch (e: any) {
+                wa("Erreur", e.message);
+              } finally {
+                setEditCatSaving(false);
+              }
+            }}
+          >
+            {editCatSaving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={{ fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" }}>Enregistrer</Text>
+            }
+          </Pressable>
+        </Pressable>
+      </Pressable>
     </Modal>
     </>
   );

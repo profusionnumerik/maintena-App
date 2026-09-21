@@ -70,6 +70,7 @@ interface CoProContextValue {
   currentCopro: CoPro | null;
   currentRole: MemberRole | null;
   categoryFilter: Category | null;
+  categoryFilters: Category[];
   members: Member[];
   signalements: Signalement[];
   announcements: Announcement[];
@@ -102,6 +103,7 @@ interface CoProContextValue {
   ) => Promise<{ status: "new" | "updated" | "already_registered" }>;
   removeMember: (uid: string) => Promise<void>;
   changeMemberRole: (uid: string, newRole: MemberRole) => Promise<void>;
+  updateMemberCategories: (uid: string, categories: Category[]) => Promise<void>;
   addSignalement: (
     message: string,
     senderName: string,
@@ -1008,7 +1010,16 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const categoryFilter: Category | null = useMemo(() => {
     if (!user) return null;
     const me = members.find((m) => m.uid === user.uid);
+    if (me?.categoryFilters?.length) return me.categoryFilters[0];
     return me?.categoryFilter ?? null;
+  }, [members, user]);
+
+  const categoryFilters: Category[] = useMemo(() => {
+    if (!user) return [];
+    const me = members.find((m) => m.uid === user.uid);
+    if (me?.categoryFilters?.length) return me.categoryFilters;
+    if (me?.categoryFilter) return [me.categoryFilter];
+    return [];
   }, [members, user]);
 
   const removeMember = useCallback(
@@ -1029,6 +1040,17 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     async (uid: string, newRole: MemberRole) => {
       if (!currentCopro) return;
       await updateDoc(doc(db, "copros", currentCopro.id, "members", uid), { role: newRole });
+    },
+    [currentCopro]
+  );
+
+  const updateMemberCategories = useCallback(
+    async (uid: string, categories: Category[]) => {
+      if (!currentCopro) return;
+      await updateDoc(doc(db, "copros", currentCopro.id, "members", uid), {
+        categoryFilters: categories,
+        categoryFilter: categories[0] ?? null,
+      });
     },
     [currentCopro]
   );
@@ -1335,6 +1357,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       currentCopro,
       currentRole,
       categoryFilter,
+      categoryFilters,
       members,
       signalements,
       announcements,
@@ -1356,6 +1379,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       preRegisterProvider,
       removeMember,
       changeMemberRole,
+      updateMemberCategories,
       addSignalement,
       markSignalementRead,
       acknowledgeSignalement,
@@ -1375,6 +1399,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       currentCopro,
       currentRole,
       categoryFilter,
+      categoryFilters,
       members,
       signalements,
       announcements,
@@ -1397,6 +1422,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       preRegisterProvider,
       removeMember,
       changeMemberRole,
+      updateMemberCategories,
       addSignalement,
       markSignalementRead,
       acknowledgeSignalement,

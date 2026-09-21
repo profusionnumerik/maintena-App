@@ -4659,16 +4659,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Compte inexistant — on le crée ci-dessous
       }
 
-      if (userRecord) {
-        // Compte existant → mettre à jour le mot de passe avec celui choisi par l'utilisateur
-        await adminAuth.updateUser(userRecord.uid, { password: password.trim() });
-      } else {
+      if (!userRecord) {
         userRecord = await adminAuth.createUser({
           email: payload.provider.email,
           password: password.trim(),
           displayName: payload.provider.name,
         });
       }
+      // Ne jamais écraser le mot de passe d'un compte existant via cette route
 
       await db.collection("users").doc(userRecord.uid).set(
         {
@@ -4722,6 +4720,86 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (e: any) {
       console.error("complete-account error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // Rattacher un compte existant à une copro via token d'invitation
+  app.post("/api/public/link-account/:token", async (req: Request, res: Response) => {
+    const payload = await buildGuestInterventionPayload(String(req.params.token));
+    if (payload.status !== 200) {
+      return res.status(payload.status).json({ error: payload.error });
+    }
+
+    const codeAlreadyUsed: boolean = payload.invite.data.activationCodeUsed === true;
+    if (codeAlreadyUsed) {
+      return res.status(403).json({
+        error: "Ce lien a déjà été utilisé. Vous êtes peut-être déjà rattaché(e) à cette résidence.",
+      });
+    }
+
+    const { password } = req.body as { password?: string };
+    if (!password || password.trim().length < 6) {
+      return res.status(400).json({ error: "Mot de passe requis (au moins 6 caractères)." });
+    }
+
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Base de données indisponible." });
+
+    try {
+      const { getAuth } = await import("firebase-admin/auth");
+      const adminAuth = getAuth();
+
+      let userRecord: import("firebase-admin/auth").UserRecord | null = null;
+      try {
+        userRecord = await adminAuth.getUserByEmail(payload.provider.email);
+      } catch {
+        return res.status(404).json({ error: "Aucun compte trouvé pour cet email. Créez votre compte d'abord." });
+      }
+
+      // Vérifier le mot de passe via Firebase Auth REST
+      const firebaseApiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+      if (!firebaseApiKey) return res.status(500).json({ error: "Configuration manquante." });
+
+      const signInRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: payload.provider.email, password: password.trim(), returnSecureToken: true }),
+        }
+      );
+      if (!signInRes.ok) {
+        return res.status(401).json({ error: "Mot de passe incorrect. Vérifiez et réessayez." });
+      }
+
+      // Rattacher à la copro
+      const coProId = payload.invite.data.coProId;
+      if (coProId) {
+        const memberRef = db.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
+        const memberSnap = await memberRef.get();
+        if (!memberSnap.exists) {
+          await memberRef.set({
+            uid: userRecord.uid,
+            email: payload.provider.email,
+            displayName: payload.provider.name,
+            role: "prestataire",
+            coProId,
+            createdAt: new Date().toISOString(),
+            joinedViaGuestInvite: true,
+            categoryFilter: payload.invite.data.categoryFilter ?? null,
+          });
+        }
+      }
+
+      await payload.invite.ref.set(
+        { completedAccountAt: new Date().toISOString(), completedAccountUid: userRecord.uid, activationCodeUsed: true },
+        { merge: true }
+      );
+
+      return res.json({ success: true, uid: userRecord.uid });
+    } catch (e: any) {
+      console.error("link-account error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
@@ -5651,14 +5729,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const completeAccountToken = req.params.token;
-    const hasActivationCode = !!payload.invite.data.activationCode;
     const codeAlreadyUsed = payload.invite.data.activationCodeUsed === true;
+
+    // Détecter si un compte Firebase existe déjà pour cet email
+    let accountAlreadyExists = false;
+    try {
+      const { getAuth } = await import("firebase-admin/auth");
+      await getAuth().getUserByEmail(payload.provider.email);
+      accountAlreadyExists = true;
+    } catch {
+      accountAlreadyExists = false;
+    }
+
+    const coProName = escapeHtml(payload.copro?.name ?? "la résidence");
 
     const body = `
 <div class="m-container">
   <div class="m-card" style="margin-bottom:20px;">
-    <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">Finaliser mon compte</h1>
-    <p style="color:#64748b;font-size:14px;margin:0;">Choisissez un mot de passe pour accéder à toutes vos interventions depuis l’application.</p>
+    <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">${accountAlreadyExists ? "Rejoindre une nouvelle résidence" : "Finaliser mon compte"}</h1>
+    <p style="color:#64748b;font-size:14px;margin:0;">${accountAlreadyExists
+      ? `Vous avez déjà un compte Maintena. Saisissez votre mot de passe pour rejoindre <strong>${coProName}</strong>.`
+      : "Choisissez un mot de passe pour accéder à toutes vos interventions depuis l’application."
+    }</p>
   </div>
 
   ${codeAlreadyUsed ? `
@@ -5666,60 +5758,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:14px;">
       <span style="font-size:24px;">✅</span>
       <div>
-        <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Compte déjà finalisé</div>
-        <div style="font-size:14px;color:#047857;">Votre compte est déjà créé. Connectez-vous directement à l’application Maintena avec votre email et mot de passe.</div>
+        <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Vous êtes déjà rattaché(e)</div>
+        <div style="font-size:14px;color:#047857;">Ce lien a déjà été utilisé. Ouvrez l’application Maintena et sélectionnez la résidence ${coProName}.</div>
       </div>
     </div>
   </div>` : `
   <div class="m-card">
-    <label class="m-label">Prénom</label>
-    <input class="m-input" value="${escapeHtml(payload.provider.firstName || "")}" disabled />
-
-    <label class="m-label">Nom</label>
-    <input class="m-input" value="${escapeHtml(payload.provider.lastName || "")}" disabled />
-
     <label class="m-label">Email</label>
     <input class="m-input" value="${escapeHtml(payload.provider.email || "")}" disabled />
 
-    <label class="m-label" for="password">Mot de passe</label>
+    <label class="m-label" for="password">${accountAlreadyExists ? "Votre mot de passe" : "Choisissez un mot de passe"}</label>
     <input class="m-input" id="password" type="password" placeholder="Au moins 6 caractères" />
 
-    <button class="m-btn" id="submitBtn">Créer mon compte</button>
+    <button class="m-btn" id="submitBtn">${accountAlreadyExists ? "Rejoindre la résidence" : "Créer mon compte"}</button>
 
-    <div class="m-success" id="success" style="display:none;">✅ Compte créé avec succès ! Vous êtes maintenant rattaché(e) à la résidence. Téléchargez l’application Maintena et connectez-vous avec votre email et mot de passe.</div>
+    <div class="m-success" id="success" style="display:none;">✅ ${accountAlreadyExists
+      ? `Vous êtes maintenant rattaché(e) à ${coProName}. Ouvrez l’application Maintena pour voir vos interventions.`
+      : "Compte créé avec succès ! Téléchargez l’application Maintena et connectez-vous avec votre email et mot de passe."
+    }</div>
     <div class="m-error" id="error" style="display:none;"></div>
   </div>`}
 </div>
 
 <script>
-  const btn = document.getElementById(‘submitBtn’);
-  const success = document.getElementById(‘success’);
-  const error = document.getElementById(‘error’);
+  var isExistingAccount = ${accountAlreadyExists ? "true" : "false"};
+  var btn = document.getElementById(‘submitBtn’);
+  var success = document.getElementById(‘success’);
+  var error = document.getElementById(‘error’);
 
-  if (btn) btn.addEventListener(‘click’, async () => {
+  if (btn) btn.addEventListener(‘click’, async function() {
     if (success) success.style.display = ‘none’;
     if (error) error.style.display = ‘none’;
-    const password = document.getElementById(‘password’) ? document.getElementById(‘password’).value : ‘’;
+    var password = document.getElementById(‘password’) ? document.getElementById(‘password’).value : ‘’;
     if (!password || password.length < 6) {
       if (error) { error.textContent = ‘Le mot de passe doit contenir au moins 6 caractères.’; error.style.display = ‘block’; }
       return;
     }
     btn.disabled = true;
-    btn.textContent = ‘Création en cours...’;
+    btn.textContent = isExistingAccount ? ‘Connexion en cours...’ : ‘Création en cours...’;
+    var route = isExistingAccount
+      ? ‘/api/public/link-account/${completeAccountToken}’
+      : ‘/api/public/complete-account/${completeAccountToken}’;
     try {
-      const res = await fetch(‘/api/public/complete-account/${completeAccountToken}’, {
+      var res = await fetch(route, {
         method: ‘POST’,
         headers: { ‘Content-Type’: ‘application/json’ },
         body: JSON.stringify({ password }),
       });
-      const data = await res.json();
+      var data = await res.json();
       if (!res.ok) throw new Error(data.error || ‘Erreur’);
       if (success) success.style.display = ‘block’;
       btn.style.display = ‘none’;
     } catch (e) {
-      if (error) { error.textContent = e.message || ‘Erreur création compte’; error.style.display = ‘block’; }
+      if (error) { error.textContent = e.message || ‘Erreur’; error.style.display = ‘block’; }
       btn.disabled = false;
-      btn.textContent = ‘Créer mon compte’;
+      btn.textContent = isExistingAccount ? ‘Rejoindre la résidence’ : ‘Créer mon compte’;
     }
   });
 </script>`;

@@ -349,15 +349,15 @@ export default function InterventionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { interventions, isLoading } = useInterventions();
-  const { currentCopro, currentRole, categoryFilter, copros } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, categoryFilters, copros, switchCoPro } = useCoPro();
 
-  const isAdmin        = currentRole === "admin";
+  const isAdmin        = currentRole === "admin" || currentRole === "co-admin";
   const isConseil      = currentRole === "conseil";
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
   const canAdd         = isAdmin || isConseil;
-  const hasMultipleCopros     = isAdmin && copros.length > 1;
-  const isFilteredPrestataire = isPrestataire && !!categoryFilter;
+  const hasMultipleCopros     = (isAdmin || isPrestataire) && copros.length > 1;
+  const isFilteredPrestataire = isPrestataire && categoryFilters.length > 0;
 
   const [activeTab,       setActiveTab]       = useState<"maintenances" | "interventions">("maintenances");
   const [search,          setSearch]          = useState("");
@@ -584,17 +584,50 @@ export default function InterventionsScreen() {
 
   const interventionsHeader = (
     <View>
+      {isPrestataire && copros.length > 1 && (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+          <Text style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_500Medium", marginBottom: 8 }}>
+            MES RÉSIDENCES
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {copros.map((c) => {
+              const isActive = c.id === currentCopro?.id;
+              return (
+                <Pressable
+                  key={c.id}
+                  onPress={() => { Haptics.selectionAsync(); switchCoPro(c.id); }}
+                  style={{
+                    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
+                    backgroundColor: isActive ? COLORS.primary : COLORS.surface,
+                    borderWidth: 1, borderColor: isActive ? COLORS.primary : COLORS.border,
+                    minWidth: 120,
+                  }}
+                >
+                  <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: isActive ? "#fff" : COLORS.text }} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                  {c.address ? (
+                    <Text style={{ fontSize: 11, color: isActive ? "rgba(255,255,255,0.75)" : COLORS.textMuted, marginTop: 2 }} numberOfLines={1}>
+                      {c.address}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
       {isProprietaire && (
         <View style={styles.bannerRow}>
           <Ionicons name="eye-outline" size={13} color={COLORS.primary} />
           <Text style={styles.bannerText}>Consultation uniquement</Text>
         </View>
       )}
-      {isFilteredPrestataire && categoryFilter && (
+      {isFilteredPrestataire && categoryFilters.length > 0 && (
         <View style={[styles.bannerRow, styles.bannerPurple]}>
           <Ionicons name="lock-closed" size={13} color="#7C3AED" />
           <Text style={[styles.bannerText, { color: "#7C3AED" }]}>
-            Vue limitée · {CATEGORY_LABELS[categoryFilter]}
+            Vue limitée · {categoryFilters.map(c => CATEGORY_LABELS[c]).join(", ")}
           </Text>
         </View>
       )}

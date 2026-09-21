@@ -277,6 +277,7 @@ export interface Member {
   joinedAt: string;
   invitedBy?: string;
   categoryFilter?: Category;
+  categoryFilters?: Category[];
   receiveAnnouncementEmails?: boolean; // undefined = true (opt-out model)
 }
 
