@@ -29,6 +29,7 @@ import { uploadPhoto } from "@/lib/storage";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
 import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { crossShare } from "@/lib/share";
 import { useAuth } from "@/context/AuthContext";
 import { collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -270,6 +271,7 @@ export default function InterventionDetailScreen() {
   );
   const [savingChecklist, setSavingChecklist] = useState(false);
   const [isSharingGuestInvite, setIsSharingGuestInvite] = useState(false);
+  const [isGeneratingTeamLink, setIsGeneratingTeamLink] = useState(false);
   const [isRespondingProvider, setIsRespondingProvider] = useState(false);
 
   // Carnet d'entretien — enregistrement après validation admin
@@ -760,6 +762,27 @@ export default function InterventionDetailScreen() {
     }
   };
 
+  const handleTeamLink = async () => {
+    if (!currentCopro?.id || !intervention) return;
+    try {
+      setIsGeneratingTeamLink(true);
+      const res = await apiRequest("POST", "/api/team-link", {
+        coProId: currentCopro.id,
+        coProName: currentCopro.name,
+        interventionId: intervention.id,
+        interventionTitle: intervention.title,
+        companyName: (intervention as any).assignedToName ?? "",
+      });
+      const data = (await res.json()) as { url: string };
+      const msg = `🔧 Lien d'accès — ${intervention.title}\n\nChaque employé peut déclarer son passage via ce lien :\n${data.url}`;
+      await crossShare(msg, "Lien équipe intervention");
+    } catch (e: any) {
+      wa("Erreur", e.message || "Impossible de générer le lien.");
+    } finally {
+      setIsGeneratingTeamLink(false);
+    }
+  };
+
   const handleResendGuestEmail = async () => {
     if (!currentCopro?.id) {
       wa("Erreur", "Aucune copropriété active.");
@@ -815,6 +838,20 @@ export default function InterventionDetailScreen() {
                   size={20}
                   color="rgba(255,255,255,0.85)"
                 />
+              </Pressable>
+            )}
+
+            {canManage && (intervention as any).assignedToName && (
+              <Pressable
+                onPress={handleTeamLink}
+                disabled={isGeneratingTeamLink}
+                style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }, isGeneratingTeamLink && { opacity: 0.6 }]}
+              >
+                {isGeneratingTeamLink ? (
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.85)" />
+                ) : (
+                  <Ionicons name="people-outline" size={20} color="rgba(255,255,255,0.85)" />
+                )}
               </Pressable>
             )}
 
@@ -1131,6 +1168,41 @@ export default function InterventionDetailScreen() {
                 <>
                   <Ionicons name="mail-outline" size={16} color={COLORS.primary} />
                   <Text style={styles.shareBtnSecondaryText}>Renvoyer le mail</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        )}
+
+        {/* Lien équipe — bouton pour générer et partager le lien multi-employés */}
+        {canManage && (intervention as any).assignedToName && (
+          <View style={styles.shareCard}>
+            <View style={styles.shareCardHeader}>
+              <View style={styles.shareCardIcon}>
+                <Ionicons name="people-outline" size={18} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.shareCardTitle}>Lien équipe</Text>
+                <Text style={styles.shareCardText}>
+                  Plusieurs employés de {(intervention as any).assignedToName} peuvent déclarer leur passage via un lien réutilisable, sans créer de compte.
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={handleTeamLink}
+              disabled={isGeneratingTeamLink}
+              style={({ pressed }) => [
+                styles.shareBtnSecondary,
+                pressed && { opacity: 0.85 },
+                isGeneratingTeamLink && { opacity: 0.65 },
+              ]}
+            >
+              {isGeneratingTeamLink ? (
+                <ActivityIndicator color={COLORS.primary} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="link-outline" size={16} color={COLORS.primary} />
+                  <Text style={styles.shareBtnSecondaryText}>Générer & partager le lien</Text>
                 </>
               )}
             </Pressable>

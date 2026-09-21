@@ -5059,6 +5059,191 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Lien équipe : génération ────────────────────────────────────────────────
+  // Crée un lien réutilisable par tous les salariés d'une société prestataire
+  app.post("/api/team-link", async (req: Request, res: Response) => {
+    const { coProId, coProName, interventionId, interventionTitle, companyName } = req.body as {
+      coProId?: string; coProName?: string;
+      interventionId?: string; interventionTitle?: string; companyName?: string;
+    };
+    if (!coProId || !interventionId || !companyName) {
+      return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
+    }
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    try {
+      // Vérifie qu'un lien équipe n'existe pas déjà pour cette intervention
+      const existing = await db.collection("teamInterventionLinks")
+        .where("interventionId", "==", interventionId)
+        .where("coProId", "==", coProId)
+        .limit(1).get();
+
+      if (!existing.empty) {
+        const doc = existing.docs[0];
+        const existingToken = doc.data().token as string;
+        const baseUrl = getBaseUrl(req);
+        return res.json({ url: `${baseUrl}/team-intervention/${existingToken}`, existing: true });
+      }
+
+      const token = generateGuestToken();
+      const baseUrl = getBaseUrl(req);
+      await db.collection("teamInterventionLinks").add({
+        token,
+        coProId,
+        coProName: coProName ?? "",
+        interventionId,
+        interventionTitle: interventionTitle ?? "",
+        companyName,
+        createdAt: new Date().toISOString(),
+      });
+      return res.json({ url: `${baseUrl}/team-intervention/${token}` });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Lien équipe : déclaration de passage (POST) ──────────────────────────
+  app.post("/api/public/team-intervention/:token/passage", async (req: Request, res: Response) => {
+    const token = String(req.params.token);
+    const db = getAdminDb();
+    if (!db) return res.redirect(`/team-intervention/${token}?error=serveur`);
+
+    try {
+      const snap = await db.collection("teamInterventionLinks")
+        .where("token", "==", token).limit(1).get();
+      if (snap.empty) return res.redirect(`/team-intervention/${token}?error=lien_invalide`);
+
+      const link = snap.docs[0].data();
+      const { employeeName, description } = req.body as { employeeName?: string; description?: string };
+
+      if (!employeeName?.trim()) {
+        return res.redirect(`/team-intervention/${token}?error=nom_requis`);
+      }
+
+      await db.collection("copros").doc(link.coProId)
+        .collection("interventions").doc(link.interventionId)
+        .collection("passages").add({
+          employeeName: employeeName.trim(),
+          companyName: link.companyName,
+          description: description?.trim() ?? "",
+          submittedAt: new Date().toISOString(),
+          token,
+        });
+
+      // Notifie l'admin
+      sendPushToAdmins(link.coProId,
+        `✅ Passage déclaré — ${link.coProName ?? "Copropriété"}`,
+        `${employeeName.trim()} (${link.companyName}) a déclaré son passage : ${link.interventionTitle}`,
+        { type: "team_passage", coProId: link.coProId, interventionId: link.interventionId }
+      ).catch(() => {});
+
+      return res.redirect(`/team-intervention/${token}?success=1`);
+    } catch (e: any) {
+      console.error("team-passage error:", e);
+      return res.redirect(`/team-intervention/${token}?error=serveur`);
+    }
+  });
+
+  // ─── Lien équipe : page web ───────────────────────────────────────────────
+  app.get("/team-intervention/:token", async (req: Request, res: Response) => {
+    const token = String(req.params.token);
+    const db = getAdminDb();
+    if (!db) return res.status(503).send(pageShell("Erreur", "<p>Service indisponible.</p>"));
+
+    const snap = await db.collection("teamInterventionLinks")
+      .where("token", "==", token).limit(1).get();
+
+    if (snap.empty) {
+      return res.status(404).send(pageShell("Lien invalide",
+        `<div class="m-container"><div class="m-card"><h1>Lien invalide</h1><p>Ce lien n'existe pas ou a été supprimé.</p></div></div>`
+      ));
+    }
+
+    const link = snap.docs[0].data();
+    const success = req.query.success === "1";
+    const error = String(req.query.error ?? "");
+
+    // Récupérer les passages déjà enregistrés
+    const passagesSnap = await db.collection("copros").doc(link.coProId)
+      .collection("interventions").doc(link.interventionId)
+      .collection("passages")
+      .orderBy("submittedAt", "desc").limit(20).get();
+
+    const passagesHtml = passagesSnap.docs.length > 0
+      ? passagesSnap.docs.map(d => {
+          const p = d.data();
+          const date = new Date(p.submittedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+          return `<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #e2e8f0;">
+            <div style="width:36px;height:36px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2563eb;font-size:14px;flex-shrink:0;">${escapeHtml(p.employeeName[0].toUpperCase())}</div>
+            <div>
+              <div style="font-weight:700;color:#0f172a;font-size:14px;">${escapeHtml(p.employeeName)}</div>
+              ${p.description ? `<div style="font-size:13px;color:#475569;margin-top:2px;">${escapeHtml(p.description)}</div>` : ""}
+              <div style="font-size:11px;color:#94a3b8;margin-top:4px;">${date}</div>
+            </div>
+          </div>`;
+        }).join("")
+      : `<p style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0;">Aucun passage enregistré pour l'instant.</p>`;
+
+    const errorMsg = error === "nom_requis" ? "Votre nom est obligatoire."
+      : error === "serveur" ? "Une erreur est survenue. Réessayez."
+      : error === "lien_invalide" ? "Lien invalide."
+      : "";
+
+    const html = pageShell(`Déclaration de passage — ${escapeHtml(link.interventionTitle)}`, `
+<div class="m-container" style="max-width:520px;">
+
+  <div style="background:#1e40af;border-radius:20px;padding:24px;margin-bottom:16px;color:#fff;">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:6px;">Déclaration de passage</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px;">${escapeHtml(link.interventionTitle)}</div>
+    <div style="font-size:13px;color:rgba(255,255,255,.7);">${escapeHtml(link.companyName)} · ${escapeHtml(link.coProName)}</div>
+  </div>
+
+  ${success ? `
+  <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:16px;padding:20px 24px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-start;">
+    <span style="font-size:24px;">✅</span>
+    <div>
+      <div style="font-weight:700;color:#15803d;font-size:16px;margin-bottom:4px;">Passage enregistré !</div>
+      <div style="font-size:14px;color:#166534;">Votre déclaration a bien été transmise à l'administrateur.</div>
+    </div>
+  </div>` : ""}
+
+  ${errorMsg ? `<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:14px 18px;margin-bottom:14px;color:#991b1b;font-size:14px;">⚠️ ${escapeHtml(errorMsg)}</div>` : ""}
+
+  <div class="m-card" style="margin-bottom:16px;">
+    <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;">Déclarer mon passage</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Renseignez votre nom et une description de l'intervention effectuée.</div>
+
+    <form method="POST" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Votre nom *</label>
+        <input name="employeeName" type="text" placeholder="Prénom Nom" required
+          style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;box-sizing:border-box;font-family:inherit;" />
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Description (optionnel)</label>
+        <textarea name="description" placeholder="Ce que vous avez fait, zones traitées…" rows="3"
+          style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>
+      </div>
+      <button type="submit"
+        style="background:#1e40af;color:#fff;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;width:100%;">
+        Enregistrer mon passage
+      </button>
+    </form>
+  </div>
+
+  ${passagesSnap.docs.length > 0 ? `
+  <div class="m-card">
+    <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px;">Passages récents</div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">${passagesSnap.docs.length} passage(s) enregistré(s)</div>
+    ${passagesHtml}
+  </div>` : ""}
+
+</div>`);
+
+    return res.send(html);
+  });
+
   app.get("/guest-intervention/:token", async (req: Request, res: Response) => {
     const token = String(req.params.token);
     const payload = await buildGuestInterventionPayload(token);
