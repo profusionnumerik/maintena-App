@@ -4633,21 +4633,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
 
-    // Valider le code d'activation s'il est défini sur l'invitation
     const storedCode: string = payload.invite.data.activationCode ?? "";
     const codeAlreadyUsed: boolean = payload.invite.data.activationCodeUsed === true;
 
-    if (storedCode) {
-      if (codeAlreadyUsed) {
-        return res.status(403).json({
-          error: "Ce code d'activation a déjà été utilisé. Connectez-vous directement avec votre email et mot de passe.",
-        });
-      }
-      if (!activationCode || activationCode.trim().toUpperCase() !== storedCode.toUpperCase()) {
-        return res.status(400).json({
-          error: "Code d'activation invalide. Vérifiez votre email d'invitation.",
-        });
-      }
+    if (codeAlreadyUsed) {
+      return res.status(403).json({
+        error: "Ce compte a déjà été finalisé. Connectez-vous directement avec votre email et mot de passe.",
+      });
     }
 
     const db = getAdminDb();
@@ -4700,6 +4692,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         { merge: true }
       );
+
+      // Ajouter automatiquement le prestataire comme membre de la copro
+      const coProId = payload.invite.data.coProId;
+      if (coProId) {
+        const memberRef = db.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
+        const memberSnap = await memberRef.get();
+        if (!memberSnap.exists) {
+          await memberRef.set({
+            uid: userRecord.uid,
+            email: payload.provider.email,
+            displayName: payload.provider.name,
+            firstName: payload.provider.firstName ?? "",
+            lastName: payload.provider.lastName ?? "",
+            phone: payload.provider.phone ?? "",
+            company: payload.provider.company ?? "",
+            role: "prestataire",
+            coProId,
+            createdAt: new Date().toISOString(),
+            joinedViaGuestInvite: true,
+          });
+        }
+      }
 
       return res.json({
         success: true,
@@ -5527,7 +5541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 <div class="m-container">
   <div class="m-card" style="margin-bottom:20px;">
     <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">Finaliser mon compte</h1>
-    <p style="color:#64748b;font-size:14px;margin:0;">Vos informations ont déjà été enregistrées. Entrez votre code d’activation et choisissez un mot de passe.</p>
+    <p style="color:#64748b;font-size:14px;margin:0;">Choisissez un mot de passe pour accéder à toutes vos interventions depuis l’application.</p>
   </div>
 
   ${codeAlreadyUsed ? `
@@ -5536,7 +5550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <span style="font-size:24px;">✅</span>
       <div>
         <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Compte déjà finalisé</div>
-        <div style="font-size:14px;color:#047857;">Votre mot de passe a déjà été défini. Connectez-vous directement à l’application Maintena avec votre email et mot de passe.</div>
+        <div style="font-size:14px;color:#047857;">Votre compte est déjà créé. Connectez-vous directement à l’application Maintena avec votre email et mot de passe.</div>
       </div>
     </div>
   </div>` : `
@@ -5550,20 +5564,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <label class="m-label">Email</label>
     <input class="m-input" value="${escapeHtml(payload.provider.email || "")}" disabled />
 
-    ${hasActivationCode ? `
-    <div style="background:#f0fdf4;border:2px solid #6ee7b7;border-radius:12px;padding:16px 18px;margin:18px 0 4px;">
-      <div style="font-size:11px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">🔑 Code d’activation</div>
-      <div style="font-size:13px;color:#047857;margin-bottom:10px;">Reportez le code reçu dans votre email d’invitation (8 caractères, ex : A7XK2PBM).</div>
-      <label class="m-label" for="activationCode" style="margin-top:0;">Code d’activation *</label>
-      <input class="m-input" id="activationCode" type="text" placeholder="ex : A7XK2PBM" maxlength="8" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;font-size:20px;font-weight:700;font-family:monospace;" />
-    </div>` : ""}
-
     <label class="m-label" for="password">Mot de passe</label>
     <input class="m-input" id="password" type="password" placeholder="Au moins 6 caractères" />
 
     <button class="m-btn" id="submitBtn">Créer mon compte</button>
 
-    <div class="m-success" id="success" style="display:none;">Compte créé avec succès. Vous pouvez maintenant vous connecter à l’application.</div>
+    <div class="m-success" id="success" style="display:none;">✅ Compte créé avec succès ! Vous êtes maintenant rattaché(e) à la résidence. Téléchargez l’application Maintena et connectez-vous avec votre email et mot de passe.</div>
     <div class="m-error" id="error" style="display:none;"></div>
   </div>`}
 </div>
@@ -5581,19 +5587,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error) { error.textContent = ‘Le mot de passe doit contenir au moins 6 caractères.’; error.style.display = ‘block’; }
       return;
     }
-    const activationCodeEl = document.getElementById(‘activationCode’);
-    const activationCode = activationCodeEl ? activationCodeEl.value.trim().toUpperCase() : ‘’;
-    if (activationCodeEl && !activationCode) {
-      if (error) { error.textContent = ‘Veuillez entrer votre code d\\’activation (reçu par email).’; error.style.display = ‘block’; }
-      return;
-    }
     btn.disabled = true;
     btn.textContent = ‘Création en cours...’;
     try {
       const res = await fetch(‘/api/public/complete-account/${completeAccountToken}’, {
         method: ‘POST’,
         headers: { ‘Content-Type’: ‘application/json’ },
-        body: JSON.stringify({ password, activationCode: activationCode || undefined }),
+        body: JSON.stringify({ password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || ‘Erreur’);
