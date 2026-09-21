@@ -5426,6 +5426,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     `}
   </div>` : ""}
 
+  <!-- Partager le lien aux employés -->
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;padding:22px;margin-bottom:20px;">
+    <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">📤 Partager à vos employés</div>
+    <p style="font-size:14px;color:#64748b;margin:0 0 14px;">Vos employés peuvent remplir la fiche de suivi directement depuis ce lien, sans créer de compte.</p>
+    <button onclick="shareLink()" style="background:#0f172a;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">Copier / Partager le lien</button>
+    <div id="shareFeedback" style="display:none;margin-top:10px;color:#16a34a;font-size:13px;font-weight:600;text-align:center;">✅ Lien copié !</div>
+  </div>
+
   <!-- Créer son compte -->
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">
     <div style="font-weight:700;color:#1d4ed8;margin-bottom:6px;">Finalisez votre compte Maintena</div>
@@ -5437,6 +5445,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 <script>
   const TOKEN = '${token}';
+
+  async function shareLink() {
+    const url = window.location.href;
+    const feedback = document.getElementById('shareFeedback');
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Fiche intervention — Maintena', url });
+        return;
+      } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    if (feedback) { feedback.style.display = 'block'; setTimeout(() => { feedback.style.display = 'none'; }, 3000); }
+  }
 
   async function respond(action) {
     const btnRefuse = document.getElementById('btn-refuse');
