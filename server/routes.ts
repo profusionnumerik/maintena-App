@@ -5426,13 +5426,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     `}
   </div>` : ""}
 
-  <!-- Partager le lien aux employés -->
+  <!-- Déléguer à un employé -->
+  ${payload.intervention.providerStatus === "accepted" ? `
   <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;padding:22px;margin-bottom:20px;">
-    <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">📤 Partager à vos employés</div>
-    <p style="font-size:14px;color:#64748b;margin:0 0 14px;">Vos employés peuvent remplir la fiche de suivi directement depuis ce lien, sans créer de compte.</p>
-    <button onclick="shareLink()" style="background:#0f172a;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">Copier / Partager le lien</button>
-    <div id="shareFeedback" style="display:none;margin-top:10px;color:#16a34a;font-size:13px;font-weight:600;text-align:center;">✅ Lien copié !</div>
-  </div>
+    <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">👷 Déléguer à un employé</div>
+    <p style="font-size:14px;color:#64748b;margin:0 0 14px;">Générez un lien unique à partager à votre employé. Il pourra remplir la fiche d'intervention sans créer de compte. Ce lien est différent du vôtre.</p>
+    <button id="genTeamLinkBtn" onclick="generateTeamLink()" style="background:#0f172a;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">Générer le lien employé</button>
+    <div id="teamLinkResult" style="display:none;margin-top:14px;">
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;word-break:break-all;font-size:13px;color:#15803d;font-family:monospace;" id="teamLinkUrl"></div>
+      <button onclick="copyTeamLink()" style="margin-top:10px;background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">📋 Copier le lien</button>
+      <div id="teamLinkCopied" style="display:none;margin-top:8px;color:#16a34a;font-size:13px;font-weight:600;text-align:center;">✅ Lien copié !</div>
+    </div>
+    <div id="teamLinkError" style="display:none;margin-top:10px;color:#dc2626;font-size:13px;"></div>
+  </div>` : ""}
 
   <!-- Créer son compte -->
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">
@@ -5446,26 +5452,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 <script>
   const TOKEN = '${token}';
 
-  async function shareLink() {
-    const url = window.location.href;
-    const feedback = document.getElementById('shareFeedback');
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Fiche intervention — Maintena', url });
-        return;
-      } catch {}
-    }
+  let _teamLinkUrl = '';
+
+  async function generateTeamLink() {
+    const btn = document.getElementById('genTeamLinkBtn');
+    const result = document.getElementById('teamLinkResult');
+    const errEl = document.getElementById('teamLinkError');
+    if (btn) { btn.disabled = true; btn.textContent = 'Génération…'; }
+    if (errEl) errEl.style.display = 'none';
     try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = url;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      const res = await fetch('/api/team-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coProId: '${payload.copro.id}',
+          coProName: '${escapeHtml(payload.copro.name)}',
+          interventionId: '${payload.intervention.id}',
+          interventionTitle: '${escapeHtml(payload.intervention.title)}',
+          companyName: '${escapeHtml(payload.provider.company || payload.provider.name)}',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+      _teamLinkUrl = data.url;
+      const urlEl = document.getElementById('teamLinkUrl');
+      if (urlEl) urlEl.textContent = data.url;
+      if (result) result.style.display = 'block';
+      if (btn) { btn.textContent = 'Regénérer le lien'; btn.disabled = false; }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Fiche intervention — Maintena', url: data.url }); } catch {}
+      }
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Erreur'; errEl.style.display = 'block'; }
+      if (btn) { btn.textContent = 'Générer le lien employé'; btn.disabled = false; }
     }
-    if (feedback) { feedback.style.display = 'block'; setTimeout(() => { feedback.style.display = 'none'; }, 3000); }
+  }
+
+  async function copyTeamLink() {
+    if (!_teamLinkUrl) return;
+    const copied = document.getElementById('teamLinkCopied');
+    try { await navigator.clipboard.writeText(_teamLinkUrl); } catch {
+      const ta = document.createElement('textarea');
+      ta.value = _teamLinkUrl;
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    if (copied) { copied.style.display = 'block'; setTimeout(() => { copied.style.display = 'none'; }, 3000); }
   }
 
   async function respond(action) {
