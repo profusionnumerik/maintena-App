@@ -21,7 +21,7 @@ import {
 const VISIBLE_CHIPS = 5;
 const FlatListAny = FlatList as any;
 
-// ── Status config ─────────────────────────────────────────────────────────────
+// ── Status config ──────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<Status, { bg: string; text: string; dot: string; defaultOpen: boolean }> = {
   planifie: { bg: "#FFFBEB", text: "#92400E", dot: COLORS.warning,  defaultOpen: true  },
