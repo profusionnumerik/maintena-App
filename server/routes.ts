@@ -4103,20 +4103,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         </table>
       </div>
 
-      <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
-        <div style="font-size:13px;color:#9A3412;font-weight:700;margin-bottom:10px;">📋 Vos obligations contractuelles</div>
-        <ul style="margin:0;padding:0 0 0 18px;color:#C2410C;font-size:13px;line-height:1.8;">
-          <li>Réaliser chaque intervention <strong>dans les délais convenus</strong></li>
-          <li>Se rendre <strong>obligatoirement sur site</strong> pour chaque passage</li>
-          <li>Prendre une <strong>photo de preuve sur site</strong> (obligatoire)</li>
-          <li>Compléter <strong>intégralement</strong> la fiche d'intervention correspondante</li>
-          <li>Transmettre votre rapport après chaque réalisation</li>
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#166534;font-weight:700;margin-bottom:10px;">📋 Comment ça marche</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#15803D;font-size:13px;line-height:1.8;">
+          <li>Réalisez votre intervention selon le calendrier convenu</li>
+          <li>Prenez une <strong>photo</strong> après votre passage</li>
+          <li>Remplissez la fiche d'intervention pour valider votre passage</li>
+          <li>L'administrateur de la résidence est notifié automatiquement</li>
         </ul>
       </div>
 
       <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 24px;">
-        Nous comptons sur votre professionnalisme pour garantir la qualité des prestations
-        attendues par les copropriétaires de la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.
+        Merci de votre confiance et de votre implication au service des résidents de
+        <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.
       </p>
 
       ${webLink ? `<div style="text-align:center;margin:28px 0;">
@@ -4232,24 +4231,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <div style="font-size:22px;font-weight:800;color:#D97706;">${escapeHtml(nextDateStr)}</div>
       </div>` : ""}
 
-      <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
-        <div style="font-size:13px;color:#9F1239;font-weight:700;margin-bottom:12px;">⚠️ Rappel de vos obligations</div>
-        <ul style="margin:0;padding:0 0 0 18px;color:#BE123C;font-size:13px;line-height:2;">
-          <li>Votre <strong>présence sur site est impérative</strong> — aucune prestation à distance n'est acceptée</li>
-          <li>Une <strong>photo de preuve prise sur site est obligatoire</strong> pour valider l'intervention</li>
-          <li>La fiche d'intervention doit être <strong>intégralement complétée</strong> après chaque passage</li>
-          <li>Tout manquement peut engager <strong>votre responsabilité contractuelle</strong></li>
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#166534;font-weight:700;margin-bottom:12px;">📋 Pour bien préparer votre passage</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#15803D;font-size:13px;line-height:2;">
+          <li>Intervenez directement sur site comme convenu</li>
+          <li>Ajoutez une <strong>photo</strong> après votre passage pour valider l'intervention</li>
+          <li>Complétez la fiche d'intervention une fois votre travail terminé</li>
         </ul>
       </div>
 
       <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 8px;">
-        Cette mission fait partie de votre <strong>engagement contractuel</strong> envers la résidence
-        ${escapeHtml(coProName)}. Les copropriétaires comptent sur la qualité et la régularité de vos prestations.
+        La résidence ${escapeHtml(coProName)} compte sur votre professionnalisme et votre ponctualité.
+        Merci de votre implication.
       </p>
 
       <p style="font-size:14px;color:#64748B;line-height:1.7;margin:0 0 28px;">
-        Merci de prendre toutes les dispositions nécessaires pour réaliser cette maintenance
-        <strong>dans les délais convenus</strong> et renseigner dûment la fiche ci-jointe.
+        En cas d'imprévu ou de besoin de report, n'hésitez pas à contacter l'administrateur directement.
       </p>
 
       ${webLink ? `<div style="text-align:center;margin:28px 0;">
@@ -5256,6 +5253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const pStatus = payload.intervention.providerStatus; // "pending" | "accepted" | "refused"
     const reportLocked = !!payload.intervention.guestUpdatedAt;
+    const effectiveCompleteAccountLink = payload.links.completeAccountLink || `${getBaseUrl(req)}/guest-complete-account/${token}`;
     const dateStr = payload.intervention.date
       ? new Date(payload.intervention.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
       : "Non renseignée";
@@ -5418,7 +5416,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">
     <div style="font-weight:700;color:#1d4ed8;margin-bottom:6px;">Finalisez votre compte Maintena</div>
     <p style="font-size:14px;color:#3b82f6;margin:0 0 14px;">Accédez à toutes vos interventions depuis l'application.</p>
-    <a href="${escapeHtml(payload.links.completeAccountLink)}" class="m-btn" style="display:inline-block;text-decoration:none;padding:12px 24px;">Créer mon compte →</a>
+    <a href="${escapeHtml(effectiveCompleteAccountLink)}" class="m-btn" style="display:inline-block;text-decoration:none;padding:12px 24px;">Créer mon compte →</a>
   </div>
 
 </div>
