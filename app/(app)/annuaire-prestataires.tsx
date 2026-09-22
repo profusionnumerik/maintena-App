@@ -250,8 +250,9 @@ export default function AnnuairePrestatairesScreen() {
                   {(c.categories ?? []).length > 0 && (
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
                       {(c.categories ?? []).map((cat) => (
-                        <View key={cat} style={{ backgroundColor: "#EDE9FE", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
-                          <Text style={{ fontSize: 10, color: "#7C3AED" }}>{CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}</Text>
+                        <View key={cat} style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EDE9FE", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Ionicons name={CATEGORY_ICONS[cat] as any} size={10} color="#7C3AED" />
+                          <Text style={{ fontSize: 10, color: "#7C3AED" }}>{CATEGORY_LABELS[cat]}</Text>
                         </View>
                       ))}
                     </View>
@@ -373,7 +374,7 @@ export default function AnnuairePrestatairesScreen() {
                         borderWidth: 1, borderColor: selected ? "#7C3AED" : COLORS.border,
                       }}
                     >
-                      <Text style={{ fontSize: 14 }}>{CATEGORY_ICONS[cat]}</Text>
+                      <Ionicons name={CATEGORY_ICONS[cat] as any} size={14} color={selected ? "#7C3AED" : COLORS.textMuted} />
                       <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: selected ? "#7C3AED" : COLORS.text }}>
                         {CATEGORY_LABELS[cat]}
                       </Text>
