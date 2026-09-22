@@ -674,6 +674,65 @@ async function buildGuestInterventionPayload(token: string) {
   };
 }
 
+// Ajoute automatiquement un prestataire dans l'annuaire des admins de la copro
+async function addToAdminAnnuaire(
+  db: ReturnType<typeof getAdminDb>,
+  coProId: string,
+  contact: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    company?: string;
+    category?: string | null;
+  }
+): Promise<void> {
+  if (!db || !contact.email) return;
+  try {
+    // Trouver tous les admins de la copro
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members")
+      .where("role", "==", "admin").get();
+    if (membersSnap.empty) return;
+
+    const email = contact.email.toLowerCase();
+    const categories = contact.category ? [contact.category] : [];
+
+    await Promise.all(membersSnap.docs.map(async (adminDoc) => {
+      const adminUid = adminDoc.id;
+      const contactsRef = db!.collection("users").doc(adminUid).collection("providerContacts");
+
+      // Vérifier si le contact existe déjà (par email)
+      const existing = await contactsRef.where("email", "==", email).limit(1).get();
+      if (!existing.empty) {
+        // Mettre à jour les catégories si nouvelle catégorie
+        if (contact.category) {
+          const existingDoc = existing.docs[0];
+          const existingCats: string[] = existingDoc.data().categories ?? [];
+          if (!existingCats.includes(contact.category)) {
+            await existingDoc.ref.update({ categories: [...existingCats, contact.category] });
+          }
+        }
+        return;
+      }
+
+      // Ajouter le nouveau contact
+      await contactsRef.add({
+        firstName: contact.firstName || "",
+        lastName: contact.lastName || "",
+        email,
+        phone: contact.phone || "",
+        company: contact.company || "",
+        city: "",
+        categories,
+        createdAt: new Date().toISOString(),
+        addedFromInvite: true,
+      });
+    }));
+  } catch (err) {
+    console.warn("[addToAdminAnnuaire] erreur:", err);
+  }
+}
+
 async function sendActivationEmail(
   adminEmail: string,
   coProName: string,
@@ -4387,6 +4446,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
           assignedToUid: uid,
         });
+
+        // Ajouter automatiquement dans l'annuaire des admins de la copro
+        await addToAdminAnnuaire(db, coProId, {
+          firstName: invitedProvider.firstName ?? "",
+          lastName: invitedProvider.lastName ?? "",
+          email: invitedProvider.email,
+          phone: invitedProvider.phone ?? "",
+          company: invitedProvider.company ?? "",
+          category: category ?? null,
+        });
       } catch (authErr) {
         console.warn("Création compte provisoire échouée:", authErr);
         tempPassword = undefined;
@@ -4827,6 +4896,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             assignedToUid: userRecord.uid,
           });
         }
+
+        // Ajouter automatiquement dans l'annuaire des admins de la copro
+        await addToAdminAnnuaire(db, coProId, {
+          firstName: payload.provider.firstName,
+          lastName: payload.provider.lastName,
+          email: payload.provider.email,
+          phone: payload.provider.phone,
+          company: payload.provider.company,
+          category: payload.invite.data.categoryFilter ?? null,
+        });
       }
 
       await payload.invite.ref.set(
