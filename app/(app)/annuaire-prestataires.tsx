@@ -15,6 +15,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
 
 interface ProviderContact {
   id: string;
@@ -26,10 +27,28 @@ interface ProviderContact {
   phone: string;
   company: string;
   specialty?: string;
+  city: string;
+  postalCode?: string;
+  categories?: Category[];
+  lat?: number;
+  lng?: number;
   createdAt: string;
 }
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", company: "", specialty: "" };
+const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", company: "", specialty: "", city: "", postalCode: "" };
+
+async function geocodeCity(city: string, postalCode?: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const q = postalCode ? `${encodeURIComponent(city)}&codePostal=${postalCode}` : encodeURIComponent(city);
+    const res = await fetch(`https://geo.api.gouv.fr/communes?nom=${q}&fields=nom,centre&limit=3&type=commune-actuelle`);
+    const data = await res.json();
+    if (data.length > 0 && data[0].centre?.coordinates) {
+      const [lng, lat] = data[0].centre.coordinates;
+      return { lat, lng };
+    }
+  } catch {}
+  return null;
+}
 
 function safeHaptic() {
   if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -48,6 +67,7 @@ export default function AnnuairePrestatairesScreen() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<typeof EMPTY_FORM>>({});
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
 
   // Annuaire commun à toutes les résidences — stocké au niveau du compte admin
   useEffect(() => {
@@ -77,13 +97,15 @@ export default function AnnuairePrestatairesScreen() {
   const openAdd = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setSelectedCategories([]);
     setErrors({});
     setModalVisible(true);
   };
 
   const openEdit = (c: ProviderContact) => {
     setEditing(c);
-    setForm({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, company: c.company, specialty: c.specialty ?? "" });
+    setForm({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, company: c.company, specialty: c.specialty ?? "", city: c.city ?? "", postalCode: c.postalCode ?? "" });
+    setSelectedCategories(c.categories ?? []);
     setErrors({});
     setModalVisible(true);
   };
@@ -94,6 +116,7 @@ export default function AnnuairePrestatairesScreen() {
     if (!form.lastName.trim()) e.lastName = "Nom requis";
     if (!form.email.trim()) e.email = "Email requis";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Email invalide";
+    if (!form.city.trim()) e.city = "Ville requise";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -102,13 +125,20 @@ export default function AnnuairePrestatairesScreen() {
     if (!validate() || !user?.uid) return;
     setSaving(true);
     try {
-      const data = {
+      // Géocodage de la ville
+      const coords = await geocodeCity(form.city.trim(), form.postalCode.trim() || undefined);
+      const data: Record<string, any> = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim().toLowerCase(),
         phone: form.phone.trim(),
         company: form.company.trim(),
         specialty: form.specialty.trim(),
+        city: form.city.trim(),
+        postalCode: form.postalCode.trim(),
+        categories: selectedCategories,
+        lat: coords?.lat ?? null,
+        lng: coords?.lng ?? null,
       };
       if (editing) {
         await updateDoc(doc(db, "users", user.uid, "providerContacts", editing.id), data);
@@ -125,7 +155,7 @@ export default function AnnuairePrestatairesScreen() {
     } finally {
       setSaving(false);
     }
-  }, [form, editing, user?.uid]);
+  }, [form, editing, user?.uid, selectedCategories]);
 
   const handleDelete = (c: ProviderContact) => {
     wConfirm(
@@ -204,19 +234,28 @@ export default function AnnuairePrestatairesScreen() {
                     <Text style={styles.cardCompany}>{[c.specialty, c.company].filter(Boolean).join(" · ")}</Text>
                   )}
                   <View style={styles.cardMeta}>
+                    {!!c.city && (
+                      <View style={styles.cardMetaItem}>
+                        <Ionicons name="location-outline" size={12} color={COLORS.textMuted} />
+                        <Text style={styles.cardMetaText}>{c.city}{c.postalCode ? ` (${c.postalCode})` : ""}</Text>
+                      </View>
+                    )}
                     {!!c.phone && (
                       <View style={styles.cardMetaItem}>
                         <Ionicons name="call-outline" size={12} color={COLORS.textMuted} />
                         <Text style={styles.cardMetaText}>{c.phone}</Text>
                       </View>
                     )}
-                    {!!c.email && (
-                      <View style={styles.cardMetaItem}>
-                        <Ionicons name="mail-outline" size={12} color={COLORS.textMuted} />
-                        <Text style={styles.cardMetaText} numberOfLines={1}>{c.email}</Text>
-                      </View>
-                    )}
                   </View>
+                  {(c.categories ?? []).length > 0 && (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                      {(c.categories ?? []).map((cat) => (
+                        <View key={cat} style={{ backgroundColor: "#EDE9FE", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 10, color: "#7C3AED" }}>{CATEGORY_ICONS[cat]} {CATEGORY_LABELS[cat]}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
                 <Pressable style={styles.deleteBtn} onPress={() => { safeHaptic(); handleDelete(c); }}>
                   <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
@@ -296,14 +335,61 @@ export default function AnnuairePrestatairesScreen() {
                 autoCapitalize="words"
               />
             </Field>
-            <Field label="Spécialité / Métier">
+            <Field label="Ville *" error={errors.city}>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }, !!errors.city && styles.inputError]}
+                  value={form.city}
+                  onChangeText={(v) => setForm((f) => ({ ...f, city: v }))}
+                  placeholder="Lyon, Paris, Marseille…"
+                  placeholderTextColor={COLORS.textMuted}
+                  autoCapitalize="words"
+                />
+                <TextInput
+                  style={[styles.input, { width: 90 }]}
+                  value={form.postalCode}
+                  onChangeText={(v) => setForm((f) => ({ ...f, postalCode: v }))}
+                  placeholder="Code postal"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+              </View>
+            </Field>
+            <Field label="Catégories d'intervention">
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                {ALL_CATEGORIES.map((cat) => {
+                  const selected = selectedCategories.includes(cat);
+                  return (
+                    <Pressable
+                      key={cat}
+                      onPress={() => setSelectedCategories((prev) =>
+                        selected ? prev.filter((c) => c !== cat) : [...prev, cat]
+                      )}
+                      style={{
+                        flexDirection: "row", alignItems: "center", gap: 6,
+                        paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10,
+                        backgroundColor: selected ? "#EDE9FE" : COLORS.background,
+                        borderWidth: 1, borderColor: selected ? "#7C3AED" : COLORS.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 14 }}>{CATEGORY_ICONS[cat]}</Text>
+                      <Text style={{ fontSize: 12, fontFamily: "Inter_500Medium", color: selected ? "#7C3AED" : COLORS.text }}>
+                        {CATEGORY_LABELS[cat]}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Field>
+            <Field label="Note / Spécialité complémentaire">
               <TextInput
                 style={styles.input}
                 value={form.specialty}
                 onChangeText={(v) => setForm((f) => ({ ...f, specialty: v }))}
-                placeholder="Plombier, Électricien, Ascensoriste…"
+                placeholder="Ex : spécialiste chaudières gaz, certifié RGE…"
                 placeholderTextColor={COLORS.textMuted}
-                autoCapitalize="words"
+                autoCapitalize="sentences"
               />
             </Field>
             <View style={{ height: 40 }} />

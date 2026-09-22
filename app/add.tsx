@@ -43,6 +43,14 @@ import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { crossShare } from "@/lib/share";
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 const STATUS_COLORS: Record<Status, string> = {
   planifie: COLORS.warning,
   en_cours: COLORS.primary,
@@ -1794,9 +1802,28 @@ export default function AddInterventionScreen() {
             {providerMode === "existing" ? (
               (() => {
                 const memberEmails = new Set(availablePrestataires.map((p: any) => (p.email ?? "").toLowerCase()));
-                const annuaireOnly = annuaireContacts.filter(
-                  (c: any) => !memberEmails.has((c.email ?? "").toLowerCase())
-                );
+                const coProLat = currentCopro?.latitude;
+                const coProLng = currentCopro?.longitude;
+                const annuaireFiltered = annuaireContacts
+                  .filter((c: any) => {
+                    if (memberEmails.has((c.email ?? "").toLowerCase())) return false;
+                    // Filtre par catégorie si des catégories sont renseignées
+                    if (category && c.categories?.length > 0 && !c.categories.includes(category)) return false;
+                    return true;
+                  })
+                  .map((c: any) => ({
+                    ...c,
+                    _distKm: (coProLat && coProLng && c.lat && c.lng)
+                      ? haversineKm(coProLat, coProLng, c.lat, c.lng)
+                      : null,
+                  }))
+                  .sort((a: any, b: any) => {
+                    if (a._distKm === null && b._distKm === null) return 0;
+                    if (a._distKm === null) return 1;
+                    if (b._distKm === null) return -1;
+                    return a._distKm - b._distKm;
+                  });
+                const annuaireOnly = annuaireFiltered;
                 const hasMembers = availablePrestataires.length > 0;
                 const hasAnnuaire = annuaireOnly.length > 0;
 
@@ -1854,6 +1881,9 @@ export default function AddInterventionScreen() {
                         <View style={styles.chipGrid}>
                           {annuaireOnly.map((c: any) => {
                             const label = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email;
+                            const distLabel = c._distKm !== null
+                              ? c._distKm < 1 ? "< 1 km" : `${Math.round(c._distKm)} km`
+                              : c.city || null;
                             return (
                               <Pressable
                                 key={c.id}
@@ -1871,10 +1901,17 @@ export default function AddInterventionScreen() {
                                     company: c.company ?? "",
                                   });
                                 }}
-                                style={[styles.chip, styles.chipAnnuaire]}
+                                style={[styles.chip, styles.chipAnnuaire, { flexDirection: "column", alignItems: "flex-start", gap: 2 }]}
                               >
-                                <Ionicons name="person-add-outline" size={16} color="#7C3AED" />
-                                <Text style={[styles.chipText, { color: "#7C3AED" }]}>{label}</Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                  <Ionicons name="person-add-outline" size={15} color="#7C3AED" />
+                                  <Text style={[styles.chipText, { color: "#7C3AED" }]}>{label}</Text>
+                                </View>
+                                {distLabel && (
+                                  <Text style={{ fontSize: 11, color: "#9333EA", opacity: 0.8, paddingLeft: 21 }}>
+                                    {c._distKm !== null ? `📍 ${distLabel}` : `🏙 ${distLabel}`}
+                                  </Text>
+                                )}
                               </Pressable>
                             );
                           })}
