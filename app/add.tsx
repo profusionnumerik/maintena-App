@@ -521,16 +521,16 @@ export default function AddInterventionScreen() {
   }, [currentRole, user]);
 
   useEffect(() => {
-    if (!currentCopro?.id || !canManage) return;
+    if (!user?.uid || !canManage) return;
     const q = query(
-      collection(db, "copros", currentCopro.id, "providerContacts"),
+      collection(db, "users", user.uid, "providerContacts"),
       orderBy("lastName", "asc")
     );
     const unsub = onSnapshot(q, (snap) => {
       setAnnuaireContacts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return unsub;
-  }, [currentCopro?.id, canManage]);
+  }, [user?.uid, canManage]);
 
   const cleaningAreas = useMemo<CleaningArea[]>(() => {
     if (category !== "nettoyage" || !currentCopro?.buildingConfig) return [];

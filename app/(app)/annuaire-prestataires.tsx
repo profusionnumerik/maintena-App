@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator, Modal, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
@@ -14,8 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
-import { useCoPro } from "@/context/CoProContext";
-import { CoPro } from "@/shared/types";
+import { useAuth } from "@/context/AuthContext";
 
 interface ProviderContact {
   id: string;
@@ -39,7 +38,7 @@ function safeHaptic() {
 export default function AnnuairePrestatairesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { currentCopro, copros } = useCoPro();
+  const { user } = useAuth();
 
   const [contacts, setContacts] = useState<ProviderContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,43 +49,19 @@ export default function AnnuairePrestatairesScreen() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<typeof EMPTY_FORM>>({});
 
-  // Subscribe to providerContacts across ALL admin copros
-  const loadedCount = useRef(0);
+  // Annuaire commun à toutes les résidences — stocké au niveau du compte admin
   useEffect(() => {
-    if (copros.length === 0) { setLoading(false); return; }
-
-    const contactsMap: Record<string, ProviderContact[]> = {};
-    loadedCount.current = 0;
-
-    const unsubscribers = copros.map((copro) => {
-      const q = query(
-        collection(db, "copros", copro.id, "providerContacts"),
-        orderBy("lastName", "asc")
-      );
-      return onSnapshot(q, (snap) => {
-        contactsMap[copro.id] = snap.docs.map((d) => ({
-          id: d.id,
-          coProId: copro.id,
-          coProName: copro.name,
-          ...d.data(),
-        } as ProviderContact));
-
-        // Merge all copros' contacts sorted by lastName
-        const all = Object.values(contactsMap).flat().sort((a, b) =>
-          a.lastName.localeCompare(b.lastName, "fr")
-        );
-        setContacts(all);
-
-        loadedCount.current += 1;
-        if (loadedCount.current >= copros.length) setLoading(false);
-      }, () => {
-        loadedCount.current += 1;
-        if (loadedCount.current >= copros.length) setLoading(false);
-      });
-    });
-
-    return () => unsubscribers.forEach((u) => u());
-  }, [copros.map((c) => c.id).join(",")]);
+    if (!user?.uid) { setLoading(false); return; }
+    const q = query(
+      collection(db, "users", user.uid, "providerContacts"),
+      orderBy("lastName", "asc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setContacts(snap.docs.map((d) => ({ id: d.id, coProId: "", coProName: "", ...d.data() } as ProviderContact)));
+      setLoading(false);
+    }, () => setLoading(false));
+    return unsub;
+  }, [user?.uid]);
 
   const filtered = contacts.filter((c) => {
     const q = search.toLowerCase();
@@ -95,8 +70,7 @@ export default function AnnuairePrestatairesScreen() {
       c.lastName.toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q) ||
       c.company.toLowerCase().includes(q) ||
-      c.phone.includes(q) ||
-      c.coProName.toLowerCase().includes(q)
+      c.phone.includes(q)
     );
   });
 
@@ -125,10 +99,7 @@ export default function AnnuairePrestatairesScreen() {
   };
 
   const handleSave = useCallback(async () => {
-    if (!validate()) return;
-    // When editing: write back to original copro. When adding: write to currentCopro.
-    const targetCoProId = editing ? editing.coProId : currentCopro?.id;
-    if (!targetCoProId) return;
+    if (!validate() || !user?.uid) return;
     setSaving(true);
     try {
       const data = {
@@ -140,9 +111,9 @@ export default function AnnuairePrestatairesScreen() {
         specialty: form.specialty.trim(),
       };
       if (editing) {
-        await updateDoc(doc(db, "copros", targetCoProId, "providerContacts", editing.id), data);
+        await updateDoc(doc(db, "users", user.uid, "providerContacts", editing.id), data);
       } else {
-        await addDoc(collection(db, "copros", targetCoProId, "providerContacts"), {
+        await addDoc(collection(db, "users", user.uid, "providerContacts"), {
           ...data,
           createdAt: new Date().toISOString(),
         });
@@ -154,7 +125,7 @@ export default function AnnuairePrestatairesScreen() {
     } finally {
       setSaving(false);
     }
-  }, [form, editing, currentCopro?.id]);
+  }, [form, editing, user?.uid]);
 
   const handleDelete = (c: ProviderContact) => {
     wConfirm(
@@ -162,7 +133,7 @@ export default function AnnuairePrestatairesScreen() {
       `${c.firstName} ${c.lastName} sera retiré de l'annuaire.`,
       async () => {
         try {
-          await deleteDoc(doc(db, "copros", c.coProId, "providerContacts", c.id));
+          await deleteDoc(doc(db, "users", user!.uid, "providerContacts", c.id));
         } catch {
           wa("Erreur", "Impossible de supprimer ce contact.");
         }
@@ -171,7 +142,6 @@ export default function AnnuairePrestatairesScreen() {
     );
   };
 
-  const multiCopro = copros.length > 1;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -191,7 +161,7 @@ export default function AnnuairePrestatairesScreen() {
         <Ionicons name="search-outline" size={16} color={COLORS.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder={multiCopro ? "Rechercher par nom, résidence…" : "Rechercher par nom, email…"}
+          placeholder="Rechercher par nom, email, société…"
           placeholderTextColor={COLORS.textMuted}
           value={search}
           onChangeText={setSearch}
@@ -222,7 +192,7 @@ export default function AnnuairePrestatairesScreen() {
             </View>
           ) : (
             filtered.map((c) => (
-              <Pressable key={`${c.coProId}-${c.id}`} style={styles.card} onPress={() => openEdit(c)}>
+              <Pressable key={c.id} style={styles.card} onPress={() => openEdit(c)}>
                 <View style={styles.cardAvatar}>
                   <Text style={styles.cardAvatarText}>
                     {(c.firstName[0] ?? "") + (c.lastName[0] ?? "")}
@@ -247,12 +217,6 @@ export default function AnnuairePrestatairesScreen() {
                       </View>
                     )}
                   </View>
-                  {multiCopro && (
-                    <View style={styles.coProBadge}>
-                      <Ionicons name="business-outline" size={10} color={COLORS.primary} />
-                      <Text style={styles.coProBadgeText} numberOfLines={1}>{c.coProName}</Text>
-                    </View>
-                  )}
                 </View>
                 <Pressable style={styles.deleteBtn} onPress={() => { safeHaptic(); handleDelete(c); }}>
                   <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
@@ -279,19 +243,6 @@ export default function AnnuairePrestatairesScreen() {
             </Pressable>
           </View>
 
-          {/* Copro badge when editing */}
-          {editing && multiCopro && (
-            <View style={styles.editCoProRow}>
-              <Ionicons name="business-outline" size={13} color={COLORS.primary} />
-              <Text style={styles.editCoProText}>{editing.coProName}</Text>
-            </View>
-          )}
-          {!editing && multiCopro && currentCopro && (
-            <View style={styles.editCoProRow}>
-              <Ionicons name="business-outline" size={13} color={COLORS.primary} />
-              <Text style={styles.editCoProText}>Ajouté à : {currentCopro.name}</Text>
-            </View>
-          )}
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             <Field label="Prénom *" error={errors.firstName}>
