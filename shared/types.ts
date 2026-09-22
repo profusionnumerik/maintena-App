@@ -286,6 +286,7 @@ export type EntryType = "programmation" | "intervention";
 export interface Intervention {
   id: string;
   coProId: string;
+  coProName?: string;
   title: string;
   description: string;
   category: Category;

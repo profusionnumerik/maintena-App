@@ -106,11 +106,17 @@ export function InterventionsProvider({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
-  const { currentCopro, currentRole, categoryFilter, isSubscribed } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, isSubscribed, copros } = useCoPro();
   const [allInterventions, setAllInterventions] = useState<Intervention[]>([]);
+  const [multiCoproInterventions, setMultiCoproInterventions] = useState<Intervention[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const isPrestataire = currentRole === "prestataire";
+  const hasMultipleCopros = isPrestataire && copros.length > 1;
+
+  // Listener standard — toujours actif pour la copro courante (admin + prestataire mono-résidence)
   useEffect(() => {
+    if (hasMultipleCopros) return; // géré par le listener multi-copros
     const canLoad = currentCopro && (currentCopro.status === "active" || isSubscribed);
     if (!canLoad) {
       setAllInterventions([]);
@@ -138,17 +144,49 @@ export function InterventionsProvider({
     );
 
     return unsub;
-  }, [currentCopro?.id, currentCopro?.status, isSubscribed]);
+  }, [currentCopro?.id, currentCopro?.status, isSubscribed, hasMultipleCopros]);
+
+  // Listener multi-résidences — uniquement pour prestataire avec plusieurs copros
+  useEffect(() => {
+    if (!hasMultipleCopros || !user) return;
+
+    setIsLoading(true);
+    const perCopro: Record<string, Intervention[]> = {};
+
+    const unsubs = copros.map((copro) => {
+      const q = query(
+        collection(db, "copros", copro.id, "interventions"),
+        orderBy("date", "asc")
+      );
+      return onSnapshot(q, (snap) => {
+        perCopro[copro.id] = snap.docs
+          .map((d) => ({ ...toIntervention(d.id, d.data(), copro.id), coProName: copro.name }))
+          .filter((i) => i.assignedToUid === user.uid);
+
+        const merged = Object.values(perCopro)
+          .flat()
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        setMultiCoproInterventions(merged);
+        setIsLoading(false);
+      }, (err) => {
+        console.error("Interventions multi-copro error:", err);
+        setIsLoading(false);
+      });
+    });
+
+    return () => unsubs.forEach((u) => u());
+  }, [hasMultipleCopros, user?.uid, copros.map((c) => c.id).join(",")]);
 
   const interventions = useMemo(() => {
-    if (currentRole === "prestataire" && user) {
-      // Un prestataire voit uniquement ses propres interventions (assignedToUid),
-      // quelle que soit la catégorie — un plombier peut intervenir sur l'interphone.
+    if (hasMultipleCopros) return multiCoproInterventions;
+
+    if (isPrestataire && user) {
+      // Un prestataire voit uniquement ses propres interventions (assignedToUid)
       return allInterventions.filter((i) => i.assignedToUid === user.uid);
     }
 
     return allInterventions;
-  }, [allInterventions, currentRole, user]);
+  }, [allInterventions, multiCoproInterventions, hasMultipleCopros, isPrestataire, user]);
 
   const addIntervention = useCallback(
     async (

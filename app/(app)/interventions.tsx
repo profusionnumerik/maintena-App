@@ -176,7 +176,7 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin }: {
 
 // ── Intervention card (one-time) ──────────────────────────────────────────────
 
-function InterventionCard({ item, onPress, compact }: { item: Intervention; onPress: () => void; compact?: boolean }) {
+function InterventionCard({ item, onPress, compact, showCoProName }: { item: Intervention; onPress: () => void; compact?: boolean; showCoProName?: boolean }) {
   const sc = STATUS_CONFIG[item.status];
   const iconName = (CATEGORY_ICONS[item.category] ?? "ellipsis-horizontal-circle") as keyof typeof Ionicons.glyphMap;
   const colors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
@@ -190,6 +190,14 @@ function InterventionCard({ item, onPress, compact }: { item: Intervention; onPr
       ]}
       onPress={onPress}
     >
+      {showCoProName && item.coProName ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
+          <Ionicons name="business-outline" size={11} color={COLORS.primary} />
+          <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.primary }} numberOfLines={1}>
+            {item.coProName}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.cardHeader}>
         <Text style={[styles.cardTitle, compact && styles.cardTitleCompact]} numberOfLines={compact ? 1 : 2}>
           {item.title}
@@ -540,6 +548,7 @@ export default function InterventionsScreen() {
         <InterventionCard
           item={item.data}
           compact={item.inGroup}
+          showCoProName={isPrestataire && copros.length > 1}
           onPress={() => router.push(`/intervention/${item.data.id}`)}
         />
       </View>
@@ -586,35 +595,12 @@ export default function InterventionsScreen() {
     <View>
       {isPrestataire && copros.length > 1 && (
         <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
-          <Text style={{ fontSize: 12, color: COLORS.textMuted, fontFamily: "Inter_500Medium", marginBottom: 8 }}>
-            MES RÉSIDENCES
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {copros.map((c) => {
-              const isActive = c.id === currentCopro?.id;
-              return (
-                <Pressable
-                  key={c.id}
-                  onPress={() => { Haptics.selectionAsync(); switchCoPro(c.id); }}
-                  style={{
-                    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
-                    backgroundColor: isActive ? COLORS.primary : COLORS.surface,
-                    borderWidth: 1, borderColor: isActive ? COLORS.primary : COLORS.border,
-                    minWidth: 120,
-                  }}
-                >
-                  <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: isActive ? "#fff" : COLORS.text }} numberOfLines={1}>
-                    {c.name}
-                  </Text>
-                  {c.address ? (
-                    <Text style={{ fontSize: 11, color: isActive ? "rgba(255,255,255,0.75)" : COLORS.textMuted, marginTop: 2 }} numberOfLines={1}>
-                      {c.address}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.surface, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: COLORS.border }}>
+            <Ionicons name="business-outline" size={15} color={COLORS.primary} />
+            <Text style={{ fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.textMuted }}>
+              Toutes mes résidences ({copros.length})
+            </Text>
+          </View>
         </View>
       )}
       {isProprietaire && (
