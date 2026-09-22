@@ -553,7 +553,9 @@ export default function AddInterventionScreen() {
 
     return members
       .filter(
-        (m: any) => m.role === "prestataire" && m.categoryFilter === category
+        (m: any) => m.role === "prestataire" && (
+          m.categoryFilters?.includes(category) || m.categoryFilter === category
+        )
       )
       .sort((a: any, b: any) =>
         getMemberLabel(a).localeCompare(getMemberLabel(b), "fr")
