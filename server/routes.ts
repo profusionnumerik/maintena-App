@@ -4807,6 +4807,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Mettre à jour managedCoproIds pour que la résidence apparaisse dans le switcher de l'app
+      if (coProId) {
+        try {
+          await db.collection("users").doc(userRecord.uid).update({
+            managedCoproIds: FieldValue.arrayUnion(coProId),
+          });
+        } catch {
+          await db.collection("users").doc(userRecord.uid).set(
+            { managedCoproIds: [coProId] },
+            { merge: true }
+          );
+        }
+
+        // Mettre à jour assignedToUid sur l'intervention pour que le filtre côté app fonctionne
+        const interventionId = payload.invite.data.interventionId;
+        if (interventionId) {
+          await db.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
+            assignedToUid: userRecord.uid,
+          });
+        }
+      }
+
       await payload.invite.ref.set(
         { completedAccountAt: new Date().toISOString(), completedAccountUid: userRecord.uid, activationCodeUsed: true },
         { merge: true }
@@ -5053,6 +5075,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    // Si le prestataire a déjà lié son compte, on peut récupérer son uid
+    const completedUid: string | undefined = payload.invite.data.completedAccountUid;
+
     try {
       await payload.interventionRef.set(
         {
@@ -5065,6 +5090,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           guestUpdatedAt: new Date().toISOString(),
           providerStatus: "accepted",
           ...(payload.intervention.providerStatus !== "accepted" ? { providerStatusAt: new Date().toISOString() } : {}),
+          // Si l'uid est connu (compte déjà lié), on s'assure que assignedToUid est défini pour le filtre app
+          ...(completedUid ? { assignedToUid: completedUid } : {}),
         },
         { merge: true }
       );
@@ -5208,7 +5235,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Lien équipe : déclaration de passage (POST) ──────────────────────────
-  app.post("/api/public/team-intervention/:token/passage", async (req: Request, res: Response) => {
+  app.post("/api/public/team-intervention/:token/passage", uploadMiddleware.single("photo"), async (req: Request, res: Response) => {
     const token = String(req.params.token);
     const db = getAdminDb();
     if (!db) return res.redirect(`/team-intervention/${token}?error=serveur`);
@@ -5235,6 +5262,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Upload de la photo de preuve si fournie
+      let photoUrl: string | null = null;
+      if (req.file) {
+        try {
+          const bucket = getAdminStorage();
+          if (bucket) {
+            const mimeType = req.file.mimetype || "image/jpeg";
+            const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+            const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${extension}`;
+            const storagePath = `copros/${link.coProId}/interventions/${link.interventionId}/passages/${fileName}`;
+            const storageFile = bucket.file(storagePath);
+            const downloadToken = generateDownloadToken();
+            await storageFile.save(req.file.buffer, {
+              metadata: { contentType: mimeType, metadata: { firebaseStorageDownloadTokens: downloadToken } },
+              resumable: false,
+            });
+            const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+            photoUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+          }
+        } catch (uploadErr) {
+          console.error("[team-passage/photo] upload error:", uploadErr);
+        }
+      }
+
       await db.collection("copros").doc(link.coProId)
         .collection("interventions").doc(link.interventionId)
         .collection("passages").add({
@@ -5244,6 +5295,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           zones: checkedZones,
           submittedAt: new Date().toISOString(),
           token,
+          ...(photoUrl ? { photos: [photoUrl] } : {}),
         });
 
       // Notifie l'admin
@@ -5329,12 +5381,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const area = cleaningAreas.find(a => a.id === k);
               return area ? area.label : k;
             }).join(", ") : "";
+          const passagePhotos: string[] = Array.isArray(p.photos) ? p.photos : [];
+          const photosHtml = passagePhotos.length > 0
+            ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${passagePhotos.map(u => `<a href="${escapeHtml(u)}" target="_blank"><img src="${escapeHtml(u)}" alt="photo" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div>`
+            : "";
           return `<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #e2e8f0;">
             <div style="width:36px;height:36px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2563eb;font-size:14px;flex-shrink:0;">${escapeHtml((p.employeeName ?? "?")[0].toUpperCase())}</div>
             <div style="flex:1;min-width:0;">
               <div style="font-weight:700;color:#0f172a;font-size:14px;">${escapeHtml(p.employeeName ?? "")}</div>
               ${checkedZones ? `<div style="font-size:12px;color:#2563eb;margin-top:3px;line-height:1.5;">✓ ${escapeHtml(checkedZones)}</div>` : ""}
               ${p.description ? `<div style="font-size:13px;color:#475569;margin-top:2px;">${escapeHtml(p.description)}</div>` : ""}
+              ${photosHtml}
               <div style="font-size:11px;color:#94a3b8;margin-top:4px;">${date}</div>
             </div>
           </div>`;
@@ -5370,7 +5427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;">Déclarer mon passage</div>
     <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Cochez les zones effectuées et indiquez votre nom.</div>
 
-    <form method="POST" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:16px;">
+    <form method="POST" enctype="multipart/form-data" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:16px;">
       <div>
         <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Votre nom *</label>
         <input name="employeeName" type="text" placeholder="Prénom Nom" required
@@ -5383,6 +5440,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">${isNettoyage ? "Remarque (optionnel)" : "Description (optionnel)"}</label>
         <textarea name="description" placeholder="${isNettoyage ? "Anomalie constatée, produit manquant…" : "Ce que vous avez fait…"}" rows="3"
           style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>
+      </div>
+
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">📷 Photo de preuve (optionnel)</label>
+        <input name="photo" type="file" accept="image/*"
+          style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:14px;box-sizing:border-box;background:#f8fafc;" />
       </div>
 
       <button type="submit"
@@ -8566,6 +8629,75 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
   // ═══════════════════════════════════════════════════════════════════════════════
 
   // ── Page d'accueil marketing (landing page) ──────────────────────────────
+  // ── Nettoyage automatique des photos de compte-rendu > 15 jours ─────────
+  // Appelé par Cloud Scheduler (ou manuellement) avec le header Authorization: Bearer <CRON_SECRET>
+  app.post("/api/cron/cleanup-photos", async (req: Request, res: Response) => {
+    const secret = process.env.CRON_SECRET;
+    const authHeader = req.headers.authorization ?? "";
+    if (secret && authHeader !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autorisé." });
+    }
+
+    const db = getAdminDb();
+    const bucket = getAdminStorage();
+    if (!db || !bucket) return res.status(503).json({ error: "Services indisponibles." });
+
+    const cutoff = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString();
+    const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+
+    // Extraire le chemin Storage depuis une URL Firebase Storage
+    function extractStoragePath(url: string): string | null {
+      try {
+        const match = url.match(/\/o\/([^?#]+)/);
+        if (!match) return null;
+        return decodeURIComponent(match[1]);
+      } catch { return null; }
+    }
+
+    let deletedFiles = 0;
+    let clearedInterventions = 0;
+    let errors = 0;
+
+    try {
+      // Collection group query sur toutes les interventions
+      const snap = await db.collectionGroup("interventions")
+        .where("guestUpdatedAt", "<", cutoff)
+        .select("completionPhotos", "guestUpdatedAt")
+        .get();
+
+      for (const doc of snap.docs) {
+        const photos: string[] = doc.data().completionPhotos ?? [];
+        if (photos.length === 0) continue;
+
+        // Supprimer chaque fichier du Storage
+        for (const url of photos) {
+          const storagePath = extractStoragePath(url);
+          if (!storagePath) continue;
+          try {
+            await bucket.file(storagePath).delete({ ignoreNotFound: true });
+            deletedFiles++;
+          } catch {
+            errors++;
+          }
+        }
+
+        // Vider le tableau dans Firestore
+        try {
+          await doc.ref.update({ completionPhotos: [] });
+          clearedInterventions++;
+        } catch {
+          errors++;
+        }
+      }
+
+      console.log(`[cleanup-photos] Supprimé ${deletedFiles} fichiers sur ${clearedInterventions} interventions (${errors} erreurs)`);
+      return res.json({ deletedFiles, clearedInterventions, errors });
+    } catch (e: any) {
+      console.error("[cleanup-photos] Erreur:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
   app.get("/", (_req: Request, res: Response) => {
     const landingPath = path.resolve(process.cwd(), "public", "landing-page.html");
     if (fs.existsSync(landingPath)) return res.sendFile(landingPath);
