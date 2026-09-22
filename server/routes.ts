@@ -4696,6 +4696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (coProId) {
         const memberRef = db.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
         const memberSnap = await memberRef.get();
+        const newCat: string | null = payload.invite.data.categoryFilter ?? null;
         if (!memberSnap.exists) {
           await memberRef.set({
             uid: userRecord.uid,
@@ -4709,7 +4710,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             coProId,
             createdAt: new Date().toISOString(),
             joinedViaGuestInvite: true,
+            categoryFilter: newCat,
+            categoryFilters: newCat ? [newCat] : [],
           });
+        } else if (newCat) {
+          // Fusionner la nouvelle catégorie avec les existantes
+          const existing: string[] = memberSnap.data()?.categoryFilters ?? (memberSnap.data()?.categoryFilter ? [memberSnap.data()!.categoryFilter] : []);
+          const merged = Array.from(new Set([...existing, newCat]));
+          await memberRef.set({ categoryFilters: merged, categoryFilter: merged[0] }, { merge: true });
         }
       }
 
@@ -4778,6 +4786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (coProId) {
         const memberRef = db.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
         const memberSnap = await memberRef.get();
+        const newCat: string | null = payload.invite.data.categoryFilter ?? null;
         if (!memberSnap.exists) {
           await memberRef.set({
             uid: userRecord.uid,
@@ -4787,8 +4796,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             coProId,
             createdAt: new Date().toISOString(),
             joinedViaGuestInvite: true,
-            categoryFilter: payload.invite.data.categoryFilter ?? null,
+            categoryFilter: newCat,
+            categoryFilters: newCat ? [newCat] : [],
           });
+        } else if (newCat) {
+          // Fusionner la nouvelle catégorie avec les existantes
+          const existing: string[] = memberSnap.data()?.categoryFilters ?? (memberSnap.data()?.categoryFilter ? [memberSnap.data()!.categoryFilter] : []);
+          const merged = Array.from(new Set([...existing, newCat]));
+          await memberRef.set({ categoryFilters: merged, categoryFilter: merged[0] }, { merge: true });
         }
       }
 
