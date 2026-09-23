@@ -3606,7 +3606,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(
-            chunk.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" }))
+            chunk.map((to) => ({ to, title, body, data: data ?? {}, sound: "notification.wav" }))
           ),
         }).catch((e) => console.warn("[push] chunk failed:", e))
       )
@@ -3909,7 +3909,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" }))),
+      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "notification.wav" }))),
     }).catch((e) => console.warn("[push] sendPushToAdmins failed:", e));
   }
 
@@ -3927,7 +3927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "default" }]),
+      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "notification.wav" }]),
     }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
   }
 
@@ -3960,7 +3960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             method: "POST",
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify(tokens.map((to) => ({
-              to, sound: "default",
+              to, sound: "notification.wav",
               title: `🛠️ Intervention planifiée — ${coProName ?? "Copropriété"}`,
               body: categoryLabel ? `${title} · ${categoryLabel}` : title,
               data: { type: "intervention_created", coProId },

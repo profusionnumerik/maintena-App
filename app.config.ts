@@ -69,7 +69,14 @@ const config: ExpoConfig = {
     'expo-font',
     'expo-web-browser',
     'expo-updates',
-    'expo-notifications',
+    [
+      'expo-notifications',
+      {
+        sounds: ['./assets/sounds/notification.wav'],
+        icon: './assets/images/android-icon-monochrome.png',
+        color: '#0B1628',
+      },
+    ],
     [
       'expo-image-picker',
       {
