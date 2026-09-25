@@ -256,9 +256,11 @@ export function InterventionsProvider({
 
   const updateIntervention = useCallback(
     async (id: string, data: Partial<Intervention>) => {
-      if (!currentCopro) return;
+      const coProId =
+        interventions.find((i) => i.id === id)?.coProId ?? currentCopro?.id;
+      if (!coProId) return;
 
-      const docRef = doc(db, "copros", currentCopro.id, "interventions", id);
+      const docRef = doc(db, "copros", coProId, "interventions", id);
       const payload: Record<string, any> = {};
 
       if (data.title !== undefined) payload.title = data.title;
@@ -321,15 +323,17 @@ export function InterventionsProvider({
 
       await updateDoc(docRef, payload);
     },
-    [currentCopro]
+    [currentCopro, interventions]
   );
 
   const deleteIntervention = useCallback(
     async (id: string) => {
-      if (!currentCopro) throw new Error("Aucune copropriété sélectionnée.");
-      await deleteDoc(doc(db, "copros", currentCopro.id, "interventions", id));
+      const coProId =
+        interventions.find((i) => i.id === id)?.coProId ?? currentCopro?.id;
+      if (!coProId) throw new Error("Aucune copropriété sélectionnée.");
+      await deleteDoc(doc(db, "copros", coProId, "interventions", id));
     },
-    [currentCopro]
+    [currentCopro, interventions]
   );
 
   const deleteInterventionsByGroupId = useCallback(
