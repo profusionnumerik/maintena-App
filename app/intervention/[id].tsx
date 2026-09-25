@@ -446,7 +446,8 @@ export default function InterventionDetailScreen() {
   const uploadAndSavePhotos = async (): Promise<{ urls: string[]; failed: number }> => {
     if (localCompletionPhotos.length === 0) return { urls: [], failed: 0 };
 
-    if (!currentCopro?.id) {
+    const coProId = intervention.coProId ?? currentCopro?.id;
+    if (!coProId) {
       throw new Error("Copropriété introuvable.");
     }
 
@@ -458,7 +459,7 @@ export default function InterventionDetailScreen() {
 
       for (const uri of localCompletionPhotos) {
         try {
-          const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
+          const url = await uploadPhoto(coProId, intervention.id, uri);
           urls.push(url);
         } catch (e) {
           console.error("Photo upload error:", e);
@@ -475,7 +476,8 @@ export default function InterventionDetailScreen() {
   const handleSavePhotosOnly = async () => {
     if (localCompletionPhotos.length === 0) return;
 
-    if (!currentCopro?.id) {
+    const coProId = intervention.coProId ?? currentCopro?.id;
+    if (!coProId) {
       wa("Copropriété manquante", "Impossible d'envoyer les photos sans copropriété active.");
       return;
     }
@@ -488,7 +490,7 @@ export default function InterventionDetailScreen() {
 
       for (const uri of localCompletionPhotos) {
         try {
-          const url = await uploadPhoto(currentCopro.id, intervention.id, uri);
+          const url = await uploadPhoto(coProId, intervention.id, uri);
           uploaded.push(url);
         } catch (e) {
           console.error("Photo upload error:", e);
@@ -623,8 +625,9 @@ export default function InterventionDetailScreen() {
       }
 
       router.back();
-    } catch {
-      wa("Erreur", "Impossible de mettre à jour l’intervention. Vérifiez votre connexion.");
+    } catch (e: any) {
+      console.error("SEND REPORT ERROR:", e?.message ?? e);
+      wa("Erreur", e?.message || "Impossible de mettre à jour l’intervention. Vérifiez votre connexion.");
     }
   };
 
@@ -663,8 +666,9 @@ export default function InterventionDetailScreen() {
       }
 
       router.back();
-    } catch {
-      wa("Erreur", "Impossible de valider l’intervention. Vérifiez votre connexion.");
+    } catch (e: any) {
+      console.error("VALIDATE ERROR:", e?.message ?? e);
+      wa("Erreur", e?.message || "Impossible de valider l’intervention. Vérifiez votre connexion.");
     }
   };
 
