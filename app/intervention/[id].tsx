@@ -31,9 +31,9 @@ import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { useAuth } from "@/context/AuthContext";
-import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Entretien, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS, EXPENSE_CATEGORY_LABELS } from "@/shared/types";
+import { Entretien, EntretienEquipement, EntretienPeriodicite, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS, ENTRETIEN_PERIODICITE_LABELS, EXPENSE_CATEGORY_LABELS } from "@/shared/types";
 
 function calcNextDateForCarnet(lastVisit: string, periodicite: string): string {
   const days = (ENTRETIEN_PERIODICITE_DAYS as Record<string, number>)[periodicite] ?? 365;
@@ -281,6 +281,11 @@ export default function InterventionDetailScreen() {
   const [carnetLoading, setCarnetLoading] = useState(false);
   const [carnetSaving, setCarnetSaving] = useState(false);
   const [carnetDone, setCarnetDone] = useState(!!(intervention as any)?.linkedEntretienId);
+  const [carnetCreating, setCarnetCreating] = useState(false);
+  const [carnetCreatingSaving, setCarnetCreatingSaving] = useState(false);
+  const [newEntretienLabel, setNewEntretienLabel] = useState(intervention?.title ?? "");
+  const [newEntretienEquipement, setNewEntretienEquipement] = useState<EntretienEquipement>("divers");
+  const [newEntretienPeriodicite, setNewEntretienPeriodicite] = useState<EntretienPeriodicite>("annuel");
 
   const [report, setReport] = useState(intervention?.interventionReport ?? "");
   const [remaining, setRemaining] = useState(
@@ -364,6 +369,42 @@ export default function InterventionDetailScreen() {
     } finally {
       setCarnetSaving(false);
     }
+  };
+
+  const handleCreateEntretien = async () => {
+    if (!newEntretienLabel.trim()) { wa("Erreur", "Donnez un nom à l'équipement."); return; }
+    const coProId = intervention?.coProId ?? currentCopro?.id;
+    if (!coProId || !user) return;
+    setCarnetCreatingSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const ref = await addDoc(collection(db, "copros", coProId, "entretiens"), {
+        coProId,
+        equipement: newEntretienEquipement,
+        label: newEntretienLabel.trim(),
+        periodicite: newEntretienPeriodicite,
+        visits: [],
+        createdBy: user.uid,
+        createdByName: user.displayName || user.email || "Inconnu",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const newEntry: Entretien = {
+        id: ref.id,
+        coProId,
+        equipement: newEntretienEquipement,
+        label: newEntretienLabel.trim(),
+        periodicite: newEntretienPeriodicite,
+        visits: [],
+        createdBy: user.uid,
+        createdByName: user.displayName || user.email || "Inconnu",
+        createdAt: now,
+      };
+      setCarnetEntretiens((prev) => [...prev, newEntry]);
+      setCarnetSelectedId(ref.id);
+      setCarnetCreating(false);
+    } catch { wa("Erreur", "Impossible de créer l'équipement."); }
+    finally { setCarnetCreatingSaving(false); }
   };
 
   const cleaningAreas = useMemo<CleaningArea[]>(() => {
@@ -1609,12 +1650,87 @@ export default function InterventionDetailScreen() {
                 Sélectionnez l'équipement correspondant à cette intervention :
               </Text>
 
-              {carnetEntretiens.length === 0 ? (
+              {/* Bouton créer un équipement */}
+              {!carnetCreating && (
+                <Pressable
+                  style={styles.carnetCreateBtn}
+                  onPress={() => setCarnetCreating(true)}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color={COLORS.primary} />
+                  <Text style={styles.carnetCreateBtnText}>Créer un équipement</Text>
+                </Pressable>
+              )}
+
+              {/* Mini-formulaire de création */}
+              {carnetCreating && (
+                <View style={styles.carnetCreateForm}>
+                  <Text style={styles.carnetCreateFormTitle}>Nouvel équipement</Text>
+
+                  <Text style={styles.carnetCreateLabel}>Nom *</Text>
+                  <TextInput
+                    style={styles.carnetCreateInput}
+                    value={newEntretienLabel}
+                    onChangeText={setNewEntretienLabel}
+                    placeholder="Ex : Ascenseur bâtiment A"
+                    placeholderTextColor={COLORS.textMuted}
+                  />
+
+                  <Text style={styles.carnetCreateLabel}>Type d'équipement *</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      {(Object.keys(ENTRETIEN_EQUIPEMENT_LABELS) as EntretienEquipement[]).map((eq) => (
+                        <Pressable
+                          key={eq}
+                          style={[styles.carnetChip, newEntretienEquipement === eq && styles.carnetChipActive]}
+                          onPress={() => setNewEntretienEquipement(eq)}
+                        >
+                          <Text style={[styles.carnetChipText, newEntretienEquipement === eq && styles.carnetChipTextActive]}>
+                            {ENTRETIEN_EQUIPEMENT_LABELS[eq]}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </ScrollView>
+
+                  <Text style={styles.carnetCreateLabel}>Périodicité *</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                    {(Object.keys(ENTRETIEN_PERIODICITE_LABELS) as EntretienPeriodicite[]).map((p) => (
+                      <Pressable
+                        key={p}
+                        style={[styles.carnetChip, newEntretienPeriodicite === p && styles.carnetChipActive]}
+                        onPress={() => setNewEntretienPeriodicite(p)}
+                      >
+                        <Text style={[styles.carnetChipText, newEntretienPeriodicite === p && styles.carnetChipTextActive]}>
+                          {ENTRETIEN_PERIODICITE_LABELS[p]}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <Pressable style={styles.carnetCreateCancel} onPress={() => setCarnetCreating(false)}>
+                      <Text style={styles.carnetCreateCancelText}>Annuler</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.carnetCreateSave, carnetCreatingSaving && { opacity: 0.5 }]}
+                      onPress={handleCreateEntretien}
+                      disabled={carnetCreatingSaving}
+                    >
+                      {carnetCreatingSaving
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Text style={styles.carnetCreateSaveText}>Ajouter au carnet</Text>
+                      }
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {carnetEntretiens.length === 0 && !carnetCreating ? (
                 <View style={styles.carnetEmpty}>
                   <Ionicons name="clipboard-outline" size={36} color={COLORS.border} />
                   <Text style={styles.carnetEmptyText}>
                     Aucun équipement dans le carnet.{"\n"}
-                    Ajoutez-en un depuis Menu → Carnet d'entretien.
+                    Créez-en un ci-dessus ou depuis Menu → Carnet d'entretien.
                   </Text>
                 </View>
               ) : (
@@ -2556,4 +2672,41 @@ const styles = StyleSheet.create({
   },
   carnetVisitPreviewTitle: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#15803D", marginBottom: 4 },
   carnetVisitPreviewRow: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.text, lineHeight: 18 },
+  carnetCreateBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 10,
+    alignSelf: "flex-start", marginBottom: 12,
+  },
+  carnetCreateBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+  carnetCreateForm: {
+    backgroundColor: COLORS.card, borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: COLORS.border, marginBottom: 12,
+  },
+  carnetCreateFormTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text, marginBottom: 12 },
+  carnetCreateLabel: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 },
+  carnetCreateInput: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text,
+    backgroundColor: COLORS.background, marginBottom: 12,
+  },
+  carnetChip: {
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 20,
+    backgroundColor: COLORS.background,
+  },
+  carnetChipActive: { borderColor: COLORS.primary, backgroundColor: "#EFF6FF" },
+  carnetChipText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.text },
+  carnetChipTextActive: { color: COLORS.primary, fontFamily: "Inter_600SemiBold" },
+  carnetCreateCancel: {
+    flex: 1, paddingVertical: 11, borderRadius: 10,
+    borderWidth: 1, borderColor: COLORS.border, alignItems: "center",
+  },
+  carnetCreateCancelText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  carnetCreateSave: {
+    flex: 2, paddingVertical: 11, borderRadius: 10,
+    backgroundColor: COLORS.primary, alignItems: "center",
+  },
+  carnetCreateSaveText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });
