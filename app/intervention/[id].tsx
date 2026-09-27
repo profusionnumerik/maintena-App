@@ -31,9 +31,9 @@ import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { useAuth } from "@/context/AuthContext";
-import { collection, doc, getDoc, getDocs, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Entretien, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS } from "@/shared/types";
+import { Entretien, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS, EXPENSE_CATEGORY_LABELS } from "@/shared/types";
 
 function calcNextDateForCarnet(lastVisit: string, periodicite: string): string {
   const days = (ENTRETIEN_PERIODICITE_DAYS as Record<string, number>)[periodicite] ?? 365;
@@ -713,6 +713,38 @@ export default function InterventionDetailScreen() {
         amount: v,
         amountSetAt: new Date().toISOString(),
       } as any);
+
+      // Ajoute ou met à jour la dépense liée dans la section Finances
+      const coProId = intervention.coProId ?? currentCopro?.id;
+      if (coProId && user) {
+        const expCat = (intervention.category as any) in EXPENSE_CATEGORY_LABELS
+          ? (intervention.category as any) : "travaux";
+        const today = new Date().toISOString().split("T")[0];
+        const expensesRef = collection(db, "copros", coProId, "expenses");
+        const existing = await getDocs(
+          query(expensesRef, where("interventionId", "==", intervention.id))
+        );
+        const data = {
+          coProId,
+          label: intervention.title,
+          amount: v,
+          category: expCat,
+          date: today,
+          interventionId: intervention.id,
+          addedBy: user.uid,
+          addedByName: user.displayName || user.email || "Inconnu",
+          updatedAt: new Date().toISOString(),
+        };
+        if (!existing.empty) {
+          await setDoc(doc(expensesRef, existing.docs[0].id), {
+            ...data,
+            createdAt: existing.docs[0].data().createdAt,
+          });
+        } else {
+          await addDoc(expensesRef, { ...data, createdAt: new Date().toISOString() });
+        }
+      }
+
       setAmountEditing(false);
     } catch { /* ignore */ }
     finally { setAmountSaving(false); }
