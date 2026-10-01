@@ -4496,28 +4496,34 @@ async function registerRoutes(app2) {
       }
       const linkUrl = `${baseUrl}/team-intervention/${token}`;
       if (employeeEmail?.trim()) {
-        const { sendEmail } = await import("./email.js");
-        await sendEmail({
-          to: employeeEmail.trim(),
-          subject: `\u{1F527} Lien d'intervention \u2014 ${interventionTitle ?? "Maintena"}`,
-          html: `
-            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-              <h2 style="color:#0B1628;margin-bottom:8px;">Lien d'intervention</h2>
-              <p style="color:#475569;margin-bottom:16px;">
-                Bonjour,<br><br>
-                Voici votre lien pour d\xE9clarer vos passages sur l'intervention
-                <strong>${interventionTitle ?? ""}</strong>
-                (${coProName ?? ""}).
-              </p>
-              <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
-                Acc\xE9der au formulaire
-              </a>
-              <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
-                Ce lien reste valable tout au long de l'intervention.
-              </p>
-            </div>
-          `
-        }).catch((e) => console.warn("[team-link] email error:", e));
+        try {
+          const rc = await getUncachableResendClient();
+          const from = rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
+          await rc.client.emails.send({
+            from,
+            to: [employeeEmail.trim()],
+            subject: `\u{1F527} Lien d'intervention \u2014 ${interventionTitle ?? "Maintena"}`,
+            html: `
+              <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+                <h2 style="color:#0B1628;margin-bottom:8px;">Lien d'intervention</h2>
+                <p style="color:#475569;margin-bottom:16px;">
+                  Bonjour,<br><br>
+                  Voici votre lien pour d\xE9clarer vos passages sur l'intervention
+                  <strong>${interventionTitle ?? ""}</strong>
+                  (${coProName ?? ""}).
+                </p>
+                <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
+                  Acc\xE9der au formulaire
+                </a>
+                <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
+                  Ce lien reste valable tout au long de l'intervention.
+                </p>
+              </div>
+            `
+          });
+        } catch (e) {
+          console.warn("[team-link] email error:", e);
+        }
       }
       return res.json({ url: linkUrl, existing: !existing.empty });
     } catch (e) {
@@ -7579,7 +7585,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     try {
       const snap = await db2.collection("teamInterventionLinks").where("employeeEmail", "!=", null).get();
       const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
-      const { sendEmail } = await import("./email.js");
+      const rc = await getUncachableResendClient();
+      const from = rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
       for (const doc of snap.docs) {
         const link = doc.data();
         if (!link.employeeEmail || !link.interventionDate) {
@@ -7592,8 +7599,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
           continue;
         }
         const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
-        await sendEmail({
-          to: link.employeeEmail,
+        await rc.client.emails.send({
+          from,
+          to: [link.employeeEmail],
           subject: `\u{1F4CB} Rappel passage aujourd'hui \u2014 ${link.interventionTitle ?? "Intervention"}`,
           html: `
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
