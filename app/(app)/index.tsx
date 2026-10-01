@@ -181,8 +181,8 @@ function InterventionRow({ item, onPress, showCoProName }: { item: Intervention;
             <Text style={[styles.rowCatText, { color: catColors.text }]}>{CATEGORY_LABELS[item.category]}</Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-            <Ionicons name="calendar-outline" size={11} color={isOverdue ? "#EF4444" : COLORS.textMuted} />
-            <Text style={[styles.rowDate, isOverdue && styles.rowDateOverdue]}>{dateLabel}</Text>
+            <Ionicons name="calendar-outline" size={11} color={isOverdue ? "#EF4444" : item.date === tomorrowStr ? "#D97706" : COLORS.textMuted} />
+            <Text style={[styles.rowDate, isOverdue && styles.rowDateOverdue, item.date === tomorrowStr && !isOverdue && styles.rowDateTomorrow]}>{dateLabel}</Text>
           </View>
           {item.photos && item.photos.length > 0 && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
@@ -239,6 +239,15 @@ export default function HomeScreen() {
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
   const canAdd = currentRole === "admin" || currentRole === "collaborateur";
   const recent = interventions.slice(0, 5);
+
+  const tomorrowStr = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  })();
+  const tomorrowInterventions = interventions.filter(
+    (i) => i.date === tomorrowStr && i.status !== "termine"
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -432,6 +441,28 @@ export default function HomeScreen() {
         >
           <Ionicons name="enter-outline" size={15} color={COLORS.primary} />
           <Text style={styles.joinBannerText}>Rejoindre une autre résidence</Text>
+        </Pressable>
+      )}
+
+      {tomorrowInterventions.length > 0 && (
+        <Pressable
+          style={styles.tomorrowBanner}
+          onPress={() => router.push("/(app)/interventions?tab=interventions&status=planifie")}
+        >
+          <View style={styles.tomorrowBannerIcon}>
+            <Ionicons name="alarm-outline" size={16} color="#D97706" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.tomorrowBannerTitle}>
+              {tomorrowInterventions.length === 1
+                ? "1 intervention prévue demain"
+                : `${tomorrowInterventions.length} interventions prévues demain`}
+            </Text>
+            <Text style={styles.tomorrowBannerSub} numberOfLines={1}>
+              {tomorrowInterventions.map(i => i.title).join(", ")}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={14} color="#D97706" />
         </Pressable>
       )}
 
@@ -676,7 +707,23 @@ const styles = StyleSheet.create({
   rowCatText: { fontSize: 11, fontFamily: "Inter_500Medium" },
   rowDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   rowDateOverdue: { color: "#EF4444", fontFamily: "Inter_600SemiBold" },
+  rowDateTomorrow: { color: "#D97706", fontFamily: "Inter_600SemiBold" },
   rowPhotoCount: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+
+  tomorrowBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    marginHorizontal: 16, marginTop: 14, marginBottom: 2,
+    backgroundColor: "rgba(245,158,11,0.08)",
+    borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "rgba(245,158,11,0.25)",
+  },
+  tomorrowBannerIcon: {
+    width: 32, height: 32, borderRadius: 9,
+    backgroundColor: "rgba(245,158,11,0.15)",
+    alignItems: "center", justifyContent: "center",
+  },
+  tomorrowBannerTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#92400E" },
+  tomorrowBannerSub: { fontSize: 11, fontFamily: "Inter_400Regular", color: "#B45309", marginTop: 1 },
 
   emptyState: { alignItems: "center", paddingVertical: 60, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
