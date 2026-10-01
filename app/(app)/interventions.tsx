@@ -781,14 +781,13 @@ export default function InterventionsScreen() {
           data={maintenanceGroups}
           keyExtractor={(g: MaintenanceGroup) => g.groupId}
           renderItem={({ item }: { item: MaintenanceGroup }) => {
-            const locked   = isPrestataire && !!item.nextDueDate && item.nextDueDate > tomorrowStr;
             const tomorrow = isPrestataire && item.nextDueDate === tomorrowStr;
             return (
               <MaintenanceGroupCard
                 group={item}
                 isAdmin={isAdmin || isConseil}
                 isTomorrow={tomorrow}
-                isLocked={locked}
+                isLocked={false}
                 onPress={() => router.push(`/intervention/${item.nextItemId}`)}
                 onRemind={() => handleSendReminder(item)}
               />
