@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { useState, useMemo, useCallback } from "react";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   FlatList, Modal, Platform, Pressable, RefreshControl,
   ScrollView, StyleSheet, Text, TextInput, View,
@@ -385,6 +385,7 @@ function CategoryModal({
 export default function InterventionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ tab?: string; status?: string }>();
   const { interventions, isLoading } = useInterventions();
   const { currentCopro, currentRole, categoryFilter, categoryFilters, copros, switchCoPro } = useCoPro();
 
@@ -403,6 +404,16 @@ export default function InterventionsScreen() {
   const [openStatuses,    setOpenStatuses]    = useState<Set<Status>>(() => new Set<Status>(["planifie", "en_cours"]));
   const [openGroups,      setOpenGroups]      = useState<Set<string>>(new Set<string>());
   const [sendingReminder, setSendingReminder] = useState<string | null>(null); // groupId en cours
+
+  // Navigation depuis l'accueil : tab=maintenances|interventions, status=planifie|en_cours|termine
+  useEffect(() => {
+    if (params.tab === "interventions" || params.tab === "maintenances") {
+      setActiveTab(params.tab);
+    }
+    if (params.status) {
+      setOpenStatuses(new Set([params.status as Status]));
+    }
+  }, [params.tab, params.status]);
 
   const todayStr    = useMemo(() => new Date().toISOString().split("T")[0], []);
   const tomorrowStr = useMemo(() => {

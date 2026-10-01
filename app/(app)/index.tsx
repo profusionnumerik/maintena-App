@@ -189,13 +189,18 @@ function InterventionRow({ item, onPress }: { item: Intervention; onPress: () =>
   );
 }
 
-function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: string; color: string }) {
+function StatCard({ label, value, icon, color, onPress }: { label: string; value: string | number; icon: string; color: string; onPress?: () => void }) {
   return (
-    <View style={[styles.statCard, { borderTopColor: color }]}>
+    <Pressable
+      style={({ pressed }) => [styles.statCard, { borderTopColor: color }, pressed && { opacity: 0.75, transform: [{ scale: 0.97 }] }]}
+      onPress={onPress}
+      disabled={!onPress}
+    >
       <Ionicons name={icon as any} size={18} color={color} />
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+      {onPress && <Ionicons name="chevron-forward" size={12} color={color} style={{ position: "absolute", top: 10, right: 10, opacity: 0.5 }} />}
+    </Pressable>
   );
 }
 
@@ -225,7 +230,7 @@ export default function HomeScreen() {
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
   const canAdd = currentRole === "admin" || currentRole === "collaborateur";
-  const recent = interventions.slice(0, 8);
+  const recent = interventions.slice(0, 5);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -420,10 +425,22 @@ export default function HomeScreen() {
       )}
 
       <View style={styles.statsGrid}>
-        <StatCard label="Total" value={stats.total} icon="construct" color={COLORS.primary} />
-        <StatCard label="Terminées" value={stats.done} icon="checkmark-circle" color={COLORS.success} />
-        <StatCard label="En cours" value={stats.inProgress} icon="time" color={COLORS.warning} />
-        <StatCard label="Maintenances" value={(stats as any).recurringGroups ?? 0} icon="repeat" color="#8B5CF6" />
+        <StatCard
+          label="Total" value={stats.total} icon="construct" color={COLORS.primary}
+          onPress={() => router.push("/(app)/interventions?tab=interventions")}
+        />
+        <StatCard
+          label="Terminées" value={stats.done} icon="checkmark-circle" color={COLORS.success}
+          onPress={() => router.push("/(app)/interventions?tab=interventions&status=termine")}
+        />
+        <StatCard
+          label="En cours" value={stats.inProgress} icon="time" color={COLORS.warning}
+          onPress={() => router.push("/(app)/interventions?tab=interventions&status=en_cours")}
+        />
+        <StatCard
+          label="Maintenances" value={(stats as any).recurringGroups ?? 0} icon="repeat" color="#8B5CF6"
+          onPress={() => router.push("/(app)/interventions?tab=maintenances")}
+        />
       </View>
 
       <View style={styles.sectionHeader}>
