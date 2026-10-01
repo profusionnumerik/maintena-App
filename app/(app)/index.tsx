@@ -18,6 +18,12 @@ import { useInterventions } from "@/context/InterventionsContext";
 import { CoPro, CoProStatus, Intervention, Signalement, STATUS_LABELS, CATEGORY_LABELS, CATEGORY_ICONS } from "@/shared/types";
 
 
+const STATUS_CONFIG: Record<string, { dot: string; bg: string; text: string }> = {
+  planifie: { dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
+  en_cours: { dot: "#3B82F6", bg: "#EFF6FF", text: "#1D4ED8" },
+  termine:  { dot: "#10B981", bg: "#ECFDF5", text: "#065F46" },
+};
+
 const STATUS_CHIP: Record<CoProStatus, { label: string; color: string; bg: string }> = {
   active:    { label: "Active",     color: COLORS.success,  bg: "rgba(16,185,129,0.1)" },
   pending:   { label: "En attente", color: COLORS.warning,  bg: "rgba(245,158,11,0.1)" },
@@ -135,28 +141,50 @@ function CoproCard({
 }
 
 function InterventionRow({ item, onPress }: { item: Intervention; onPress: () => void }) {
-  const statusColors: Record<string, string> = {
-    planifie: COLORS.warning,
-    en_cours: COLORS.primary,
-    termine: COLORS.success,
-  };
-  const dotColor = statusColors[item.status] ?? COLORS.textMuted;
+  const sc = STATUS_CONFIG[item.status] ?? { dot: COLORS.textMuted, bg: COLORS.border, text: COLORS.textMuted };
   const catIcon = (CATEGORY_ICONS[item.category] ?? "construct") as any;
+  const catColors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
+
+  const todayStr    = new Date().toISOString().split("T")[0];
+  const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  const isOverdue   = item.status !== "termine" && item.date < todayStr;
+  const dateLabel   = item.date === todayStr    ? "Aujourd'hui"
+                    : item.date === tomorrowStr  ? "Demain"
+                    : new Date(item.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+
   return (
-    <Pressable style={({ pressed }) => [styles.row, pressed && { opacity: 0.75 }]} onPress={onPress}>
-      <View style={[styles.rowIconWrap, { backgroundColor: dotColor + "20" }]}>
-        <Ionicons name={catIcon} size={14} color={dotColor} />
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && { transform: [{ scale: 0.985 }] }]}
+      onPress={onPress}
+    >
+      <View style={[styles.rowAccent, { backgroundColor: sc.dot }]} />
+      <View style={[styles.rowIconWrap, { backgroundColor: catColors.bg }]}>
+        <Ionicons name={catIcon} size={16} color={catColors.text} />
       </View>
       <View style={styles.rowContent}>
-        <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-        <Text style={styles.rowMeta}>
-          {CATEGORY_LABELS[item.category]} · {new Date(item.date).toLocaleDateString("fr-FR")}
-        </Text>
+        <View style={styles.rowTop}>
+          <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
+          <View style={[styles.rowStatusBadge, { backgroundColor: sc.bg }]}>
+            <Text style={[styles.rowStatusText, { color: sc.text }]}>{STATUS_LABELS[item.status]}</Text>
+          </View>
+        </View>
+        <View style={styles.rowBottomMeta}>
+          <View style={[styles.rowCatChip, { backgroundColor: catColors.bg }]}>
+            <Text style={[styles.rowCatText, { color: catColors.text }]}>{CATEGORY_LABELS[item.category]}</Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+            <Ionicons name="calendar-outline" size={11} color={isOverdue ? "#EF4444" : COLORS.textMuted} />
+            <Text style={[styles.rowDate, isOverdue && styles.rowDateOverdue]}>{dateLabel}</Text>
+          </View>
+          {item.photos && item.photos.length > 0 && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+              <Ionicons name="image-outline" size={11} color={COLORS.textMuted} />
+              <Text style={styles.rowPhotoCount}>{item.photos.length}</Text>
+            </View>
+          )}
+        </View>
       </View>
-      {item.photos && item.photos.length > 0 && (
-        <Ionicons name="image-outline" size={14} color={COLORS.textMuted} />
-      )}
-      <Ionicons name="chevron-forward" size={16} color={COLORS.border} />
+      <Ionicons name="chevron-forward" size={15} color={COLORS.border} />
     </Pressable>
   );
 }
@@ -399,12 +427,22 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Interventions récentes</Text>
-        {interventions.length > 8 && (
-          <Pressable onPress={() => router.push("/(app)/interventions")}>
-            <Text style={styles.seeAll}>Voir tout</Text>
-          </Pressable>
-        )}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={styles.sectionDot} />
+          <Text style={styles.sectionTitle}>Interventions récentes</Text>
+          {recent.length > 0 && (
+            <View style={styles.sectionCount}>
+              <Text style={styles.sectionCountText}>{recent.length}</Text>
+            </View>
+          )}
+        </View>
+        <Pressable
+          onPress={() => router.push("/(app)/interventions")}
+          style={styles.seeAllBtn}
+        >
+          <Text style={styles.seeAll}>Voir tout</Text>
+          <Ionicons name="chevron-forward" size={13} color={COLORS.primary} />
+        </Pressable>
       </View>
     </View>
   );
@@ -569,21 +607,48 @@ const styles = StyleSheet.create({
 
   sectionHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10,
+    paddingHorizontal: 16, paddingTop: 20, paddingBottom: 10,
   },
-  sectionTitle: { fontSize: 17, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  sectionDot: {
+    width: 4, height: 18, borderRadius: 2, backgroundColor: COLORS.primary,
+  },
+  sectionTitle: { fontSize: 16, fontFamily: "Inter_700Bold", color: COLORS.text },
+  sectionCount: {
+    backgroundColor: "rgba(37,99,235,0.1)", borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  sectionCountText: { fontSize: 12, fontFamily: "Inter_700Bold", color: COLORS.primary },
+  seeAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
   seeAll: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.primary },
 
   row: {
     flexDirection: "row", alignItems: "center", gap: 12,
     marginHorizontal: 16, backgroundColor: COLORS.surface,
-    borderRadius: 14, padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderRadius: 14, paddingVertical: 13, paddingRight: 14, paddingLeft: 0,
+    marginBottom: 8, borderWidth: 1, borderColor: COLORS.border,
+    overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.03, shadowRadius: 4, shadowOffset: { width: 0, height: 1 },
   },
-  rowIconWrap: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  rowAccent: { width: 4, alignSelf: "stretch", borderRadius: 0 },
+  rowIconWrap: {
+    width: 38, height: 38, borderRadius: 11,
+    alignItems: "center", justifyContent: "center", marginLeft: 10,
+  },
   rowContent: { flex: 1 },
-  rowTitle: { fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.text },
-  rowMeta: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 },
+  rowTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 5 },
+  rowTitle: { flex: 1, fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  rowStatusBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+  },
+  rowStatusText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  rowBottomMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowCatChip: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+  },
+  rowCatText: { fontSize: 11, fontFamily: "Inter_500Medium" },
+  rowDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  rowDateOverdue: { color: "#EF4444", fontFamily: "Inter_600SemiBold" },
+  rowPhotoCount: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 
   emptyState: { alignItems: "center", paddingVertical: 60, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: COLORS.textSecondary },
