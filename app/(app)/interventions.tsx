@@ -83,11 +83,13 @@ type FlatItem = SectionHeader | GroupHeader | ItemRow;
 
 // ── Maintenance group card ────────────────────────────────────────────────────
 
-function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin }: {
+function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin, isTomorrow, isLocked }: {
   group: MaintenanceGroup;
   onPress: () => void;
   onRemind?: () => void;
   isAdmin?: boolean;
+  isTomorrow?: boolean;
+  isLocked?: boolean;
 }) {
   const sc = MAINT_STATUS[group.status];
   const iconName = (CATEGORY_ICONS[group.category] ?? "ellipsis-horizontal-circle") as keyof typeof Ionicons.glyphMap;
@@ -96,8 +98,13 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin }: {
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.maintCard, pressed && { opacity: 0.82 }]}
-      onPress={onPress}
+      style={({ pressed }) => [
+        styles.maintCard,
+        isTomorrow && styles.maintCardTomorrow,
+        isLocked && styles.maintCardLocked,
+        !isLocked && pressed && { opacity: 0.82 },
+      ]}
+      onPress={isLocked ? undefined : onPress}
     >
       <View style={styles.maintCardTop}>
         <View style={[styles.maintIcon, { backgroundColor: colors.bg }]}>
@@ -160,6 +167,21 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin }: {
         </Text>
       </View>
 
+      {isTomorrow && (
+        <View style={styles.maintTomorrowRow}>
+          <Ionicons name="alarm-outline" size={12} color="#D97706" />
+          <Text style={styles.maintTomorrowText}>Intervention prévue demain</Text>
+        </View>
+      )}
+      {isLocked && group.nextDueDate && (
+        <View style={styles.maintLockedRow}>
+          <Ionicons name="lock-closed-outline" size={12} color={COLORS.textMuted} />
+          <Text style={styles.maintLockedText}>
+            Disponible le {new Date(group.nextDueDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long" })}
+          </Text>
+        </View>
+      )}
+
       {/* Bouton rappel — admin uniquement, si prestataire connu et maintenance non terminée */}
       {isAdmin && onRemind && group.status !== "fait" && group.providerEmail && (
         <Pressable
@@ -176,7 +198,7 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin }: {
 
 // ── Intervention card (one-time) ──────────────────────────────────────────────
 
-function InterventionCard({ item, onPress, compact, showCoProName }: { item: Intervention; onPress: () => void; compact?: boolean; showCoProName?: boolean }) {
+function InterventionCard({ item, onPress, compact, showCoProName, isTomorrow }: { item: Intervention; onPress: () => void; compact?: boolean; showCoProName?: boolean; isTomorrow?: boolean }) {
   const sc = STATUS_CONFIG[item.status];
   const iconName = (CATEGORY_ICONS[item.category] ?? "ellipsis-horizontal-circle") as keyof typeof Ionicons.glyphMap;
   const colors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
@@ -185,11 +207,18 @@ function InterventionCard({ item, onPress, compact, showCoProName }: { item: Int
       style={({ pressed }) => [
         styles.card,
         compact && styles.cardCompact,
-        { borderLeftColor: sc.dot },
+        { borderLeftColor: isTomorrow ? "#F59E0B" : sc.dot },
+        isTomorrow && styles.cardTomorrow,
         pressed && { transform: [{ scale: 0.985 }] },
       ]}
       onPress={onPress}
     >
+      {isTomorrow && (
+        <View style={styles.tomorrowBadge}>
+          <Ionicons name="alarm-outline" size={10} color="#D97706" />
+          <Text style={styles.tomorrowBadgeText}>Demain</Text>
+        </View>
+      )}
       {showCoProName && item.coProName ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 }}>
           <Ionicons name="business-outline" size={11} color={COLORS.primary} />
@@ -375,6 +404,13 @@ export default function InterventionsScreen() {
   const [openGroups,      setOpenGroups]      = useState<Set<string>>(new Set<string>());
   const [sendingReminder, setSendingReminder] = useState<string | null>(null); // groupId en cours
 
+  const todayStr    = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const tomorrowStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  }, []);
+
   const top    = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
@@ -444,7 +480,12 @@ export default function InterventionsScreen() {
   const maintenanceItems = useMemo(() => filtered.filter(i => !!i.recurrenceGroupId), [filtered]);
 
   // Interventions tab: one-time items (no recurrence group)
-  const interventionItems = useMemo(() => filtered.filter(i => !i.recurrenceGroupId), [filtered]);
+  // For prestataires: only show completed items + items due today or tomorrow
+  const interventionItems = useMemo(() => {
+    const base = filtered.filter(i => !i.recurrenceGroupId);
+    if (!isPrestataire) return base;
+    return base.filter(i => i.status === "termine" || i.date <= tomorrowStr);
+  }, [filtered, isPrestataire, tomorrowStr]);
 
   // Build maintenance group summaries
   const maintenanceGroups = useMemo<MaintenanceGroup[]>(() => {
@@ -542,6 +583,7 @@ export default function InterventionsScreen() {
         />
       );
     }
+    const isItemTomorrow = isPrestataire && item.data.date === tomorrowStr;
     return (
       <View style={item.inGroup ? styles.inGroupItem : undefined}>
         {item.inGroup && <View style={styles.inGroupLine} />}
@@ -549,11 +591,12 @@ export default function InterventionsScreen() {
           item={item.data}
           compact={item.inGroup}
           showCoProName={isPrestataire && copros.length > 1}
+          isTomorrow={isItemTomorrow}
           onPress={() => router.push(`/intervention/${item.data.id}`)}
         />
       </View>
     );
-  }, [openStatuses, openGroups, toggleStatus, router]);
+  }, [openStatuses, openGroups, toggleStatus, router, isPrestataire, tomorrowStr]);
 
   // ── Shared search bar ──────────────────────────────────────────────────────
 
@@ -724,14 +767,20 @@ export default function InterventionsScreen() {
         <FlatListAny
           data={maintenanceGroups}
           keyExtractor={(g: MaintenanceGroup) => g.groupId}
-          renderItem={({ item }: { item: MaintenanceGroup }) => (
-            <MaintenanceGroupCard
-              group={item}
-              isAdmin={isAdmin || isConseil}
-              onPress={() => router.push(`/intervention/${item.nextItemId}`)}
-              onRemind={() => handleSendReminder(item)}
-            />
-          )}
+          renderItem={({ item }: { item: MaintenanceGroup }) => {
+            const locked   = isPrestataire && !!item.nextDueDate && item.nextDueDate > tomorrowStr;
+            const tomorrow = isPrestataire && item.nextDueDate === tomorrowStr;
+            return (
+              <MaintenanceGroupCard
+                group={item}
+                isAdmin={isAdmin || isConseil}
+                isTomorrow={tomorrow}
+                isLocked={locked}
+                onPress={() => router.push(`/intervention/${item.nextItemId}`)}
+                onRemind={() => handleSendReminder(item)}
+              />
+            );
+          }}
           ListHeaderComponent={maintHeader}
           ListEmptyComponent={!isLoading ? (
             <View style={styles.empty}>
@@ -867,6 +916,33 @@ const styles = StyleSheet.create({
   maintDateLabel: { fontSize: 10, fontFamily: "Inter_500Medium", color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.4 },
   maintDateValue: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
   maintDateEmpty: { color: COLORS.textMuted },
+  maintCardTomorrow: {
+    borderColor: "#F59E0B", borderWidth: 1.5,
+    shadowColor: "#F59E0B", shadowOpacity: 0.18, shadowRadius: 8,
+  },
+  maintCardLocked: { opacity: 0.5 },
+  maintTomorrowRow: {
+    flexDirection: "row" as const, alignItems: "center" as const, gap: 6,
+    backgroundColor: "rgba(245,158,11,0.1)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  maintTomorrowText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#D97706" },
+  maintLockedRow: {
+    flexDirection: "row" as const, alignItems: "center" as const, gap: 6,
+    backgroundColor: "rgba(100,116,139,0.07)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  maintLockedText: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  cardTomorrow: {
+    shadowColor: "#F59E0B", shadowOpacity: 0.15, shadowRadius: 6, elevation: 3,
+  },
+  tomorrowBadge: {
+    flexDirection: "row" as const, alignItems: "center" as const, gap: 4,
+    backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+    alignSelf: "flex-start" as const, marginBottom: 4,
+  },
+  tomorrowBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: "#D97706" },
   maintDateDivider: { width: 1, height: 32, backgroundColor: COLORS.border, marginHorizontal: 12 },
   maintProgress: { flexDirection: "row", alignItems: "center", gap: 10 },
   maintProgressBar: {
