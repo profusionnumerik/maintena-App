@@ -559,6 +559,43 @@ async function buildGuestInterventionPayload(token) {
     }
   };
 }
+async function addToAdminAnnuaire(db, coProId, contact) {
+  if (!db || !contact.email) return;
+  try {
+    const membersSnap = await db.collection("copros").doc(coProId).collection("members").where("role", "==", "admin").get();
+    if (membersSnap.empty) return;
+    const email = contact.email.toLowerCase();
+    const categories = contact.category ? [contact.category] : [];
+    await Promise.all(membersSnap.docs.map(async (adminDoc) => {
+      const adminUid = adminDoc.id;
+      const contactsRef = db.collection("users").doc(adminUid).collection("providerContacts");
+      const existing = await contactsRef.where("email", "==", email).limit(1).get();
+      if (!existing.empty) {
+        if (contact.category) {
+          const existingDoc = existing.docs[0];
+          const existingCats = existingDoc.data().categories ?? [];
+          if (!existingCats.includes(contact.category)) {
+            await existingDoc.ref.update({ categories: [...existingCats, contact.category] });
+          }
+        }
+        return;
+      }
+      await contactsRef.add({
+        firstName: contact.firstName || "",
+        lastName: contact.lastName || "",
+        email,
+        phone: contact.phone || "",
+        company: contact.company || "",
+        city: "",
+        categories,
+        createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+        addedFromInvite: true
+      });
+    }));
+  } catch (err) {
+    console.warn("[addToAdminAnnuaire] erreur:", err);
+  }
+}
 async function sendActivationEmail(adminEmail, coProName, inviteCode) {
   let resendClient;
   try {
@@ -2895,6 +2932,57 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/cron/intervention-reminders", async (req, res) => {
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    const cronSecret = req.headers["x-cron-secret"] ?? "";
+    const isCron = cronSecret !== "" && cronSecret === (process.env.CRON_SECRET ?? "");
+    if (!isCron) {
+      try {
+        await verifySuperAdmin(req, db2);
+      } catch (e) {
+        return res.status(403).json({ error: "Acc\xE8s refus\xE9." });
+      }
+    }
+    try {
+      const now = /* @__PURE__ */ new Date();
+      const tomorrow = new Date(now.getTime() + 864e5).toISOString().split("T")[0];
+      const in2days = new Date(now.getTime() + 2 * 864e5).toISOString().split("T")[0];
+      const snap = await db2.collectionGroup("interventions").where("status", "==", "planifie").get();
+      const sent = [];
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const dateVal = data.date ?? "";
+        const dateNorm = dateVal.length === 10 ? dateVal : dateVal.split("T")[0];
+        if (dateNorm !== tomorrow && dateNorm !== in2days) continue;
+        const daysLeft = dateNorm === tomorrow ? 1 : 2;
+        const assignedUid = data.assignedToUid;
+        if (!assignedUid) continue;
+        const userDoc = await db2.collection("users").doc(assignedUid).get();
+        if (!userDoc.exists) continue;
+        const pushToken = userDoc.data()?.pushToken;
+        if (!pushToken) continue;
+        const coProName = data.coProName ?? "Copropri\xE9t\xE9";
+        const title = data.title ?? "Intervention";
+        const label = daysLeft === 1 ? "demain" : "dans 2 jours";
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: pushToken,
+            title: `\u23F0 Rappel intervention \u2014 ${coProName}`,
+            body: `"${title}" est pr\xE9vue ${label}`,
+            data: { type: "intervention_reminder", interventionId: doc.id }
+          })
+        }).catch(() => {
+        });
+        sent.push(doc.id);
+      }
+      return res.json({ sent: sent.length, ids: sent });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
   app2.post("/api/upload-photo", async (req, res) => {
     try {
       const authHeader = req.headers.authorization ?? "";
@@ -2971,7 +3059,7 @@ async function registerRoutes(app2) {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(
-            chunk.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" }))
+            chunk.map((to) => ({ to, title, body, data: data ?? {}, sound: "notification.wav" }))
           )
         }).catch((e) => console.warn("[push] chunk failed:", e))
       )
@@ -3227,7 +3315,7 @@ async function registerRoutes(app2) {
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "default" })))
+      body: JSON.stringify(tokens.map((to) => ({ to, title, body, data: data ?? {}, sound: "notification.wav" })))
     }).catch((e) => console.warn("[push] sendPushToAdmins failed:", e));
   }
   async function sendPushToUser(uid, title, body, data) {
@@ -3239,7 +3327,7 @@ async function registerRoutes(app2) {
     await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "default" }])
+      body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "notification.wav" }])
     }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
   }
   app2.post("/api/notify-intervention-created", async (req, res) => {
@@ -3264,7 +3352,7 @@ async function registerRoutes(app2) {
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify(tokens.map((to) => ({
               to,
-              sound: "default",
+              sound: "notification.wav",
               title: `\u{1F6E0}\uFE0F Intervention planifi\xE9e \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
               body: categoryLabel ? `${title} \xB7 ${categoryLabel}` : title,
               data: { type: "intervention_created", coProId }
@@ -3437,20 +3525,19 @@ async function registerRoutes(app2) {
         </table>
       </div>
 
-      <div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
-        <div style="font-size:13px;color:#9A3412;font-weight:700;margin-bottom:10px;">\u{1F4CB} Vos obligations contractuelles</div>
-        <ul style="margin:0;padding:0 0 0 18px;color:#C2410C;font-size:13px;line-height:1.8;">
-          <li>R\xE9aliser chaque intervention <strong>dans les d\xE9lais convenus</strong></li>
-          <li>Se rendre <strong>obligatoirement sur site</strong> pour chaque passage</li>
-          <li>Prendre une <strong>photo de preuve sur site</strong> (obligatoire)</li>
-          <li>Compl\xE9ter <strong>int\xE9gralement</strong> la fiche d'intervention correspondante</li>
-          <li>Transmettre votre rapport apr\xE8s chaque r\xE9alisation</li>
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#166534;font-weight:700;margin-bottom:10px;">\u{1F4CB} Comment \xE7a marche</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#15803D;font-size:13px;line-height:1.8;">
+          <li>R\xE9alisez votre intervention selon le calendrier convenu</li>
+          <li>Prenez une <strong>photo</strong> apr\xE8s votre passage</li>
+          <li>Remplissez la fiche d'intervention pour valider votre passage</li>
+          <li>L'administrateur de la r\xE9sidence est notifi\xE9 automatiquement</li>
         </ul>
       </div>
 
       <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 24px;">
-        Nous comptons sur votre professionnalisme pour garantir la qualit\xE9 des prestations
-        attendues par les copropri\xE9taires de la r\xE9sidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.
+        Merci de votre confiance et de votre implication au service des r\xE9sidents de
+        <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.
       </p>
 
       ${webLink ? `<div style="text-align:center;margin:28px 0;">
@@ -3563,24 +3650,22 @@ async function registerRoutes(app2) {
         <div style="font-size:22px;font-weight:800;color:#D97706;">${escapeHtml(nextDateStr)}</div>
       </div>` : ""}
 
-      <div style="background:#FFF1F2;border:1px solid #FECDD3;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
-        <div style="font-size:13px;color:#9F1239;font-weight:700;margin-bottom:12px;">\u26A0\uFE0F Rappel de vos obligations</div>
-        <ul style="margin:0;padding:0 0 0 18px;color:#BE123C;font-size:13px;line-height:2;">
-          <li>Votre <strong>pr\xE9sence sur site est imp\xE9rative</strong> \u2014 aucune prestation \xE0 distance n'est accept\xE9e</li>
-          <li>Une <strong>photo de preuve prise sur site est obligatoire</strong> pour valider l'intervention</li>
-          <li>La fiche d'intervention doit \xEAtre <strong>int\xE9gralement compl\xE9t\xE9e</strong> apr\xE8s chaque passage</li>
-          <li>Tout manquement peut engager <strong>votre responsabilit\xE9 contractuelle</strong></li>
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+        <div style="font-size:13px;color:#166534;font-weight:700;margin-bottom:12px;">\u{1F4CB} Pour bien pr\xE9parer votre passage</div>
+        <ul style="margin:0;padding:0 0 0 18px;color:#15803D;font-size:13px;line-height:2;">
+          <li>Intervenez directement sur site comme convenu</li>
+          <li>Ajoutez une <strong>photo</strong> apr\xE8s votre passage pour valider l'intervention</li>
+          <li>Compl\xE9tez la fiche d'intervention une fois votre travail termin\xE9</li>
         </ul>
       </div>
 
       <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 8px;">
-        Cette mission fait partie de votre <strong>engagement contractuel</strong> envers la r\xE9sidence
-        ${escapeHtml(coProName)}. Les copropri\xE9taires comptent sur la qualit\xE9 et la r\xE9gularit\xE9 de vos prestations.
+        La r\xE9sidence ${escapeHtml(coProName)} compte sur votre professionnalisme et votre ponctualit\xE9.
+        Merci de votre implication.
       </p>
 
       <p style="font-size:14px;color:#64748B;line-height:1.7;margin:0 0 28px;">
-        Merci de prendre toutes les dispositions n\xE9cessaires pour r\xE9aliser cette maintenance
-        <strong>dans les d\xE9lais convenus</strong> et renseigner d\xFBment la fiche ci-jointe.
+        En cas d'impr\xE9vu ou de besoin de report, n'h\xE9sitez pas \xE0 contacter l'administrateur directement.
       </p>
 
       ${webLink ? `<div style="text-align:center;margin:28px 0;">
@@ -3692,6 +3777,14 @@ async function registerRoutes(app2) {
         }
         await db2.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
           assignedToUid: uid
+        });
+        await addToAdminAnnuaire(db2, coProId, {
+          firstName: invitedProvider.firstName ?? "",
+          lastName: invitedProvider.lastName ?? "",
+          email: invitedProvider.email,
+          phone: invitedProvider.phone ?? "",
+          company: invitedProvider.company ?? "",
+          category: category ?? null
         });
       } catch (authErr) {
         console.warn("Cr\xE9ation compte provisoire \xE9chou\xE9e:", authErr);
@@ -3886,17 +3979,10 @@ async function registerRoutes(app2) {
     }
     const storedCode = payload.invite.data.activationCode ?? "";
     const codeAlreadyUsed = payload.invite.data.activationCodeUsed === true;
-    if (storedCode) {
-      if (codeAlreadyUsed) {
-        return res.status(403).json({
-          error: "Ce code d'activation a d\xE9j\xE0 \xE9t\xE9 utilis\xE9. Connectez-vous directement avec votre email et mot de passe."
-        });
-      }
-      if (!activationCode || activationCode.trim().toUpperCase() !== storedCode.toUpperCase()) {
-        return res.status(400).json({
-          error: "Code d'activation invalide. V\xE9rifiez votre email d'invitation."
-        });
-      }
+    if (codeAlreadyUsed) {
+      return res.status(403).json({
+        error: "Ce compte a d\xE9j\xE0 \xE9t\xE9 finalis\xE9. Connectez-vous directement avec votre email et mot de passe."
+      });
     }
     const db2 = getAdminDb();
     if (!db2) {
@@ -3910,9 +3996,7 @@ async function registerRoutes(app2) {
         userRecord = await adminAuth.getUserByEmail(payload.provider.email);
       } catch {
       }
-      if (userRecord) {
-        await adminAuth.updateUser(userRecord.uid, { password: password.trim() });
-      } else {
+      if (!userRecord) {
         userRecord = await adminAuth.createUser({
           email: payload.provider.email,
           password: password.trim(),
@@ -3940,6 +4024,33 @@ async function registerRoutes(app2) {
         },
         { merge: true }
       );
+      const coProId = payload.invite.data.coProId;
+      if (coProId) {
+        const memberRef = db2.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
+        const memberSnap = await memberRef.get();
+        const newCat = payload.invite.data.categoryFilter ?? null;
+        if (!memberSnap.exists) {
+          await memberRef.set({
+            uid: userRecord.uid,
+            email: payload.provider.email,
+            displayName: payload.provider.name,
+            firstName: payload.provider.firstName ?? "",
+            lastName: payload.provider.lastName ?? "",
+            phone: payload.provider.phone ?? "",
+            company: payload.provider.company ?? "",
+            role: "prestataire",
+            coProId,
+            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+            joinedViaGuestInvite: true,
+            categoryFilter: newCat,
+            categoryFilters: newCat ? [newCat] : []
+          });
+        } else if (newCat) {
+          const existing = memberSnap.data()?.categoryFilters ?? (memberSnap.data()?.categoryFilter ? [memberSnap.data().categoryFilter] : []);
+          const merged = Array.from(/* @__PURE__ */ new Set([...existing, newCat]));
+          await memberRef.set({ categoryFilters: merged, categoryFilter: merged[0] }, { merge: true });
+        }
+      }
       return res.json({
         success: true,
         uid: userRecord.uid,
@@ -3947,6 +4058,104 @@ async function registerRoutes(app2) {
       });
     } catch (e) {
       console.error("complete-account error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.post("/api/public/link-account/:token", async (req, res) => {
+    const payload = await buildGuestInterventionPayload(String(req.params.token));
+    if (payload.status !== 200) {
+      return res.status(payload.status).json({ error: payload.error });
+    }
+    const codeAlreadyUsed = payload.invite.data.activationCodeUsed === true;
+    if (codeAlreadyUsed) {
+      return res.status(403).json({
+        error: "Ce lien a d\xE9j\xE0 \xE9t\xE9 utilis\xE9. Vous \xEAtes peut-\xEAtre d\xE9j\xE0 rattach\xE9(e) \xE0 cette r\xE9sidence."
+      });
+    }
+    const { password } = req.body;
+    if (!password || password.trim().length < 6) {
+      return res.status(400).json({ error: "Mot de passe requis (au moins 6 caract\xE8res)." });
+    }
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Base de donn\xE9es indisponible." });
+    try {
+      const { getAuth: getAuth2 } = await import("firebase-admin/auth");
+      const adminAuth = getAuth2();
+      let userRecord = null;
+      try {
+        userRecord = await adminAuth.getUserByEmail(payload.provider.email);
+      } catch {
+        return res.status(404).json({ error: "Aucun compte trouv\xE9 pour cet email. Cr\xE9ez votre compte d'abord." });
+      }
+      const firebaseApiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY;
+      if (!firebaseApiKey) return res.status(500).json({ error: "Configuration manquante." });
+      const signInRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseApiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: payload.provider.email, password: password.trim(), returnSecureToken: true })
+        }
+      );
+      if (!signInRes.ok) {
+        return res.status(401).json({ error: "Mot de passe incorrect. V\xE9rifiez et r\xE9essayez." });
+      }
+      const coProId = payload.invite.data.coProId;
+      if (coProId) {
+        const memberRef = db2.collection("copros").doc(coProId).collection("members").doc(userRecord.uid);
+        const memberSnap = await memberRef.get();
+        const newCat = payload.invite.data.categoryFilter ?? null;
+        if (!memberSnap.exists) {
+          await memberRef.set({
+            uid: userRecord.uid,
+            email: payload.provider.email,
+            displayName: payload.provider.name,
+            role: "prestataire",
+            coProId,
+            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+            joinedViaGuestInvite: true,
+            categoryFilter: newCat,
+            categoryFilters: newCat ? [newCat] : []
+          });
+        } else if (newCat) {
+          const existing = memberSnap.data()?.categoryFilters ?? (memberSnap.data()?.categoryFilter ? [memberSnap.data().categoryFilter] : []);
+          const merged = Array.from(/* @__PURE__ */ new Set([...existing, newCat]));
+          await memberRef.set({ categoryFilters: merged, categoryFilter: merged[0] }, { merge: true });
+        }
+      }
+      if (coProId) {
+        try {
+          await db2.collection("users").doc(userRecord.uid).update({
+            managedCoproIds: FieldValue.arrayUnion(coProId)
+          });
+        } catch {
+          await db2.collection("users").doc(userRecord.uid).set(
+            { managedCoproIds: [coProId] },
+            { merge: true }
+          );
+        }
+        const interventionId = payload.invite.data.interventionId;
+        if (interventionId) {
+          await db2.collection("copros").doc(coProId).collection("interventions").doc(interventionId).update({
+            assignedToUid: userRecord.uid
+          });
+        }
+        await addToAdminAnnuaire(db2, coProId, {
+          firstName: payload.provider.firstName,
+          lastName: payload.provider.lastName,
+          email: payload.provider.email,
+          phone: payload.provider.phone,
+          company: payload.provider.company,
+          category: payload.invite.data.categoryFilter ?? null
+        });
+      }
+      await payload.invite.ref.set(
+        { completedAccountAt: (/* @__PURE__ */ new Date()).toISOString(), completedAccountUid: userRecord.uid, activationCodeUsed: true },
+        { merge: true }
+      );
+      return res.json({ success: true, uid: userRecord.uid });
+    } catch (e) {
+      console.error("link-account error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
@@ -4153,6 +4362,7 @@ async function registerRoutes(app2) {
         console.error("[report/photo] upload error:", uploadErr);
       }
     }
+    const completedUid = payload.invite.data.completedAccountUid;
     try {
       await payload.interventionRef.set(
         {
@@ -4164,7 +4374,9 @@ async function registerRoutes(app2) {
           ...cleaningChecklist ? { cleaningChecklist } : {},
           guestUpdatedAt: (/* @__PURE__ */ new Date()).toISOString(),
           providerStatus: "accepted",
-          ...payload.intervention.providerStatus !== "accepted" ? { providerStatusAt: (/* @__PURE__ */ new Date()).toISOString() } : {}
+          ...payload.intervention.providerStatus !== "accepted" ? { providerStatusAt: (/* @__PURE__ */ new Date()).toISOString() } : {},
+          // Si l'uid est connu (compte déjà lié), on s'assure que assignedToUid est défini pour le filtre app
+          ...completedUid ? { assignedToUid: completedUid } : {}
         },
         { merge: true }
       );
@@ -4252,6 +4464,274 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
+  app2.post("/api/team-link", async (req, res) => {
+    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, interventionDate } = req.body;
+    if (!coProId || !interventionId || !companyName) {
+      return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
+    }
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    try {
+      const baseUrl = getBaseUrl(req);
+      const existing = await db2.collection("teamInterventionLinks").where("interventionId", "==", interventionId).where("coProId", "==", coProId).limit(1).get();
+      let token;
+      if (!existing.empty) {
+        token = existing.docs[0].data().token;
+        if (employeeEmail?.trim()) {
+          await existing.docs[0].ref.update({ employeeEmail: employeeEmail.trim(), interventionDate: interventionDate ?? null });
+        }
+      } else {
+        token = generateGuestToken();
+        await db2.collection("teamInterventionLinks").add({
+          token,
+          coProId,
+          coProName: coProName ?? "",
+          interventionId,
+          interventionTitle: interventionTitle ?? "",
+          companyName,
+          employeeEmail: employeeEmail?.trim() ?? null,
+          interventionDate: interventionDate ?? null,
+          createdAt: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+      const linkUrl = `${baseUrl}/team-intervention/${token}`;
+      if (employeeEmail?.trim()) {
+        const { sendEmail } = await import("./email.js");
+        await sendEmail({
+          to: employeeEmail.trim(),
+          subject: `\u{1F527} Lien d'intervention \u2014 ${interventionTitle ?? "Maintena"}`,
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+              <h2 style="color:#0B1628;margin-bottom:8px;">Lien d'intervention</h2>
+              <p style="color:#475569;margin-bottom:16px;">
+                Bonjour,<br><br>
+                Voici votre lien pour d\xE9clarer vos passages sur l'intervention
+                <strong>${interventionTitle ?? ""}</strong>
+                (${coProName ?? ""}).
+              </p>
+              <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
+                Acc\xE9der au formulaire
+              </a>
+              <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
+                Ce lien reste valable tout au long de l'intervention.
+              </p>
+            </div>
+          `
+        }).catch((e) => console.warn("[team-link] email error:", e));
+      }
+      return res.json({ url: linkUrl, existing: !existing.empty });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/public/team-intervention/:token/passage", uploadMiddleware.single("photo"), async (req, res) => {
+    const token = String(req.params.token);
+    const db2 = getAdminDb();
+    if (!db2) return res.redirect(`/team-intervention/${token}?error=serveur`);
+    try {
+      const snap = await db2.collection("teamInterventionLinks").where("token", "==", token).limit(1).get();
+      if (snap.empty) return res.redirect(`/team-intervention/${token}?error=lien_invalide`);
+      const link = snap.docs[0].data();
+      const body = req.body;
+      const employeeName = body.employeeName;
+      const description = body.description;
+      if (!employeeName?.trim()) {
+        return res.redirect(`/team-intervention/${token}?error=nom_requis`);
+      }
+      const checkedZones = {};
+      for (const key of Object.keys(body)) {
+        if (key.startsWith("zone_")) {
+          checkedZones[key.replace("zone_", "")] = body[key] === "on";
+        }
+      }
+      let photoUrl = null;
+      if (req.file) {
+        try {
+          const bucket = getAdminStorage();
+          if (bucket) {
+            const mimeType = req.file.mimetype || "image/jpeg";
+            const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+            const fileName = `${Date.now()}-${randomBytes(6).toString("hex")}.${extension}`;
+            const storagePath = `copros/${link.coProId}/interventions/${link.interventionId}/passages/${fileName}`;
+            const storageFile = bucket.file(storagePath);
+            const downloadToken = generateDownloadToken();
+            await storageFile.save(req.file.buffer, {
+              metadata: { contentType: mimeType, metadata: { firebaseStorageDownloadTokens: downloadToken } },
+              resumable: false
+            });
+            const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+            photoUrl = makeFirebaseStorageUrl(bucketName, storagePath, downloadToken);
+          }
+        } catch (uploadErr) {
+          console.error("[team-passage/photo] upload error:", uploadErr);
+        }
+      }
+      const interventionRef = db2.collection("copros").doc(link.coProId).collection("interventions").doc(link.interventionId);
+      await interventionRef.collection("passages").add({
+        employeeName: employeeName.trim(),
+        companyName: link.companyName,
+        description: description?.trim() ?? "",
+        zones: checkedZones,
+        submittedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        token,
+        ...photoUrl ? { photos: [photoUrl] } : {}
+      });
+      const interventionSnap = await interventionRef.get();
+      if (interventionSnap.exists) {
+        const ivData = interventionSnap.data() ?? {};
+        const updatePayload = {
+          guestUpdatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        if (ivData.status === "planifie") updatePayload.status = "en_cours";
+        if (photoUrl) {
+          updatePayload.completionPhotos = FieldValue.arrayUnion(photoUrl);
+        }
+        const passageLine = `[${employeeName.trim()}] ${description?.trim() ?? ""}`.trimEnd();
+        if (ivData.interventionReport) {
+          updatePayload.interventionReport = ivData.interventionReport + "\n" + passageLine;
+        } else {
+          updatePayload.interventionReport = passageLine;
+        }
+        await interventionRef.update(updatePayload);
+      }
+      sendPushToAdmins(
+        link.coProId,
+        `\u2705 Passage d\xE9clar\xE9 \u2014 ${link.coProName ?? "Copropri\xE9t\xE9"}`,
+        `${employeeName.trim()} (${link.companyName}) a d\xE9clar\xE9 son passage : ${link.interventionTitle}`,
+        { type: "team_passage", coProId: link.coProId, interventionId: link.interventionId }
+      ).catch(() => {
+      });
+      return res.redirect(`/team-intervention/${token}?success=1`);
+    } catch (e) {
+      console.error("team-passage error:", e);
+      return res.redirect(`/team-intervention/${token}?error=serveur`);
+    }
+  });
+  app2.get("/team-intervention/:token", async (req, res) => {
+    const token = String(req.params.token);
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).send(pageShell("Erreur", "<p>Service indisponible.</p>"));
+    const snap = await db2.collection("teamInterventionLinks").where("token", "==", token).limit(1).get();
+    if (snap.empty) {
+      return res.status(404).send(pageShell(
+        "Lien invalide",
+        `<div class="m-container"><div class="m-card"><h1>Lien invalide</h1><p>Ce lien n'existe pas ou a \xE9t\xE9 supprim\xE9.</p></div></div>`
+      ));
+    }
+    const link = snap.docs[0].data();
+    const success = req.query.success === "1";
+    const error = String(req.query.error ?? "");
+    const interventionSnap = await db2.collection("copros").doc(link.coProId).collection("interventions").doc(link.interventionId).get();
+    const interventionData = interventionSnap.exists ? interventionSnap.data() : null;
+    const category = interventionData?.category ?? "";
+    const coproSnap = await db2.collection("copros").doc(link.coProId).get();
+    const coproData = coproSnap.exists ? coproSnap.data() : null;
+    const buildingConfig = coproData?.buildingConfig ?? DEFAULT_BUILDING_CONFIG_SERVER;
+    const isNettoyage = category === "nettoyage";
+    const cleaningAreas = isNettoyage ? generateCleaningAreasServer(buildingConfig) : [];
+    const groupedAreas = {};
+    cleaningAreas.forEach((a) => {
+      if (!groupedAreas[a.group]) groupedAreas[a.group] = [];
+      groupedAreas[a.group].push(a);
+    });
+    const zonesHtml = cleaningAreas.length > 0 ? `
+      <div style="margin-bottom:4px;">
+        <div style="font-size:13px;font-weight:600;color:#374151;margin-bottom:12px;">Zones effectu\xE9es *</div>
+        ${Object.entries(groupedAreas).map(([group, areas]) => `
+          <div style="margin-bottom:14px;">
+            <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${escapeHtml(group)}</div>
+            ${areas.map((area) => `
+              <label style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;background:#f8fafc;margin-bottom:6px;cursor:pointer;">
+                <input type="checkbox" name="zone_${escapeHtml(area.id)}" value="on"
+                  style="width:18px;height:18px;accent-color:#1e40af;cursor:pointer;flex-shrink:0;" />
+                <span style="font-size:14px;color:#0f172a;">${escapeHtml(area.label)}</span>
+              </label>`).join("")}
+          </div>`).join("")}
+      </div>` : "";
+    const passagesSnap = await db2.collection("copros").doc(link.coProId).collection("interventions").doc(link.interventionId).collection("passages").orderBy("submittedAt", "desc").limit(20).get();
+    const passagesHtml = passagesSnap.docs.length > 0 ? passagesSnap.docs.map((d) => {
+      const p = d.data();
+      const date = new Date(p.submittedAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" });
+      const checkedZones = p.zones ? Object.entries(p.zones).filter(([, v]) => v).map(([k]) => {
+        const area = cleaningAreas.find((a) => a.id === k);
+        return area ? area.label : k;
+      }).join(", ") : "";
+      const passagePhotos = Array.isArray(p.photos) ? p.photos : [];
+      const photosHtml = passagePhotos.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">${passagePhotos.map((u) => `<a href="${escapeHtml(u)}" target="_blank"><img src="${escapeHtml(u)}" alt="photo" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;" /></a>`).join("")}</div>` : "";
+      return `<div style="display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid #e2e8f0;">
+            <div style="width:36px;height:36px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-weight:700;color:#2563eb;font-size:14px;flex-shrink:0;">${escapeHtml((p.employeeName ?? "?")[0].toUpperCase())}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;color:#0f172a;font-size:14px;">${escapeHtml(p.employeeName ?? "")}</div>
+              ${checkedZones ? `<div style="font-size:12px;color:#2563eb;margin-top:3px;line-height:1.5;">\u2713 ${escapeHtml(checkedZones)}</div>` : ""}
+              ${p.description ? `<div style="font-size:13px;color:#475569;margin-top:2px;">${escapeHtml(p.description)}</div>` : ""}
+              ${photosHtml}
+              <div style="font-size:11px;color:#94a3b8;margin-top:4px;">${date}</div>
+            </div>
+          </div>`;
+    }).join("") : `<p style="color:#94a3b8;font-size:14px;text-align:center;padding:20px 0;">Aucun passage enregistr\xE9 pour l'instant.</p>`;
+    const errorMsg = error === "nom_requis" ? "Votre nom est obligatoire." : error === "serveur" ? "Une erreur est survenue. R\xE9essayez." : error === "lien_invalide" ? "Lien invalide." : "";
+    const html = pageShell(`D\xE9claration de passage \u2014 ${escapeHtml(link.interventionTitle)}`, `
+<div class="m-container" style="max-width:520px;">
+
+  <div style="background:#1e40af;border-radius:20px;padding:24px;margin-bottom:16px;color:#fff;">
+    <div style="font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:6px;">D\xE9claration de passage</div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:4px;">${escapeHtml(link.interventionTitle)}</div>
+    <div style="font-size:13px;color:rgba(255,255,255,.7);">${escapeHtml(link.companyName)} \xB7 ${escapeHtml(link.coProName)}</div>
+  </div>
+
+  ${success ? `
+  <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:16px;padding:20px 24px;margin-bottom:16px;display:flex;gap:14px;align-items:flex-start;">
+    <span style="font-size:24px;">\u2705</span>
+    <div>
+      <div style="font-weight:700;color:#15803d;font-size:16px;margin-bottom:4px;">Passage enregistr\xE9 !</div>
+      <div style="font-size:14px;color:#166534;">Votre d\xE9claration a bien \xE9t\xE9 transmise \xE0 l'administrateur.</div>
+    </div>
+  </div>` : ""}
+
+  ${errorMsg ? `<div style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:12px;padding:14px 18px;margin-bottom:14px;color:#991b1b;font-size:14px;">\u26A0\uFE0F ${escapeHtml(errorMsg)}</div>` : ""}
+
+  <div class="m-card" style="margin-bottom:16px;">
+    <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:4px;">D\xE9clarer mon passage</div>
+    <div style="font-size:13px;color:#64748b;margin-bottom:20px;">Cochez les zones effectu\xE9es et indiquez votre nom.</div>
+
+    <form method="POST" enctype="multipart/form-data" action="/api/public/team-intervention/${token}/passage" style="display:flex;flex-direction:column;gap:16px;">
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">Votre nom *</label>
+        <input name="employeeName" type="text" placeholder="Pr\xE9nom Nom" required
+          style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;box-sizing:border-box;font-family:inherit;" />
+      </div>
+
+      ${zonesHtml}
+
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">${isNettoyage ? "Remarque (optionnel)" : "Description (optionnel)"}</label>
+        <textarea name="description" placeholder="${isNettoyage ? "Anomalie constat\xE9e, produit manquant\u2026" : "Ce que vous avez fait\u2026"}" rows="3"
+          style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:15px;outline:none;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>
+      </div>
+
+      <div>
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px;">\u{1F4F7} Photo de preuve (optionnel)</label>
+        <input name="photo" type="file" accept="image/*"
+          style="width:100%;padding:10px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:14px;box-sizing:border-box;background:#f8fafc;" />
+      </div>
+
+      <button type="submit"
+        style="background:#1e40af;color:#fff;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;width:100%;">
+        Enregistrer mon passage
+      </button>
+    </form>
+  </div>
+
+  ${passagesSnap.docs.length > 0 ? `
+  <div class="m-card">
+    <div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px;">Passages r\xE9cents</div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px;">${passagesSnap.docs.length} passage(s) enregistr\xE9(s)</div>
+    ${passagesHtml}
+  </div>` : ""}
+
+</div>`);
+    return res.send(html);
+  });
   app2.get("/guest-intervention/:token", async (req, res) => {
     const token = String(req.params.token);
     const payload = await buildGuestInterventionPayload(token);
@@ -4262,6 +4742,7 @@ async function registerRoutes(app2) {
     }
     const pStatus = payload.intervention.providerStatus;
     const reportLocked = !!payload.intervention.guestUpdatedAt;
+    const effectiveCompleteAccountLink = payload.links.completeAccountLink || `${getBaseUrl(req)}/guest-complete-account/${token}`;
     const dateStr = payload.intervention.date ? new Date(payload.intervention.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : "Non renseign\xE9e";
     const existingPhotosHtml = payload.intervention.completionPhotos.length > 0 ? payload.intervention.completionPhotos.map(
       (url) => `<a href="${escapeHtml(url)}" target="_blank" style="display:block;margin:8px 0;color:#2563eb;">\u{1F4F7} Voir la photo</a>`
@@ -4400,17 +4881,78 @@ async function registerRoutes(app2) {
     `}
   </div>` : ""}
 
+  <!-- D\xE9l\xE9guer \xE0 un employ\xE9 -->
+  ${payload.intervention.providerStatus === "accepted" ? `
+  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;padding:22px;margin-bottom:20px;">
+    <div style="font-weight:700;color:#0f172a;margin-bottom:6px;">\u{1F477} D\xE9l\xE9guer \xE0 un employ\xE9</div>
+    <p style="font-size:14px;color:#64748b;margin:0 0 14px;">G\xE9n\xE9rez un lien unique \xE0 partager \xE0 votre employ\xE9. Il pourra remplir la fiche d'intervention sans cr\xE9er de compte. Ce lien est diff\xE9rent du v\xF4tre.</p>
+    <button id="genTeamLinkBtn" onclick="generateTeamLink()" style="background:#0f172a;color:#fff;border:none;border-radius:12px;padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;width:100%;">G\xE9n\xE9rer le lien employ\xE9</button>
+    <div id="teamLinkResult" style="display:none;margin-top:14px;">
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px 14px;word-break:break-all;font-size:13px;color:#15803d;font-family:monospace;" id="teamLinkUrl"></div>
+      <button onclick="copyTeamLink()" style="margin-top:10px;background:#16a34a;color:#fff;border:none;border-radius:10px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;width:100%;">\u{1F4CB} Copier le lien</button>
+      <div id="teamLinkCopied" style="display:none;margin-top:8px;color:#16a34a;font-size:13px;font-weight:600;text-align:center;">\u2705 Lien copi\xE9 !</div>
+    </div>
+    <div id="teamLinkError" style="display:none;margin-top:10px;color:#dc2626;font-size:13px;"></div>
+  </div>` : ""}
+
   <!-- Cr\xE9er son compte -->
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:18px;padding:22px;text-align:center;margin-bottom:20px;">
     <div style="font-weight:700;color:#1d4ed8;margin-bottom:6px;">Finalisez votre compte Maintena</div>
     <p style="font-size:14px;color:#3b82f6;margin:0 0 14px;">Acc\xE9dez \xE0 toutes vos interventions depuis l'application.</p>
-    <a href="${escapeHtml(payload.links.completeAccountLink)}" class="m-btn" style="display:inline-block;text-decoration:none;padding:12px 24px;">Cr\xE9er mon compte \u2192</a>
+    <a href="${escapeHtml(effectiveCompleteAccountLink)}" class="m-btn" style="display:inline-block;text-decoration:none;padding:12px 24px;">Cr\xE9er mon compte \u2192</a>
   </div>
 
 </div>
 
 <script>
   const TOKEN = '${token}';
+
+  let _teamLinkUrl = '';
+
+  async function generateTeamLink() {
+    const btn = document.getElementById('genTeamLinkBtn');
+    const result = document.getElementById('teamLinkResult');
+    const errEl = document.getElementById('teamLinkError');
+    if (btn) { btn.disabled = true; btn.textContent = 'G\xE9n\xE9ration\u2026'; }
+    if (errEl) errEl.style.display = 'none';
+    try {
+      const res = await fetch('/api/team-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coProId: '${payload.copro.id}',
+          coProName: '${escapeHtml(payload.copro.name)}',
+          interventionId: '${payload.intervention.id}',
+          interventionTitle: '${escapeHtml(payload.intervention.title)}',
+          companyName: '${escapeHtml(payload.provider.company || payload.provider.name)}',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur serveur');
+      _teamLinkUrl = data.url;
+      const urlEl = document.getElementById('teamLinkUrl');
+      if (urlEl) urlEl.textContent = data.url;
+      if (result) result.style.display = 'block';
+      if (btn) { btn.textContent = 'Reg\xE9n\xE9rer le lien'; btn.disabled = false; }
+      if (navigator.share) {
+        try { await navigator.share({ title: 'Fiche intervention \u2014 Maintena', url: data.url }); } catch {}
+      }
+    } catch (e) {
+      if (errEl) { errEl.textContent = e.message || 'Erreur'; errEl.style.display = 'block'; }
+      if (btn) { btn.textContent = 'G\xE9n\xE9rer le lien employ\xE9'; btn.disabled = false; }
+    }
+  }
+
+  async function copyTeamLink() {
+    if (!_teamLinkUrl) return;
+    const copied = document.getElementById('teamLinkCopied');
+    try { await navigator.clipboard.writeText(_teamLinkUrl); } catch {
+      const ta = document.createElement('textarea');
+      ta.value = _teamLinkUrl;
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    if (copied) { copied.style.display = 'block'; setTimeout(() => { copied.style.display = 'none'; }, 3000); }
+  }
 
   async function respond(action) {
     const btnRefuse = document.getElementById('btn-refuse');
@@ -4504,13 +5046,21 @@ async function registerRoutes(app2) {
       );
     }
     const completeAccountToken = req.params.token;
-    const hasActivationCode = !!payload.invite.data.activationCode;
     const codeAlreadyUsed = payload.invite.data.activationCodeUsed === true;
+    let accountAlreadyExists = false;
+    try {
+      const { getAuth: getAuth2 } = await import("firebase-admin/auth");
+      await getAuth2().getUserByEmail(payload.provider.email);
+      accountAlreadyExists = true;
+    } catch {
+      accountAlreadyExists = false;
+    }
+    const coProName = escapeHtml(payload.copro?.name ?? "la r\xE9sidence");
     const body = `
 <div class="m-container">
   <div class="m-card" style="margin-bottom:20px;">
-    <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">Finaliser mon compte</h1>
-    <p style="color:#64748b;font-size:14px;margin:0;">Vos informations ont d\xE9j\xE0 \xE9t\xE9 enregistr\xE9es. Entrez votre code d\u2019activation et choisissez un mot de passe.</p>
+    <h1 style="font-size:26px;font-weight:800;color:#0f172a;margin:0 0 8px;">${accountAlreadyExists ? "Rejoindre une nouvelle r\xE9sidence" : "Finaliser mon compte"}</h1>
+    <p style="color:#64748b;font-size:14px;margin:0;">${accountAlreadyExists ? `Vous avez d\xE9j\xE0 un compte Maintena. Saisissez votre mot de passe pour rejoindre <strong>${coProName}</strong>.` : "Choisissez un mot de passe pour acc\xE9der \xE0 toutes vos interventions depuis l\u2019application."}</p>
   </div>
 
   ${codeAlreadyUsed ? `
@@ -4518,74 +5068,58 @@ async function registerRoutes(app2) {
     <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:14px;">
       <span style="font-size:24px;">\u2705</span>
       <div>
-        <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Compte d\xE9j\xE0 finalis\xE9</div>
-        <div style="font-size:14px;color:#047857;">Votre mot de passe a d\xE9j\xE0 \xE9t\xE9 d\xE9fini. Connectez-vous directement \xE0 l\u2019application Maintena avec votre email et mot de passe.</div>
+        <div style="font-weight:700;color:#065f46;margin-bottom:4px;">Vous \xEAtes d\xE9j\xE0 rattach\xE9(e)</div>
+        <div style="font-size:14px;color:#047857;">Ce lien a d\xE9j\xE0 \xE9t\xE9 utilis\xE9. Ouvrez l\u2019application Maintena et s\xE9lectionnez la r\xE9sidence ${coProName}.</div>
       </div>
     </div>
   </div>` : `
   <div class="m-card">
-    <label class="m-label">Pr\xE9nom</label>
-    <input class="m-input" value="${escapeHtml(payload.provider.firstName || "")}" disabled />
-
-    <label class="m-label">Nom</label>
-    <input class="m-input" value="${escapeHtml(payload.provider.lastName || "")}" disabled />
-
     <label class="m-label">Email</label>
     <input class="m-input" value="${escapeHtml(payload.provider.email || "")}" disabled />
 
-    ${hasActivationCode ? `
-    <div style="background:#f0fdf4;border:2px solid #6ee7b7;border-radius:12px;padding:16px 18px;margin:18px 0 4px;">
-      <div style="font-size:11px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">\u{1F511} Code d\u2019activation</div>
-      <div style="font-size:13px;color:#047857;margin-bottom:10px;">Reportez le code re\xE7u dans votre email d\u2019invitation (8 caract\xE8res, ex : A7XK2PBM).</div>
-      <label class="m-label" for="activationCode" style="margin-top:0;">Code d\u2019activation *</label>
-      <input class="m-input" id="activationCode" type="text" placeholder="ex : A7XK2PBM" maxlength="8" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;font-size:20px;font-weight:700;font-family:monospace;" />
-    </div>` : ""}
-
-    <label class="m-label" for="password">Mot de passe</label>
+    <label class="m-label" for="password">${accountAlreadyExists ? "Votre mot de passe" : "Choisissez un mot de passe"}</label>
     <input class="m-input" id="password" type="password" placeholder="Au moins 6 caract\xE8res" />
 
-    <button class="m-btn" id="submitBtn">Cr\xE9er mon compte</button>
+    <button class="m-btn" id="submitBtn">${accountAlreadyExists ? "Rejoindre la r\xE9sidence" : "Cr\xE9er mon compte"}</button>
 
-    <div class="m-success" id="success" style="display:none;">Compte cr\xE9\xE9 avec succ\xE8s. Vous pouvez maintenant vous connecter \xE0 l\u2019application.</div>
+    <div class="m-success" id="success" style="display:none;">\u2705 ${accountAlreadyExists ? `Vous \xEAtes maintenant rattach\xE9(e) \xE0 ${coProName}. Ouvrez l\u2019application Maintena pour voir vos interventions.` : "Compte cr\xE9\xE9 avec succ\xE8s ! T\xE9l\xE9chargez l\u2019application Maintena et connectez-vous avec votre email et mot de passe."}</div>
     <div class="m-error" id="error" style="display:none;"></div>
   </div>`}
 </div>
 
 <script>
-  const btn = document.getElementById(\u2018submitBtn\u2019);
-  const success = document.getElementById(\u2018success\u2019);
-  const error = document.getElementById(\u2018error\u2019);
+  var isExistingAccount = ${accountAlreadyExists ? "true" : "false"};
+  var btn = document.getElementById(\u2018submitBtn\u2019);
+  var success = document.getElementById(\u2018success\u2019);
+  var error = document.getElementById(\u2018error\u2019);
 
-  if (btn) btn.addEventListener(\u2018click\u2019, async () => {
+  if (btn) btn.addEventListener(\u2018click\u2019, async function() {
     if (success) success.style.display = \u2018none\u2019;
     if (error) error.style.display = \u2018none\u2019;
-    const password = document.getElementById(\u2018password\u2019) ? document.getElementById(\u2018password\u2019).value : \u2018\u2019;
+    var password = document.getElementById(\u2018password\u2019) ? document.getElementById(\u2018password\u2019).value : \u2018\u2019;
     if (!password || password.length < 6) {
       if (error) { error.textContent = \u2018Le mot de passe doit contenir au moins 6 caract\xE8res.\u2019; error.style.display = \u2018block\u2019; }
       return;
     }
-    const activationCodeEl = document.getElementById(\u2018activationCode\u2019);
-    const activationCode = activationCodeEl ? activationCodeEl.value.trim().toUpperCase() : \u2018\u2019;
-    if (activationCodeEl && !activationCode) {
-      if (error) { error.textContent = \u2018Veuillez entrer votre code d\\\u2019activation (re\xE7u par email).\u2019; error.style.display = \u2018block\u2019; }
-      return;
-    }
     btn.disabled = true;
-    btn.textContent = \u2018Cr\xE9ation en cours...\u2019;
+    btn.textContent = isExistingAccount ? \u2018Connexion en cours...\u2019 : \u2018Cr\xE9ation en cours...\u2019;
+    var route = isExistingAccount
+      ? \u2018/api/public/link-account/${completeAccountToken}\u2019
+      : \u2018/api/public/complete-account/${completeAccountToken}\u2019;
     try {
-      const res = await fetch(\u2018/api/public/complete-account/${completeAccountToken}\u2019, {
+      var res = await fetch(route, {
         method: \u2018POST\u2019,
         headers: { \u2018Content-Type\u2019: \u2018application/json\u2019 },
-        body: JSON.stringify({ password, activationCode: activationCode || undefined }),
+        body: JSON.stringify({ password }),
       });
-      const data = await res.json();
+      var data = await res.json();
       if (!res.ok) throw new Error(data.error || \u2018Erreur\u2019);
       if (success) success.style.display = \u2018block\u2019;
       btn.style.display = \u2018none\u2019;
     } catch (e) {
-      if (error) { error.textContent = e.message || \u2018Erreur cr\xE9ation compte\u2019; error.style.display = \u2018block\u2019; }
+      if (error) { error.textContent = e.message || \u2018Erreur\u2019; error.style.display = \u2018block\u2019; }
       btn.disabled = false;
-      btn.textContent = \u2018Cr\xE9er mon compte\u2019;
+      btn.textContent = isExistingAccount ? \u2018Rejoindre la r\xE9sidence\u2019 : \u2018Cr\xE9er mon compte\u2019;
     }
   });
 </script>`;
@@ -6980,6 +7514,111 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       console.error("[rental-pdf] Erreur:", e?.message ?? e);
     }
   }
+  app2.post("/api/cron/cleanup-photos", async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const authHeader = req.headers.authorization ?? "";
+    if (secret && authHeader !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autoris\xE9." });
+    }
+    const db2 = getAdminDb();
+    const bucket = getAdminStorage();
+    if (!db2 || !bucket) return res.status(503).json({ error: "Services indisponibles." });
+    const cutoff = new Date(Date.now() - 15 * 24 * 60 * 60 * 1e3).toISOString();
+    const bucketName = process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "maintena-3a544.firebasestorage.app";
+    function extractStoragePath(url) {
+      try {
+        const match = url.match(/\/o\/([^?#]+)/);
+        if (!match) return null;
+        return decodeURIComponent(match[1]);
+      } catch {
+        return null;
+      }
+    }
+    let deletedFiles = 0;
+    let clearedInterventions = 0;
+    let errors = 0;
+    try {
+      const snap = await db2.collectionGroup("interventions").where("guestUpdatedAt", "<", cutoff).select("completionPhotos", "guestUpdatedAt").get();
+      for (const doc of snap.docs) {
+        const photos = doc.data().completionPhotos ?? [];
+        if (photos.length === 0) continue;
+        for (const url of photos) {
+          const storagePath = extractStoragePath(url);
+          if (!storagePath) continue;
+          try {
+            await bucket.file(storagePath).delete({ ignoreNotFound: true });
+            deletedFiles++;
+          } catch {
+            errors++;
+          }
+        }
+        try {
+          await doc.ref.update({ completionPhotos: [] });
+          clearedInterventions++;
+        } catch {
+          errors++;
+        }
+      }
+      console.log(`[cleanup-photos] Supprim\xE9 ${deletedFiles} fichiers sur ${clearedInterventions} interventions (${errors} erreurs)`);
+      return res.json({ deletedFiles, clearedInterventions, errors });
+    } catch (e) {
+      console.error("[cleanup-photos] Erreur:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+  app2.post("/api/cron/send-team-links", async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const auth = req.headers["authorization"];
+    if (!secret || auth !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autoris\xE9" });
+    }
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9" });
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    let sent = 0, skipped = 0;
+    try {
+      const snap = await db2.collection("teamInterventionLinks").where("employeeEmail", "!=", null).get();
+      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+      const { sendEmail } = await import("./email.js");
+      for (const doc of snap.docs) {
+        const link = doc.data();
+        if (!link.employeeEmail || !link.interventionDate) {
+          skipped++;
+          continue;
+        }
+        const ivDate = String(link.interventionDate).split("T")[0];
+        if (ivDate !== today) {
+          skipped++;
+          continue;
+        }
+        const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
+        await sendEmail({
+          to: link.employeeEmail,
+          subject: `\u{1F4CB} Rappel passage aujourd'hui \u2014 ${link.interventionTitle ?? "Intervention"}`,
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+              <h2 style="color:#0B1628;">Rappel d'intervention</h2>
+              <p style="color:#475569;">
+                Bonjour,<br><br>
+                Vous avez une intervention pr\xE9vue <strong>aujourd'hui</strong> :
+                <strong>${link.interventionTitle ?? ""}</strong> \u2014 ${link.coProName ?? ""}.<br><br>
+                D\xE9clarez votre passage une fois votre travail effectu\xE9 :
+              </p>
+              <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
+                D\xE9clarer mon passage
+              </a>
+            </div>
+          `
+        }).catch((e) => console.warn(`[team-links-cron] email error ${link.employeeEmail}:`, e));
+        sent++;
+      }
+      console.log(`[send-team-links] Envoy\xE9 ${sent}, ignor\xE9 ${skipped}`);
+      return res.json({ sent, skipped });
+    } catch (e) {
+      console.error("[send-team-links] Erreur:", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/", (_req, res) => {
     const landingPath = path.resolve(process.cwd(), "public", "landing-page.html");
     if (fs.existsSync(landingPath)) return res.sendFile(landingPath);

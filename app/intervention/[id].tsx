@@ -839,8 +839,17 @@ export default function InterventionDetailScreen() {
     }
   };
 
-  const handleTeamLink = async () => {
+  const [teamLinkModalVisible, setTeamLinkModalVisible] = useState(false);
+  const [teamLinkEmail, setTeamLinkEmail] = useState("");
+
+  const handleTeamLink = () => {
+    setTeamLinkEmail("");
+    setTeamLinkModalVisible(true);
+  };
+
+  const handleTeamLinkConfirm = async () => {
     if (!currentCopro?.id || !intervention) return;
+    setTeamLinkModalVisible(false);
     try {
       setIsGeneratingTeamLink(true);
       const res = await apiRequest("POST", "/api/team-link", {
@@ -848,7 +857,9 @@ export default function InterventionDetailScreen() {
         coProName: currentCopro.name,
         interventionId: intervention.id,
         interventionTitle: intervention.title,
+        interventionDate: intervention.date,
         companyName: (intervention as any).assignedToName ?? "",
+        ...(teamLinkEmail.trim() ? { employeeEmail: teamLinkEmail.trim() } : {}),
       });
       const data = (await res.json()) as { url: string };
       const msg = `🔧 Lien d'accès — ${intervention.title}\n\nChaque employé peut déclarer son passage via ce lien :\n${data.url}`;
@@ -1615,6 +1626,42 @@ export default function InterventionDetailScreen() {
             )}
           </View>
         )}
+
+        {/* Modal email lien équipe */}
+        <Modal
+          visible={teamLinkModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setTeamLinkModalVisible(false)}
+        >
+          <View style={styles.teamLinkOverlay}>
+            <View style={styles.teamLinkModal}>
+              <Text style={styles.teamLinkTitle}>Lien équipe</Text>
+              <Text style={styles.teamLinkHint}>
+                Email de l'employé (optionnel){"\n"}
+                Le lien lui sera envoyé automatiquement chaque jour d'intervention.
+              </Text>
+              <TextInput
+                style={styles.teamLinkInput}
+                value={teamLinkEmail}
+                onChangeText={setTeamLinkEmail}
+                placeholder="employe@societe.fr"
+                placeholderTextColor={COLORS.textMuted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+                <Pressable style={styles.teamLinkCancel} onPress={() => setTeamLinkModalVisible(false)}>
+                  <Text style={styles.teamLinkCancelText}>Annuler</Text>
+                </Pressable>
+                <Pressable style={styles.teamLinkConfirm} onPress={handleTeamLinkConfirm}>
+                  <Text style={styles.teamLinkConfirmText}>Générer le lien</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Modal carnet d'entretien */}
         <Modal
@@ -2709,4 +2756,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary, alignItems: "center",
   },
   carnetCreateSaveText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  teamLinkOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 24 },
+  teamLinkModal: { backgroundColor: COLORS.background, borderRadius: 16, padding: 20, width: "100%" },
+  teamLinkTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text, marginBottom: 8 },
+  teamLinkHint: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 14, lineHeight: 18 },
+  teamLinkInput: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, backgroundColor: COLORS.card },
+  teamLinkCancel: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: "center" as const },
+  teamLinkCancelText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  teamLinkConfirm: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.primary, alignItems: "center" as const },
+  teamLinkConfirmText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

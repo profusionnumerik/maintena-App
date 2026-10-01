@@ -5272,9 +5272,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Lien équipe : génération ────────────────────────────────────────────────
   // Crée un lien réutilisable par tous les salariés d'une société prestataire
   app.post("/api/team-link", async (req: Request, res: Response) => {
-    const { coProId, coProName, interventionId, interventionTitle, companyName } = req.body as {
+    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, interventionDate } = req.body as {
       coProId?: string; coProName?: string;
       interventionId?: string; interventionTitle?: string; companyName?: string;
+      employeeEmail?: string; interventionDate?: string;
     };
     if (!coProId || !interventionId || !companyName) {
       return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
@@ -5283,31 +5284,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!db) return res.status(503).json({ error: "Firebase non configuré." });
 
     try {
+      const baseUrl = getBaseUrl(req);
+
       // Vérifie qu'un lien équipe n'existe pas déjà pour cette intervention
       const existing = await db.collection("teamInterventionLinks")
         .where("interventionId", "==", interventionId)
         .where("coProId", "==", coProId)
         .limit(1).get();
 
+      let token: string;
       if (!existing.empty) {
-        const doc = existing.docs[0];
-        const existingToken = doc.data().token as string;
-        const baseUrl = getBaseUrl(req);
-        return res.json({ url: `${baseUrl}/team-intervention/${existingToken}`, existing: true });
+        token = existing.docs[0].data().token as string;
+        // Met à jour l'email si fourni
+        if (employeeEmail?.trim()) {
+          await existing.docs[0].ref.update({ employeeEmail: employeeEmail.trim(), interventionDate: interventionDate ?? null });
+        }
+      } else {
+        token = generateGuestToken();
+        await db.collection("teamInterventionLinks").add({
+          token,
+          coProId,
+          coProName: coProName ?? "",
+          interventionId,
+          interventionTitle: interventionTitle ?? "",
+          companyName,
+          employeeEmail: employeeEmail?.trim() ?? null,
+          interventionDate: interventionDate ?? null,
+          createdAt: new Date().toISOString(),
+        });
       }
 
-      const token = generateGuestToken();
-      const baseUrl = getBaseUrl(req);
-      await db.collection("teamInterventionLinks").add({
-        token,
-        coProId,
-        coProName: coProName ?? "",
-        interventionId,
-        interventionTitle: interventionTitle ?? "",
-        companyName,
-        createdAt: new Date().toISOString(),
-      });
-      return res.json({ url: `${baseUrl}/team-intervention/${token}` });
+      const linkUrl = `${baseUrl}/team-intervention/${token}`;
+
+      // Envoyer l'email immédiatement si email fourni
+      if (employeeEmail?.trim()) {
+        const { sendEmail } = await import("./email.js");
+        await sendEmail({
+          to: employeeEmail.trim(),
+          subject: `🔧 Lien d'intervention — ${interventionTitle ?? "Maintena"}`,
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+              <h2 style="color:#0B1628;margin-bottom:8px;">Lien d'intervention</h2>
+              <p style="color:#475569;margin-bottom:16px;">
+                Bonjour,<br><br>
+                Voici votre lien pour déclarer vos passages sur l'intervention
+                <strong>${interventionTitle ?? ""}</strong>
+                (${coProName ?? ""}).
+              </p>
+              <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
+                Accéder au formulaire
+              </a>
+              <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
+                Ce lien reste valable tout au long de l'intervention.
+              </p>
+            </div>
+          `,
+        }).catch((e: any) => console.warn("[team-link] email error:", e));
+      }
+
+      return res.json({ url: linkUrl, existing: !existing.empty });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
     }
@@ -5365,9 +5400,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      await db.collection("copros").doc(link.coProId)
-        .collection("interventions").doc(link.interventionId)
-        .collection("passages").add({
+      const interventionRef = db.collection("copros").doc(link.coProId)
+        .collection("interventions").doc(link.interventionId);
+
+      await interventionRef.collection("passages").add({
           employeeName: employeeName.trim(),
           companyName: link.companyName,
           description: description?.trim() ?? "",
@@ -5376,6 +5412,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           token,
           ...(photoUrl ? { photos: [photoUrl] } : {}),
         });
+
+      // Mise à jour de l'intervention principale pour que l'app voie l'activité
+      const interventionSnap = await interventionRef.get();
+      if (interventionSnap.exists) {
+        const ivData = interventionSnap.data() ?? {};
+        const updatePayload: Record<string, any> = {
+          guestUpdatedAt: new Date().toISOString(),
+        };
+        // Passer en "en_cours" si encore planifié
+        if (ivData.status === "planifie") updatePayload.status = "en_cours";
+        // Accumuler les photos de preuve
+        if (photoUrl) {
+          updatePayload.completionPhotos = FieldValue.arrayUnion(photoUrl);
+        }
+        // Accumuler les rapports (séparés par des lignes)
+        const passageLine = `[${employeeName.trim()}] ${description?.trim() ?? ""}`.trimEnd();
+        if (ivData.interventionReport) {
+          updatePayload.interventionReport = ivData.interventionReport + "\n" + passageLine;
+        } else {
+          updatePayload.interventionReport = passageLine;
+        }
+        await interventionRef.update(updatePayload);
+      }
 
       // Notifie l'admin
       sendPushToAdmins(link.coProId,
@@ -8774,6 +8833,64 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     } catch (e: any) {
       console.error("[cleanup-photos] Erreur:", e);
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
+    }
+  });
+
+  // ─── Cron : envoi quotidien du lien équipe le jour d'intervention ────────────
+  app.post("/api/cron/send-team-links", async (req: Request, res: Response) => {
+    const secret = process.env.CRON_SECRET;
+    const auth = req.headers["authorization"];
+    if (!secret || auth !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré" });
+
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    let sent = 0, skipped = 0;
+
+    try {
+      // Tous les liens équipe avec un email et une date d'intervention = aujourd'hui
+      const snap = await db.collection("teamInterventionLinks")
+        .where("employeeEmail", "!=", null)
+        .get();
+
+      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+      const { sendEmail } = await import("./email.js");
+
+      for (const doc of snap.docs) {
+        const link = doc.data();
+        if (!link.employeeEmail || !link.interventionDate) { skipped++; continue; }
+        const ivDate = String(link.interventionDate).split("T")[0];
+        if (ivDate !== today) { skipped++; continue; }
+
+        const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
+        await sendEmail({
+          to: link.employeeEmail,
+          subject: `📋 Rappel passage aujourd'hui — ${link.interventionTitle ?? "Intervention"}`,
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+              <h2 style="color:#0B1628;">Rappel d'intervention</h2>
+              <p style="color:#475569;">
+                Bonjour,<br><br>
+                Vous avez une intervention prévue <strong>aujourd'hui</strong> :
+                <strong>${link.interventionTitle ?? ""}</strong> — ${link.coProName ?? ""}.<br><br>
+                Déclarez votre passage une fois votre travail effectué :
+              </p>
+              <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
+                Déclarer mon passage
+              </a>
+            </div>
+          `,
+        }).catch((e: any) => console.warn(`[team-links-cron] email error ${link.employeeEmail}:`, e));
+        sent++;
+      }
+
+      console.log(`[send-team-links] Envoyé ${sent}, ignoré ${skipped}`);
+      return res.json({ sent, skipped });
+    } catch (e: any) {
+      console.error("[send-team-links] Erreur:", e);
+      return res.status(500).json({ error: e.message });
     }
   });
 
