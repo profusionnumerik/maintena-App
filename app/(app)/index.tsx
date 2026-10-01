@@ -140,7 +140,7 @@ function CoproCard({
   );
 }
 
-function InterventionRow({ item, onPress }: { item: Intervention; onPress: () => void }) {
+function InterventionRow({ item, onPress, showCoProName }: { item: Intervention; onPress: () => void; showCoProName?: boolean }) {
   const sc = STATUS_CONFIG[item.status] ?? { dot: COLORS.textMuted, bg: COLORS.border, text: COLORS.textMuted };
   const catIcon = (CATEGORY_ICONS[item.category] ?? "construct") as any;
   const catColors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
@@ -162,6 +162,14 @@ function InterventionRow({ item, onPress }: { item: Intervention; onPress: () =>
         <Ionicons name={catIcon} size={16} color={catColors.text} />
       </View>
       <View style={styles.rowContent}>
+        {showCoProName && item.coProName ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3 }}>
+            <Ionicons name="business-outline" size={10} color={COLORS.primary} />
+            <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: COLORS.primary }} numberOfLines={1}>
+              {item.coProName}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.rowTop}>
           <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
           <View style={[styles.rowStatusBadge, { backgroundColor: sc.bg }]}>
@@ -394,7 +402,10 @@ export default function HomeScreen() {
               return (
                 <Pressable
                   key={c.id}
-                  onPress={() => switchCoPro(c.id)}
+                  onPress={() => {
+                    switchCoPro(c.id);
+                    router.push("/(app)/interventions");
+                  }}
                   style={[styles.coproPill, active && styles.coproPillActive]}
                 >
                   <Text style={[styles.coproPillText, active && styles.coproPillTextActive]} numberOfLines={1}>
@@ -470,7 +481,7 @@ export default function HomeScreen() {
         data={recent}
         keyExtractor={(i: Intervention) => i.id}
         renderItem={({ item }: { item: Intervention }) => (
-          <InterventionRow item={item} onPress={() => router.push(`/intervention/${item.id}`)} />
+          <InterventionRow item={item} onPress={() => router.push(`/intervention/${item.id}`)} showCoProName={copros.length > 1} />
         )}
         ListHeaderComponent={dashHeader}
         ListEmptyComponent={

@@ -369,7 +369,7 @@ function RootLayoutNav() {
       if (!inBlocked) router.replace("/(blocked)");
       return;
     }
-    if (!inApp && !inModal && !inCreateCopro && !inLegal) {
+    if (!inApp && !inModal && !inCreateCopro && !inLegal && !inOnboarding) {
       router.replace("/(app)");
     }
   }, [
