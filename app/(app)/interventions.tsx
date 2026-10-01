@@ -12,7 +12,8 @@ import { COLORS } from "@/constants/colors";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, writeBatch } from "firebase/firestore";
 import {
   ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS,
   Intervention, Status, STATUS_LABELS,
@@ -275,8 +276,8 @@ function InterventionCard({ item, onPress, compact, showCoProName, isTomorrow }:
 // ── Status section header ─────────────────────────────────────────────────────
 
 function StatusSectionHeader({
-  status, total, isOpen, onToggle,
-}: { status: Status; total: number; isOpen: boolean; onToggle: () => void }) {
+  status, total, isOpen, onToggle, onArchive,
+}: { status: Status; total: number; isOpen: boolean; onToggle: () => void; onArchive?: () => void }) {
   const cfg = STATUS_CONFIG[status];
   return (
     <Pressable
@@ -290,7 +291,19 @@ function StatusSectionHeader({
           <Text style={[styles.sectionCountText, { color: cfg.text }]}>{total}</Text>
         </View>
       </View>
-      <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={cfg.text} />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {onArchive && status === "termine" && (
+          <Pressable
+            style={styles.archiveBtn}
+            onPress={(e) => { e.stopPropagation?.(); Haptics.selectionAsync(); onArchive(); }}
+            hitSlop={8}
+          >
+            <Ionicons name="archive-outline" size={13} color={cfg.text} />
+            <Text style={[styles.archiveBtnText, { color: cfg.text }]}>Archiver</Text>
+          </Pressable>
+        )}
+        <Ionicons name={isOpen ? "chevron-up" : "chevron-down"} size={16} color={cfg.text} />
+      </View>
     </Pressable>
   );
 }
@@ -404,6 +417,7 @@ export default function InterventionsScreen() {
   const [openStatuses,    setOpenStatuses]    = useState<Set<Status>>(() => new Set<Status>(["planifie", "en_cours"]));
   const [openGroups,      setOpenGroups]      = useState<Set<string>>(new Set<string>());
   const [sendingReminder, setSendingReminder] = useState<string | null>(null); // groupId en cours
+  const [showArchived,    setShowArchived]    = useState(false);
 
   // Navigation depuis l'accueil : tab=maintenances|interventions, status=planifie|en_cours|termine
   useEffect(() => {
@@ -473,11 +487,11 @@ export default function InterventionsScreen() {
   const hasMore      = enabledCategories.length > VISIBLE_CHIPS;
   const selectedLabel = catFilter === "all" ? "Tout" : CATEGORY_LABELS[catFilter as Category];
 
-  // Base filter (search + category + copro courante)
+  // Base filter (search + category + copro courante + archives)
   const filtered = useMemo(() => {
     return interventions.filter((i) => {
-      // Toujours afficher uniquement la copro sélectionnée
       if (currentCopro && i.coProId && i.coProId !== currentCopro.id) return false;
+      if (!showArchived && i.archived) return false;
       const matchCat = catFilter === "all" || i.category === catFilter;
       const q = search.toLowerCase();
       const matchSearch =
@@ -487,7 +501,11 @@ export default function InterventionsScreen() {
         (i.description ?? "").toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [interventions, search, catFilter, currentCopro?.id]);
+  }, [interventions, search, catFilter, currentCopro?.id, showArchived]);
+
+  const archivedCount = useMemo(() => (
+    interventions.filter(i => i.archived && (!currentCopro || i.coProId === currentCopro.id)).length
+  ), [interventions, currentCopro?.id]);
 
   // Maintenances tab: items belonging to a recurrence group
   const maintenanceItems = useMemo(() => filtered.filter(i => !!i.recurrenceGroupId), [filtered]);
@@ -499,6 +517,33 @@ export default function InterventionsScreen() {
     if (!isPrestataire) return base;
     return base.filter(i => i.status === "termine" || i.date <= tomorrowStr);
   }, [filtered, isPrestataire, tomorrowStr]);
+
+  const handleArchiveTermine = useCallback(() => {
+    const toArchive = interventionItems.filter(i => i.status === "termine" && !i.archived);
+    if (toArchive.length === 0) { wa("Rien à archiver", "Toutes les interventions terminées sont déjà archivées."); return; }
+    wConfirm(
+      "Archiver les interventions terminées ?",
+      `${toArchive.length} intervention${toArchive.length > 1 ? "s" : ""} seront archivées et masquées de la liste principale.\nElles restent accessibles via "Voir les archives".`,
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          const now = new Date().toISOString();
+          for (const iv of toArchive) {
+            const coProId = iv.coProId ?? currentCopro?.id;
+            if (!coProId) continue;
+            batch.update(doc(db, "copros", coProId, "interventions", iv.id), { archived: true, archivedAt: now });
+          }
+          await batch.commit();
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          wa("Archivées ✓", `${toArchive.length} intervention${toArchive.length > 1 ? "s" : ""} archivée${toArchive.length > 1 ? "s" : ""}.`);
+        } catch {
+          wa("Erreur", "Impossible d'archiver. Vérifiez votre connexion.");
+        }
+      },
+      "Archiver",
+      false,
+    );
+  }, [interventionItems, currentCopro]);
 
   // Build maintenance group summaries
   const maintenanceGroups = useMemo<MaintenanceGroup[]>(() => {
@@ -578,6 +623,7 @@ export default function InterventionsScreen() {
           total={item.total}
           isOpen={openStatuses.has(item.status)}
           onToggle={() => toggleStatus(item.status)}
+          onArchive={canAdd ? handleArchiveTermine : undefined}
         />
       );
     }
@@ -609,7 +655,7 @@ export default function InterventionsScreen() {
         />
       </View>
     );
-  }, [openStatuses, openGroups, toggleStatus, router, isPrestataire, tomorrowStr]);
+  }, [openStatuses, openGroups, toggleStatus, router, isPrestataire, tomorrowStr, canAdd, handleArchiveTermine]);
 
   // ── Shared search bar ──────────────────────────────────────────────────────
 
@@ -830,6 +876,17 @@ export default function InterventionsScreen() {
                 </Pressable>
               )}
             </View>
+          ) : null}
+          ListFooterComponent={archivedCount > 0 ? (
+            <Pressable
+              style={styles.archiveToggleBtn}
+              onPress={() => setShowArchived(v => !v)}
+            >
+              <Ionicons name={showArchived ? "eye-off-outline" : "archive-outline"} size={14} color={COLORS.textMuted} />
+              <Text style={styles.archiveToggleText}>
+                {showArchived ? "Masquer les archives" : `Voir les archives (${archivedCount})`}
+              </Text>
+            </Pressable>
           ) : null}
           contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 80 }]}
           refreshControl={<RefreshControl refreshing={isLoading} tintColor={COLORS.primary} />}
@@ -1075,6 +1132,19 @@ const styles = StyleSheet.create({
   },
   bannerPurple: { backgroundColor: "rgba(124,58,237,0.07)" },
   bannerText: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.primary, flex: 1 },
+
+  archiveBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: "rgba(0,0,0,0.06)", borderRadius: 8,
+  },
+  archiveBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
+  archiveToggleBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 20, marginTop: 16, marginBottom: 8,
+    justifyContent: "center",
+  },
+  archiveToggleText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 
   listContent: { paddingTop: 4, flexGrow: 1 },
 

@@ -340,6 +340,9 @@ export interface Intervention {
     email?: string;
     phone?: string;
   };
+
+  archived?: boolean;
+  archivedAt?: string;
 }
 
 export const CATEGORY_LABELS: Record<Category, string> = {
