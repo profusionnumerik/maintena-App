@@ -473,9 +473,11 @@ export default function InterventionsScreen() {
   const hasMore      = enabledCategories.length > VISIBLE_CHIPS;
   const selectedLabel = catFilter === "all" ? "Tout" : CATEGORY_LABELS[catFilter as Category];
 
-  // Base filter (search + category)
+  // Base filter (search + category + copro courante)
   const filtered = useMemo(() => {
     return interventions.filter((i) => {
+      // Toujours afficher uniquement la copro sélectionnée
+      if (currentCopro && i.coProId && i.coProId !== currentCopro.id) return false;
       const matchCat = catFilter === "all" || i.category === catFilter;
       const q = search.toLowerCase();
       const matchSearch =
@@ -485,7 +487,7 @@ export default function InterventionsScreen() {
         (i.description ?? "").toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [interventions, search, catFilter]);
+  }, [interventions, search, catFilter, currentCopro?.id]);
 
   // Maintenances tab: items belonging to a recurrence group
   const maintenanceItems = useMemo(() => filtered.filter(i => !!i.recurrenceGroupId), [filtered]);
