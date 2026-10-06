@@ -21,7 +21,7 @@ import {
   Category, CATEGORY_LABELS, ALL_CATEGORIES,
   ProviderContact, DemandeDevis,
 } from "@/shared/types";
-import { addDoc, collection, getDocs, doc, updateDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, getDocs, doc, updateDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getApiUrl } from "@/lib/query-client";
 
@@ -492,7 +492,9 @@ export default function AlertsScreen() {
     id: string; sentAt: string; title: string;
     providerName: string; providerEmail: string;
     adminName: string; interventionId: string;
+    archived?: boolean;
   }>>([]);
+  const [showArchivedRappels, setShowArchivedRappels] = useState(false);
   useEffect(() => {
     if (!currentCopro?.id || (!isAdmin && !isConseil)) return;
     const q = query(
@@ -504,6 +506,26 @@ export default function AlertsScreen() {
     }, (err) => console.error("[reminderLogs]", err.code, err.message));
     return unsub;
   }, [currentCopro?.id, isAdmin, isConseil]);
+
+  const handleArchiveReminder = (id: string) => {
+    if (!currentCopro?.id) return;
+    updateDoc(doc(db, "copros", currentCopro.id, "reminderLogs", id), { archived: true }).catch(() => {});
+  };
+  const handleUnarchiveReminder = (id: string) => {
+    if (!currentCopro?.id) return;
+    updateDoc(doc(db, "copros", currentCopro.id, "reminderLogs", id), { archived: false }).catch(() => {});
+  };
+  const handleDeleteReminder = (id: string) => {
+    if (!currentCopro?.id) return;
+    wConfirm(
+      "Supprimer ce rappel ?",
+      "Cette action est irréversible.",
+      () => deleteDoc(doc(db, "copros", currentCopro.id, "reminderLogs", id)).catch(() => {}),
+      "Supprimer",
+      true,
+    );
+  };
+
   const [signalModalVisible, setSignalModalVisible] = useState(false);
   const [annoModalVisible, setAnnoModalVisible] = useState(false);
   const [togglingEmail, setTogglingEmail] = useState(false);
@@ -916,9 +938,9 @@ export default function AlertsScreen() {
           <Text style={[styles.tabBtnText, activeTab === "rappels" && styles.tabBtnTextActive]}>
             Rappels
           </Text>
-          {reminderLogs.length > 0 && (
+          {reminderLogs.filter((r) => !r.archived).length > 0 && (
             <View style={[styles.tabBadge, { backgroundColor: "#EF4444" }]}>
-              <Text style={styles.tabBadgeText}>{reminderLogs.length}</Text>
+              <Text style={styles.tabBadgeText}>{reminderLogs.filter((r) => !r.archived).length}</Text>
             </View>
           )}
         </Pressable>
@@ -990,51 +1012,100 @@ export default function AlertsScreen() {
     </View>
   );
 
+  const visibleReminderLogs = reminderLogs.filter((r) =>
+    showArchivedRappels ? r.archived === true : !r.archived
+  );
+  const archivedCount = reminderLogs.filter((r) => r.archived).length;
+
   const rappelsContent = (
     <ScrollView
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
     >
-      {reminderLogs.length === 0 ? (
+      {/* Barre filtre archivés */}
+      {(reminderLogs.length > 0 || showArchivedRappels) && (
+        <Pressable
+          style={styles.rappelsFilterRow}
+          onPress={() => setShowArchivedRappels((v) => !v)}
+        >
+          <Ionicons
+            name={showArchivedRappels ? "eye-off-outline" : "archive-outline"}
+            size={13} color={COLORS.textMuted}
+          />
+          <Text style={styles.rappelsFilterText}>
+            {showArchivedRappels
+              ? "Afficher les actifs"
+              : `Archivés${archivedCount > 0 ? ` (${archivedCount})` : ""}`}
+          </Text>
+        </Pressable>
+      )}
+
+      {visibleReminderLogs.length === 0 ? (
         <View style={styles.emptyWrap}>
-          <Ionicons name="mail-outline" size={42} color={COLORS.textMuted} />
-          <Text style={styles.emptyTitle}>Aucun rappel envoyé</Text>
+          <Ionicons name={showArchivedRappels ? "archive-outline" : "mail-outline"} size={42} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>
+            {showArchivedRappels ? "Aucun rappel archivé" : "Aucun rappel envoyé"}
+          </Text>
           <Text style={styles.emptyDesc}>
-            Les rappels envoyés aux prestataires apparaîtront ici avec la date et l'heure d'envoi.
+            {showArchivedRappels
+              ? "Les rappels archivés apparaîtront ici."
+              : "Les rappels envoyés aux prestataires apparaîtront ici avec la date et l'heure d'envoi."}
           </Text>
         </View>
       ) : (
         <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
-          {reminderLogs.map((r) => (
-            <Pressable
-              key={r.id}
-              style={({ pressed }) => [styles.reminderLogCard, pressed && { opacity: 0.85 }]}
-              onPress={() => router.push(`/intervention/${r.interventionId}` as any)}
-            >
-              <View style={styles.reminderLogIcon}>
-                <Ionicons name="warning-outline" size={18} color="#EF4444" />
-              </View>
-              <View style={{ flex: 1, gap: 3 }}>
-                <Text style={styles.reminderLogTitle} numberOfLines={1}>{r.title}</Text>
-                <Text style={styles.reminderLogPrest} numberOfLines={1}>
-                  {r.providerName || r.providerEmail}
-                  {r.providerEmail ? ` · ${r.providerEmail}` : ""}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
-                  <Ionicons name="time-outline" size={11} color={COLORS.textMuted} />
-                  <Text style={styles.reminderLogDate}>
-                    {new Date(r.sentAt).toLocaleDateString("fr-FR", {
-                      day: "2-digit", month: "short", year: "numeric",
-                      hour: "2-digit", minute: "2-digit",
-                    })}
-                  </Text>
-                  {r.adminName ? (
-                    <Text style={styles.reminderLogBy}>· par {r.adminName}</Text>
-                  ) : null}
+          {visibleReminderLogs.map((r) => (
+            <View key={r.id} style={styles.reminderLogCard}>
+              <Pressable
+                style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}
+                onPress={() => r.interventionId && router.push(`/intervention/${r.interventionId}` as any)}
+              >
+                <View style={styles.reminderLogIcon}>
+                  <Ionicons name="warning-outline" size={18} color={r.archived ? COLORS.textMuted : "#EF4444"} />
                 </View>
+                <View style={{ flex: 1, gap: 3 }}>
+                  <Text style={[styles.reminderLogTitle, r.archived && { color: COLORS.textMuted }]} numberOfLines={1}>
+                    {r.title}
+                  </Text>
+                  <Text style={styles.reminderLogPrest} numberOfLines={1}>
+                    {r.providerName || r.providerEmail}
+                    {r.providerEmail ? ` · ${r.providerEmail}` : ""}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    <Ionicons name="time-outline" size={11} color={COLORS.textMuted} />
+                    <Text style={styles.reminderLogDate}>
+                      {new Date(r.sentAt).toLocaleDateString("fr-FR", {
+                        day: "2-digit", month: "short", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </Text>
+                    {r.adminName ? (
+                      <Text style={styles.reminderLogBy}>· par {r.adminName}</Text>
+                    ) : null}
+                  </View>
+                </View>
+              </Pressable>
+              {/* Actions */}
+              <View style={styles.reminderLogActions}>
+                <Pressable
+                  onPress={() => r.archived ? handleUnarchiveReminder(r.id) : handleArchiveReminder(r.id)}
+                  style={({ pressed }) => [styles.reminderLogActionBtn, pressed && { opacity: 0.6 }]}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={r.archived ? "arrow-undo-outline" : "archive-outline"}
+                    size={16} color={COLORS.textMuted}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() => handleDeleteReminder(r.id)}
+                  style={({ pressed }) => [styles.reminderLogActionBtn, pressed && { opacity: 0.6 }]}
+                  hitSlop={8}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                </Pressable>
               </View>
-              <Ionicons name="chevron-forward" size={14} color={COLORS.border} />
-            </Pressable>
+            </View>
           ))}
         </View>
       )}
@@ -1522,4 +1593,29 @@ const styles = StyleSheet.create({
   annoTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
   annoMessage: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, lineHeight: 20 },
   annoExpiry: { fontSize: 11, fontFamily: "Inter_500Medium", color: COLORS.textMuted, marginTop: 2 },
+
+  rappelsFilterRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 20, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  rappelsFilterText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+
+  reminderLogCard: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: COLORS.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 12, paddingLeft: 12, paddingRight: 8,
+  },
+  reminderLogIcon: {
+    width: 34, height: 34, borderRadius: 10,
+    backgroundColor: "rgba(239,68,68,0.08)",
+    alignItems: "center", justifyContent: "center",
+  },
+  reminderLogTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  reminderLogPrest: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  reminderLogDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  reminderLogBy: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  reminderLogActions: { flexDirection: "row", alignItems: "center", gap: 4 },
+  reminderLogActionBtn: { padding: 6, borderRadius: 8 },
 });

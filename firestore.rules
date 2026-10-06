@@ -171,7 +171,8 @@ service cloud.firestore {
       match /reminderLogs/{reminderId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isMember(coProId);
-        allow update, delete: if false;
+        allow update: if isSignedIn() && isCoProAdmin(coProId);
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /polls/{pollId} {
