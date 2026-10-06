@@ -472,6 +472,8 @@ export default function InterventionsScreen() {
               interventionId: group.nextItemId,
               providerEmail: group.providerEmail,
               providerName: group.providerName ?? "",
+              adminEmail: currentUser.email ?? "",
+              adminName: currentUser.displayName ?? currentUser.email ?? "Admin",
               coProName: currentCopro.name,
               title: group.title,
               nextDate: group.nextDueDate,

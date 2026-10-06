@@ -4218,10 +4218,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/remind-maintenance", async (req: Request, res: Response) => {
     const {
       coProId, interventionId, providerEmail, providerName,
-      coProName, title, nextDate, category,
+      coProName, title, nextDate, category, adminEmail, adminName,
     } = req.body as {
       coProId?: string; interventionId?: string; providerEmail?: string; providerName?: string;
       coProName?: string; title?: string; nextDate?: string; category?: string;
+      adminEmail?: string; adminName?: string;
     };
 
     if (!providerEmail || !coProName || !title) {
@@ -4337,6 +4338,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subject: `⏰ Rappel – Maintenance à venir · ${escapeHtml(title)} · ${coProName}`,
         html: htmlBody,
       });
+      // Log du rappel dans Firestore
+      if (db && coProId && interventionId) {
+        try {
+          await db.collection("copros").doc(coProId)
+            .collection("reminderLogs").add({
+              sentAt: new Date().toISOString(),
+              providerEmail, providerName: providerName ?? "",
+              adminEmail: adminEmail ?? "", adminName: adminName ?? "",
+              interventionId, coProId, title,
+            });
+        } catch (e) {
+          console.warn("[remind-maintenance] log failed:", e);
+        }
+      }
       return res.json({ sent: true });
     } catch (e: any) {
       console.error("remind-maintenance error:", e);

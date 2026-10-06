@@ -3584,7 +3584,9 @@ async function registerRoutes(app2) {
       coProName,
       title,
       nextDate,
-      category
+      category,
+      adminEmail,
+      adminName
     } = req.body;
     if (!providerEmail || !coProName || !title) {
       return res.status(400).json({ error: "Param\xE8tres manquants." });
@@ -3697,6 +3699,22 @@ async function registerRoutes(app2) {
         subject: `\u23F0 Rappel \u2013 Maintenance \xE0 venir \xB7 ${escapeHtml(title)} \xB7 ${coProName}`,
         html: htmlBody
       });
+      if (db2 && coProId && interventionId) {
+        try {
+          await db2.collection("copros").doc(coProId).collection("reminderLogs").add({
+            sentAt: (/* @__PURE__ */ new Date()).toISOString(),
+            providerEmail,
+            providerName: providerName ?? "",
+            adminEmail: adminEmail ?? "",
+            adminName: adminName ?? "",
+            interventionId,
+            coProId,
+            title
+          });
+        } catch (e) {
+          console.warn("[remind-maintenance] log failed:", e);
+        }
+      }
       return res.json({ sent: true });
     } catch (e) {
       console.error("remind-maintenance error:", e);
