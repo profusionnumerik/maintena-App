@@ -3703,6 +3703,140 @@ async function registerRoutes(app2) {
       return res.status(500).json({ error: e.message ?? "Erreur serveur" });
     }
   });
+  app2.post("/api/remind-intervention", async (req, res) => {
+    const {
+      coProId,
+      interventionId,
+      providerEmail,
+      providerName,
+      adminEmail,
+      adminName,
+      coProName,
+      title,
+      interventionDate
+    } = req.body;
+    if (!providerEmail || !coProName || !title || !coProId || !interventionId) {
+      return res.status(400).json({ error: "Param\xE8tres manquants." });
+    }
+    const db2 = getAdminDb();
+    const sentAt = (/* @__PURE__ */ new Date()).toISOString();
+    const dateLabel = interventionDate ? new Date(interventionDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }) : "date inconnue";
+    let reminderId;
+    if (db2) {
+      try {
+        const ref = await db2.collection("copros").doc(coProId).collection("reminderLogs").add({
+          sentAt,
+          providerEmail,
+          providerName: providerName ?? "",
+          adminEmail: adminEmail ?? "",
+          adminName: adminName ?? "",
+          interventionId,
+          coProId,
+          title
+        });
+        reminderId = ref.id;
+      } catch (e) {
+        console.warn("[remind-intervention] log failed:", e);
+      }
+    }
+    let resendClient;
+    try {
+      resendClient = await getUncachableResendClient();
+    } catch {
+      return res.json({ sent: false, reason: "resend_unavailable", reminderId });
+    }
+    const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
+    const htmlPrestataire = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
+        \u26A0\uFE0F Intervention en retard
+      </div>
+      <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">Bonjour ${escapeHtml(providerName ?? "")},</h1>
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
+        Nous vous contactons car l'intervention
+        <strong style="color:#0F172A;">${escapeHtml(title)}</strong>
+        pour la r\xE9sidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>
+        n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.
+      </p>
+      <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
+        <div style="font-size:12px;color:#991B1B;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention pr\xE9vue</div>
+        <div style="font-size:20px;font-weight:800;color:#DC2626;">${escapeHtml(dateLabel)}</div>
+      </div>
+      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">
+        Merci de nous contacter rapidement pour confirmer la date de r\xE9alisation ou signaler un emp\xEAchement.
+        En cas de litige ou d'impossibilit\xE9, veuillez contacter directement l'administrateur de la r\xE9sidence.
+      </p>
+      <p style="font-size:13px;color:#94A3B8;margin-top:20px;">
+        Ce message a \xE9t\xE9 envoy\xE9 par le gestionnaire de la copropri\xE9t\xE9 ${escapeHtml(coProName)}.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+    const sentAtLabel = new Date(sentAt).toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    const htmlAdmin = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#ECFDF5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;">
+        \u2705 Rappel envoy\xE9 \u2014 confirmation
+      </div>
+      <h1 style="font-size:20px;color:#0F172A;margin:0 0 16px;">Rappel envoy\xE9 \xE0 ${escapeHtml(providerName ?? providerEmail)}</h1>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:20px;margin-bottom:20px;font-size:14px;color:#334155;line-height:1.8;">
+        <div><strong>Intervention :</strong> ${escapeHtml(title)}</div>
+        <div><strong>R\xE9sidence :</strong> ${escapeHtml(coProName)}</div>
+        <div><strong>Prestataire :</strong> ${escapeHtml(providerName ?? "")} \xB7 ${escapeHtml(providerEmail)}</div>
+        <div><strong>Date pr\xE9vue :</strong> ${escapeHtml(dateLabel)}</div>
+        <div><strong>Rappel envoy\xE9 le :</strong> ${escapeHtml(sentAtLabel)}</div>
+        <div><strong>Envoy\xE9 par :</strong> ${escapeHtml(adminName ?? adminEmail ?? "\u2014")}</div>
+      </div>
+      <p style="font-size:13px;color:#64748B;line-height:1.6;">
+        Ce message vous sert de preuve d'envoi. Conservez-le en cas de litige avec le prestataire.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+    try {
+      await resendClient.client.emails.send({
+        from,
+        to: providerEmail,
+        subject: `\u26A0\uFE0F Intervention en retard \u2014 ${escapeHtml(title)} \xB7 ${coProName}`,
+        html: htmlPrestataire
+      });
+    } catch (e) {
+      console.error("remind-intervention (prestataire) error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur envoi prestataire" });
+    }
+    if (adminEmail) {
+      try {
+        await resendClient.client.emails.send({
+          from,
+          to: adminEmail,
+          subject: `\u2705 Rappel envoy\xE9 \u2014 ${escapeHtml(title)} \xB7 ${coProName}`,
+          html: htmlAdmin
+        });
+      } catch (e) {
+        console.warn("remind-intervention (admin copy) error:", e);
+      }
+    }
+    return res.json({ sent: true, reminderId });
+  });
   app2.post("/api/guest-access/create", async (req, res) => {
     const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body;
     if (!coProId || !interventionId || !invitedProvider?.email) {
@@ -4465,20 +4599,27 @@ async function registerRoutes(app2) {
     }
   });
   app2.post("/api/team-link", async (req, res) => {
-    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, interventionDate } = req.body;
+    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, employeeEmails, interventionDate } = req.body;
     if (!coProId || !interventionId || !companyName) {
       return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
     }
     const db2 = getAdminDb();
     if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    const rawEmails = employeeEmails ?? (employeeEmail ? [employeeEmail] : []);
+    const validEmails = rawEmails.map((e) => e.trim()).filter(Boolean);
     try {
       const baseUrl = getBaseUrl(req);
       const existing = await db2.collection("teamInterventionLinks").where("interventionId", "==", interventionId).where("coProId", "==", coProId).limit(1).get();
       let token;
       if (!existing.empty) {
         token = existing.docs[0].data().token;
-        if (employeeEmail?.trim()) {
-          await existing.docs[0].ref.update({ employeeEmail: employeeEmail.trim(), interventionDate: interventionDate ?? null });
+        if (validEmails.length > 0) {
+          await existing.docs[0].ref.update({
+            employeeEmails: validEmails,
+            employeeEmail: validEmails[0],
+            // compat cron
+            interventionDate: interventionDate ?? null
+          });
         }
       } else {
         token = generateGuestToken();
@@ -4489,19 +4630,21 @@ async function registerRoutes(app2) {
           interventionId,
           interventionTitle: interventionTitle ?? "",
           companyName,
-          employeeEmail: employeeEmail?.trim() ?? null,
+          employeeEmails: validEmails.length > 0 ? validEmails : null,
+          employeeEmail: validEmails[0] ?? null,
+          // compat cron
           interventionDate: interventionDate ?? null,
           createdAt: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
       const linkUrl = `${baseUrl}/team-intervention/${token}`;
-      if (employeeEmail?.trim()) {
-        try {
-          const rc = await getUncachableResendClient();
+      res.json({ url: linkUrl, existing: !existing.empty });
+      if (validEmails.length > 0) {
+        getUncachableResendClient().then((rc) => {
           const from = rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
-          await rc.client.emails.send({
+          return rc.client.emails.send({
             from,
-            to: [employeeEmail.trim()],
+            to: validEmails,
             subject: `\u{1F527} Lien d'intervention \u2014 ${interventionTitle ?? "Maintena"}`,
             html: `
               <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
@@ -4521,11 +4664,9 @@ async function registerRoutes(app2) {
               </div>
             `
           });
-        } catch (e) {
-          console.warn("[team-link] email error:", e);
-        }
+        }).catch((e) => console.warn("[team-link] email error:", e));
       }
-      return res.json({ url: linkUrl, existing: !existing.empty });
+      return;
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
@@ -4921,18 +5062,22 @@ async function registerRoutes(app2) {
     const errEl = document.getElementById('teamLinkError');
     if (btn) { btn.disabled = true; btn.textContent = 'G\xE9n\xE9ration\u2026'; }
     if (errEl) errEl.style.display = 'none';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
     try {
       const res = await fetch('/api/team-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           coProId: '${payload.copro.id}',
           coProName: '${escapeHtml(payload.copro.name)}',
           interventionId: '${payload.intervention.id}',
           interventionTitle: '${escapeHtml(payload.intervention.title)}',
-          companyName: '${escapeHtml(payload.provider.company || payload.provider.name)}',
+          companyName: '${escapeHtml(payload.provider.company || payload.provider.name || "Prestataire")}',
         }),
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur serveur');
       _teamLinkUrl = data.url;
@@ -4944,7 +5089,9 @@ async function registerRoutes(app2) {
         try { await navigator.share({ title: 'Fiche intervention \u2014 Maintena', url: data.url }); } catch {}
       }
     } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Erreur'; errEl.style.display = 'block'; }
+      clearTimeout(timeout);
+      const msg = e.name === 'AbortError' ? 'D\xE9lai d\xE9pass\xE9 \u2014 v\xE9rifiez votre connexion.' : (e.message || 'Erreur');
+      if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
       if (btn) { btn.textContent = 'G\xE9n\xE9rer le lien employ\xE9'; btn.disabled = false; }
     }
   }
@@ -7580,7 +7727,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     }
     const db2 = getAdminDb();
     if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9" });
-    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    const tomorrow = /* @__PURE__ */ new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
     let sent = 0, skipped = 0;
     try {
       const snap = await db2.collection("teamInterventionLinks").where("employeeEmail", "!=", null).get();
@@ -7589,35 +7738,39 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       const from = rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
       for (const doc of snap.docs) {
         const link = doc.data();
-        if (!link.employeeEmail || !link.interventionDate) {
+        const emails = link.employeeEmails ?? (link.employeeEmail ? [link.employeeEmail] : []);
+        if (emails.length === 0 || !link.interventionDate) {
           skipped++;
           continue;
         }
         const ivDate = String(link.interventionDate).split("T")[0];
-        if (ivDate !== today) {
+        if (ivDate !== tomorrowStr) {
           skipped++;
           continue;
         }
         const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
         await rc.client.emails.send({
           from,
-          to: [link.employeeEmail],
-          subject: `\u{1F4CB} Rappel passage aujourd'hui \u2014 ${link.interventionTitle ?? "Intervention"}`,
+          to: emails,
+          subject: `\u{1F4CB} Rappel intervention demain \u2014 ${link.interventionTitle ?? "Intervention"}`,
           html: `
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
               <h2 style="color:#0B1628;">Rappel d'intervention</h2>
               <p style="color:#475569;">
                 Bonjour,<br><br>
-                Vous avez une intervention pr\xE9vue <strong>aujourd'hui</strong> :
+                Vous avez une intervention pr\xE9vue <strong>demain</strong> :
                 <strong>${link.interventionTitle ?? ""}</strong> \u2014 ${link.coProName ?? ""}.<br><br>
                 D\xE9clarez votre passage une fois votre travail effectu\xE9 :
               </p>
               <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
-                D\xE9clarer mon passage
+                Acc\xE9der \xE0 la fiche
               </a>
+              <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
+                Ce lien reste valable tout au long de l'intervention.
+              </p>
             </div>
           `
-        }).catch((e) => console.warn(`[team-links-cron] email error ${link.employeeEmail}:`, e));
+        }).catch((e) => console.warn(`[team-links-cron] email error ${emails.join(",")}:`, e));
         sent++;
       }
       console.log(`[send-team-links] Envoy\xE9 ${sent}, ignor\xE9 ${skipped}`);

@@ -43,6 +43,7 @@ interface InterventionsContextValue {
     done: number;
     inProgress: number;
     planned: number;
+    overdue: number;
     avgRating: number;
     ratedCount: number;
   };
@@ -97,6 +98,15 @@ function toIntervention(id: string, data: any, coProId: string): Intervention {
     invitedProvider: data.invitedProvider ?? undefined,
     providerStatus: data.providerStatus ?? undefined,
     providerStatusAt: data.providerStatusAt ?? undefined,
+
+    archived: data.archived ?? undefined,
+    archivedAt: data.archivedAt ?? undefined,
+
+    teamEmails: data.teamEmails ?? undefined,
+
+    exceptionalBypass: data.exceptionalBypass ?? undefined,
+    bypassRequested: data.bypassRequested ?? undefined,
+    bypassApproved: data.bypassApproved ?? undefined,
   };
 }
 
@@ -116,7 +126,7 @@ export function InterventionsProvider({
 
   // Listener standard — toujours actif pour la copro courante (admin + prestataire mono-résidence)
   useEffect(() => {
-    if (hasMultipleCopros) return; // géré par le listener multi-copros
+    if (hasMultipleCopros) return;
     const canLoad = currentCopro && (currentCopro.status === "active" || isSubscribed);
     if (!canLoad) {
       setAllInterventions([]);
@@ -124,26 +134,46 @@ export function InterventionsProvider({
       return;
     }
 
-    const q = query(
-      collection(db, "copros", currentCopro.id, "interventions"),
-      orderBy("date", "asc")
-    );
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsub: (() => void) | null = null;
+    let retries = 0;
+    const MAX_RETRIES = 5;
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setAllInterventions(
-          snap.docs.map((d) => toIntervention(d.id, d.data(), currentCopro.id))
-        );
-        setIsLoading(false);
-      },
-      (err) => {
-        console.error("Interventions error:", err);
-        setIsLoading(false);
-      }
-    );
+    const subscribe = () => {
+      const q = query(
+        collection(db, "copros", currentCopro.id, "interventions"),
+        orderBy("date", "asc")
+      );
 
-    return unsub;
+      unsub = onSnapshot(
+        q,
+        (snap) => {
+          retries = 0;
+          setAllInterventions(
+            snap.docs.map((d) => toIntervention(d.id, d.data(), currentCopro.id))
+          );
+          setIsLoading(false);
+        },
+        (err) => {
+          // Erreur de permissions transitoire (ex: après reprise Firebase) — retry progressif
+          if ((err.code === "permission-denied" || err.code === "unavailable") && retries < MAX_RETRIES) {
+            retries++;
+            const delay = Math.min(3000 * retries, 15000); // 3s, 6s, 9s, 12s, 15s
+            retryTimer = setTimeout(subscribe, delay);
+          } else {
+            console.warn("Interventions listener stopped:", err.code);
+          }
+          setIsLoading(false);
+        }
+      );
+    };
+
+    subscribe();
+
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      if (unsub) unsub();
+    };
   }, [currentCopro?.id, currentCopro?.status, isSubscribed, hasMultipleCopros]);
 
   // Listener multi-résidences — uniquement pour prestataire avec plusieurs copros
@@ -321,6 +351,13 @@ export function InterventionsProvider({
         payload.providerStatusAt = data.providerStatusAt === null ? deleteField() : data.providerStatusAt;
       }
 
+      if (data.teamEmails !== undefined) {
+        payload.teamEmails = data.teamEmails;
+      }
+      if (data.exceptionalBypass !== undefined) payload.exceptionalBypass = data.exceptionalBypass;
+      if (data.bypassRequested !== undefined) payload.bypassRequested = data.bypassRequested;
+      if (data.bypassApproved !== undefined) payload.bypassApproved = data.bypassApproved;
+
       await updateDoc(docRef, payload);
     },
     [currentCopro, interventions]
@@ -364,9 +401,13 @@ export function InterventionsProvider({
   );
 
   const stats = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
     const done = interventions.filter((i) => i.status === "termine").length;
     const inProgress = interventions.filter((i) => i.status === "en_cours").length;
     const planned = interventions.filter((i) => i.status === "planifie").length;
+    const overdue = interventions.filter(
+      (i) => i.status !== "termine" && i.date.split("T")[0] < todayStr
+    ).length;
     const recurringGroups = new Set(
       interventions.filter((i) => !!i.recurrenceGroupId).map((i) => i.recurrenceGroupId)
     ).size;
@@ -376,6 +417,7 @@ export function InterventionsProvider({
       done,
       inProgress,
       planned,
+      overdue,
       recurringGroups,
       avgRating: 0,
       ratedCount: 0,

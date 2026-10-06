@@ -48,6 +48,8 @@ interface MaintenanceGroup {
   frequency: string;
   lastDoneDate?: string;
   nextDueDate?: string;
+  missedCount: number;
+  lastMissedDate?: string;
   totalItems: number;
   doneItems: number;
   status: MaintenanceStatus;
@@ -155,6 +157,17 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin, isTomorrow, i
           </Text>
         </View>
       </View>
+
+      {group.missedCount > 0 && (
+        <View style={styles.maintMissedRow}>
+          <Ionicons name="alert-circle-outline" size={13} color="#EF4444" />
+          <Text style={styles.maintMissedText}>
+            {group.missedCount === 1 && group.lastMissedDate
+              ? `Intervention du ${new Date(group.lastMissedDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })} non réalisée`
+              : `${group.missedCount} interventions non réalisées`}
+          </Text>
+        </View>
+      )}
 
       <View style={styles.maintProgress}>
         <View style={styles.maintProgressBar}>
@@ -567,9 +580,14 @@ export default function InterventionsScreen() {
       } else {
         status = "a_venir";
       }
-      const lastDone  = done.length > 0 ? done[done.length - 1] : undefined;
-      const nextDue   = pending.length > 0 ? pending[0] : undefined;
-      const latest    = items[items.length - 1];
+      const todayIso       = new Date().toISOString().split("T")[0];
+      const lastDone       = done.length > 0 ? done[done.length - 1] : undefined;
+      const overduePending = pending.filter(i => i.date.split("T")[0] < todayIso);
+      const futurePending  = pending.filter(i => i.date.split("T")[0] >= todayIso);
+      const nextDue        = futurePending.length > 0 ? futurePending[0]
+                           : overduePending.length > 0 ? overduePending[overduePending.length - 1]
+                           : undefined;
+      const latest         = items[items.length - 1];
       result.push({
         groupId,
         title: latest.title,
@@ -577,7 +595,9 @@ export default function InterventionsScreen() {
         technician: latest.technician,
         frequency: inferFrequency(items),
         lastDoneDate: lastDone?.date,
-        nextDueDate: nextDue?.date,
+        nextDueDate: futurePending.length > 0 ? futurePending[0].date : undefined,
+        missedCount: overduePending.length,
+        lastMissedDate: overduePending.length > 0 ? overduePending[overduePending.length - 1].date : undefined,
         totalItems: items.length,
         doneItems: done.length,
         status,
@@ -1002,6 +1022,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6,
   },
   maintLockedText: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  maintMissedRow: {
+    flexDirection: "row" as const, alignItems: "center" as const, gap: 6,
+    backgroundColor: "rgba(239,68,68,0.07)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6, marginBottom: 8,
+  },
+  maintMissedText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#EF4444", flex: 1 },
   cardTomorrow: {
     shadowColor: "#F59E0B", shadowOpacity: 0.15, shadowRadius: 6, elevation: 3,
   },

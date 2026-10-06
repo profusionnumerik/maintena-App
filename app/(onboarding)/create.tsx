@@ -3,19 +3,23 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
-  ActivityIndicator, KeyboardAvoidingView, Platform,
+  ActivityIndicator, KeyboardAvoidingView, Linking, Platform,
   Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useCoPro } from "@/context/CoProContext";
+import { useAuth } from "@/context/AuthContext";
+import { getApiUrl } from "@/lib/query-client";
 import { CoPro } from "@/shared/types";
 
 export default function CreateCoPro() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { createCoPro } = useCoPro();
+  const { user } = useAuth();
+  const [openingPortal, setOpeningPortal] = useState(false);
 
   const [name, setName] = useState("");
   const [street, setStreet] = useState("");
@@ -44,6 +48,23 @@ export default function CreateCoPro() {
     } catch {
       return null;
     }
+  };
+
+  const handleUpgrade = async () => {
+    if (!user) return;
+    setOpeningPortal(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/billing-portal", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (data.url) {
+        Linking.openURL(data.url);
+      }
+    } catch (_) {}
+    finally { setOpeningPortal(false); }
   };
 
   const handleCreate = async () => {
@@ -281,8 +302,30 @@ export default function CreateCoPro() {
 
             {error && (
               <View style={styles.errorBox}>
-                <Ionicons name="alert-circle-outline" size={16} color={COLORS.danger} />
-                <Text style={styles.errorText}>{error}</Text>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                  <Ionicons name="alert-circle-outline" size={16} color={COLORS.danger} style={{ marginTop: 1 }} />
+                  <Text style={[styles.errorText, { flex: 1 }]}>{error}</Text>
+                </View>
+                {error.includes("limité") && (
+                  <Pressable
+                    onPress={handleUpgrade}
+                    disabled={openingPortal}
+                    style={({ pressed }) => [{
+                      marginTop: 10, backgroundColor: COLORS.primary,
+                      borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16,
+                      flexDirection: "row" as const, alignItems: "center" as const, gap: 6,
+                      opacity: pressed || openingPortal ? 0.75 : 1,
+                    }]}
+                  >
+                    {openingPortal
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="arrow-up-circle-outline" size={16} color="#fff" />
+                    }
+                    <Text style={{ color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 14 }}>
+                      Passer au plan supérieur
+                    </Text>
+                  </Pressable>
+                )}
               </View>
             )}
 

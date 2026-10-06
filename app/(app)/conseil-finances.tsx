@@ -1,4 +1,12 @@
 import * as Haptics from "expo-haptics";
+import {
+  documentDirectory,
+  EncodingType,
+  moveAsync,
+  writeAsStringAsync,
+} from "expo-file-system/legacy";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -126,6 +134,7 @@ export default function ConseilFinancesScreen() {
   const [liveTresorierUid, setLiveTresorierUid] = useState<string | null | undefined>(undefined);
   const [liveRevoteRequest, setLiveRevoteRequest] = useState<RevoteRequest | null | undefined>(undefined);
   const [voteSaving, setVoteSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isConseil = currentRole === "conseil";
@@ -508,6 +517,80 @@ export default function ConseilFinancesScreen() {
     } finally { setVoteSaving(false); }
   };
 
+  const handleExportCSV = async () => {
+    if (!expenses.length) { wa("Export", "Aucune dépense à exporter pour cette période."); return; }
+    setExporting(true);
+    try {
+      const header = "Date;Libellé;Catégorie;Montant (€);N° facture;Bâtiment\n";
+      const rows = expenses.map((e) => [
+        isoToDisplay(e.date),
+        `"${e.label.replace(/"/g, '""')}"`,
+        EXPENSE_CATEGORY_LABELS[e.category] ?? e.category,
+        e.amount.toFixed(2).replace(".", ","),
+        e.invoiceNumber ?? "",
+        e.buildingId === COMMUN || !e.buildingId ? "Commun" : e.buildingId,
+      ].join(";")).join("\n");
+      const csv = header + rows;
+      const fileName = `depenses_${currentCopro!.name.replace(/\s+/g, "_")}_${selectedYear}.csv`;
+      const uri = (documentDirectory ?? "") + fileName;
+      await writeAsStringAsync(uri, "﻿" + csv, { encoding: EncodingType.UTF8 });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: "text/csv", dialogTitle: "Exporter les dépenses" });
+      }
+    } catch { wa("Erreur", "Impossible d'exporter le fichier."); }
+    setExporting(false);
+  };
+
+  const handleExportPDF = async () => {
+    if (!currentCopro) return;
+    setExporting(true);
+    try {
+      const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+      const byCategory: Record<string, number> = {};
+      for (const e of expenses) {
+        byCategory[e.category] = (byCategory[e.category] ?? 0) + e.amount;
+      }
+      const catRows = Object.entries(byCategory)
+        .sort((a, b) => b[1] - a[1])
+        .map(([cat, total]) => `<tr><td>${EXPENSE_CATEGORY_LABELS[cat as ExpenseCategory] ?? cat}</td><td style="text-align:right">${total.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</td></tr>`)
+        .join("");
+
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+        <style>
+          body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;padding:30px}
+          h1{font-size:20px;color:#2563EB;margin-bottom:4px}
+          h2{font-size:14px;color:#374151;border-bottom:1px solid #E5E7EB;padding-bottom:6px;margin-top:24px}
+          .meta{color:#6B7280;font-size:11px;margin-bottom:20px}
+          table{width:100%;border-collapse:collapse;margin-top:10px}
+          th{background:#F1F5F9;text-align:left;padding:8px 10px;font-size:11px;color:#374151}
+          td{padding:7px 10px;border-bottom:1px solid #F1F5F9}
+          tr:last-child td{border-bottom:none}
+          .total{font-weight:bold;font-size:14px;background:#EFF6FF;padding:10px;border-radius:6px;margin-top:10px}
+          .badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:bold}
+        </style></head><body>
+        <h1>Récapitulatif AG ${selectedYear}</h1>
+        <div class="meta">${currentCopro.name}${currentCopro.address ? ` · ${currentCopro.address}` : ""} · Édité le ${new Date().toLocaleDateString("fr-FR")}</div>
+
+        <h2>Synthèse par catégorie</h2>
+        <table><thead><tr><th>Catégorie</th><th style="text-align:right">Total</th></tr></thead><tbody>${catRows}</tbody></table>
+        <div class="total">Total dépenses ${selectedYear} : ${totalExpenses.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</div>
+
+        <h2>Détail des dépenses (${expenses.length} lignes)</h2>
+        <table><thead><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th style="text-align:right">Montant</th><th>N° facture</th></tr></thead><tbody>
+        ${expenses.map((e) => `<tr><td>${isoToDisplay(e.date)}</td><td>${e.label}</td><td>${EXPENSE_CATEGORY_LABELS[e.category] ?? e.category}</td><td style="text-align:right">${e.amount.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</td><td>${e.invoiceNumber ?? ""}</td></tr>`).join("")}
+        </tbody></table>
+        </body></html>`;
+
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const pdfPath = `${documentDirectory ?? ""}AG_${currentCopro.name.replace(/\s+/g, "_")}_${selectedYear}.pdf`;
+      await moveAsync({ from: uri, to: pdfPath });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(pdfPath, { mimeType: "application/pdf", dialogTitle: "Exporter le récapitulatif AG" });
+      }
+    } catch { wa("Erreur", "Impossible de générer le PDF."); }
+    setExporting(false);
+  };
+
   if (!currentCopro) {
     return <View style={styles.root}><Text style={{ color: COLORS.textMuted, textAlign: "center", marginTop: 60 }}>Aucune résidence sélectionnée.</Text></View>;
   }
@@ -526,18 +609,38 @@ export default function ConseilFinancesScreen() {
           <Text style={styles.headerTitle}>Contrôle des comptes</Text>
           <Text style={styles.headerSub}>{currentCopro.name}</Text>
         </View>
-        {canWrite && tab === "depenses" && (
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {eligibleInterventions.length > 0 && (
-              <Pressable style={[styles.addBtn, { backgroundColor: "#0891B2" }]} onPress={() => { safeHaptic(); setInterventionPickerModal(true); }}>
-                <Ionicons name="link-outline" size={20} color="#fff" />
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {(isAdmin || isConseil) && expenses.length > 0 && (
+            <>
+              <Pressable
+                style={[styles.addBtn, { backgroundColor: "#16A34A" }]}
+                onPress={handleExportCSV}
+                disabled={exporting}
+              >
+                {exporting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="download-outline" size={20} color="#fff" />}
               </Pressable>
-            )}
-            <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAddExpense(); }}>
-              <Ionicons name="add" size={22} color="#fff" />
-            </Pressable>
-          </View>
-        )}
+              <Pressable
+                style={[styles.addBtn, { backgroundColor: "#7C3AED" }]}
+                onPress={handleExportPDF}
+                disabled={exporting}
+              >
+                <Ionicons name="document-text-outline" size={20} color="#fff" />
+              </Pressable>
+            </>
+          )}
+          {canWrite && tab === "depenses" && (
+            <>
+              {eligibleInterventions.length > 0 && (
+                <Pressable style={[styles.addBtn, { backgroundColor: "#0891B2" }]} onPress={() => { safeHaptic(); setInterventionPickerModal(true); }}>
+                  <Ionicons name="link-outline" size={20} color="#fff" />
+                </Pressable>
+              )}
+              <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAddExpense(); }}>
+                <Ionicons name="add" size={22} color="#fff" />
+              </Pressable>
+            </>
+          )}
+        </View>
       </View>
 
       {/* Sélecteur d'année */}

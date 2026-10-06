@@ -46,7 +46,9 @@ import {
   type SubscriptionPlan,
 } from "@/shared/types";
 
-const CURRENT_COPRO_KEY = "@maintena_current_copro";
+const CURRENT_COPRO_KEY = (uid: string) => `@maintena_current_copro_${uid}`;
+const COPROS_CACHE_KEY  = (uid: string) => `@maintena_copros_cache_${uid}`;
+const ROLES_CACHE_KEY   = (uid: string) => `@maintena_roles_cache_${uid}`;
 
 interface InvitePrestatairePayload {
   firstName: string;
@@ -69,6 +71,8 @@ interface CoProContextValue {
   copros: CoPro[];
   currentCopro: CoPro | null;
   currentRole: MemberRole | null;
+  roleMap: Record<string, MemberRole>;
+  coProReady: boolean;
   categoryFilter: Category | null;
   categoryFilters: Category[];
   members: Member[];
@@ -183,6 +187,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const [currentCoproId, setCurrentCoproId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [coProReady, setCoProReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [roleMap, setRoleMap] = useState<Record<string, MemberRole>>({});
   const [userSubscription, setUserSubscription] =
@@ -198,9 +203,37 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       setMembers([]);
       setUserSubscription(null);
       setIsLoading(false);
+      setCoProReady(false);
       return;
     }
-    loadUserCopros();
+
+    // Bloquer le routing guard dès maintenant pour éviter la redirection vers onboarding
+    setIsLoading(true);
+
+    // Cache-first : charger le cache immédiatement, Firestore met à jour en arrière-plan
+    const bootstrapFromCache = async () => {
+      let hadCache = false;
+      try {
+        const cachedJson = await AsyncStorage.getItem(COPROS_CACHE_KEY(user.uid));
+        const rolesJson  = await AsyncStorage.getItem(ROLES_CACHE_KEY(user.uid));
+        if (cachedJson) {
+          const cachedList: CoPro[]                    = JSON.parse(cachedJson);
+          const cachedRoles: Record<string, MemberRole> = rolesJson ? JSON.parse(rolesJson) : {};
+          if (cachedList.length > 0) {
+            setRoleMap(cachedRoles);
+            setCopros(cachedList);
+            await selectDefault(cachedList, user.uid);
+            setIsLoading(false);
+            setCoProReady(true); // données du cache prêtes → routing guard peut s'activer
+            hadCache = true;
+          }
+        }
+      } catch (_) {}
+      // Firestore charge en arrière-plan (silencieux si le cache a déjà affiché l'app)
+      loadUserCopros(hadCache);
+    };
+
+    bootstrapFromCache();
     loadUserSubscription(user.uid);
   }, [user]);
 
@@ -233,9 +266,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const loadUserCopros = async () => {
+  const loadUserCopros = async (silentIfCached = false) => {
     if (!user) return;
-    setIsLoading(true);
+    // Ne pas bloquer l'UI si le cache a déjà affiché l'app
+    if (!silentIfCached) setIsLoading(true);
     setLoadError(null);
 
     try {
@@ -246,19 +280,21 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           ...(d.data() as Omit<CoPro, "id">),
         }));
         setCopros(list);
-        await selectDefault(list);
+        await selectDefault(list, user.uid);
         return;
       }
 
       const roles: Record<string, MemberRole> = {};
       const coProMap: Record<string, CoPro> = {};
       let s1Succeeded = false;
+      let hadManagedIds = false; // true si le doc utilisateur listait des copros
 
       try {
         const userSnap = await getDoc(doc(db, "users", user.uid));
         const managedIds: string[] = userSnap.exists()
           ? userSnap.data().managedCoproIds ?? []
           : [];
+        hadManagedIds = managedIds.length > 0;
 
         await Promise.all(
           managedIds.map(async (id: string) => {
@@ -359,6 +395,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           const extraIds: string[] = [];
 
           memberships.docs.forEach((d) => {
+            // Exclure les invitations non encore acceptées
+            if (d.data().accountStatus === "invited") return;
             const coProId = d.ref.parent.parent!.id;
             roles[coProId] = d.data().role as MemberRole;
             if (!coProMap[coProId]) extraIds.push(coProId);
@@ -390,29 +428,74 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
       const list = Object.values(coProMap);
 
-      if (list.length === 0 && !s1Succeeded) {
-        setLoadError(
-          "Impossible de charger les copropriétés. Vérifiez votre connexion."
-        );
-      }
+      if (list.length > 0) {
+        // Sauvegarde du cache pour le prochain démarrage hors-ligne
+        try {
+          await AsyncStorage.setItem(COPROS_CACHE_KEY(user.uid), JSON.stringify(list));
+          await AsyncStorage.setItem(ROLES_CACHE_KEY(user.uid), JSON.stringify(roles));
+        } catch (_) {}
+        setRoleMap(roles);
+        setCopros(list);
+        await selectDefault(list, user.uid);
+        setLoadError(null);
+      } else {
+        // Firestore vide ou inaccessible — tenter le cache local
+        try {
+          const cachedJson  = await AsyncStorage.getItem(COPROS_CACHE_KEY(user.uid));
+          const rolesJson   = await AsyncStorage.getItem(ROLES_CACHE_KEY(user.uid));
+          const cachedList: CoPro[]                = cachedJson  ? JSON.parse(cachedJson)  : [];
+          const cachedRoles: Record<string, MemberRole> = rolesJson ? JSON.parse(rolesJson) : {};
 
-      setRoleMap(roles);
-      setCopros(list);
-      await selectDefault(list);
+          if (cachedList.length > 0) {
+            setRoleMap(cachedRoles);
+            setCopros(cachedList);
+            await selectDefault(cachedList, user.uid);
+            // Pas d'erreur bloquante — données en cache disponibles
+          } else {
+            // Pas de cache : erreur si Firestore a totalement échoué OU si l'utilisateur
+            // avait des copros déclarées mais qu'on n'a pas pu les charger
+            if (!s1Succeeded || hadManagedIds) {
+              setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
+            }
+            // Si s1Succeeded && !hadManagedIds → l'utilisateur n'a vraiment aucune copro → onboarding
+          }
+        } catch (_) {
+          if (!s1Succeeded || hadManagedIds) {
+            setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
+          }
+        }
+      }
     } catch (e: any) {
-      setLoadError("Erreur de chargement. Vérifiez votre connexion.");
+      // Erreur globale — tenter le cache local aussi
+      try {
+        const cachedJson  = await AsyncStorage.getItem(COPROS_CACHE_KEY(user.uid));
+        const rolesJson   = await AsyncStorage.getItem(ROLES_CACHE_KEY(user.uid));
+        const cachedList: CoPro[]                  = cachedJson  ? JSON.parse(cachedJson)  : [];
+        const cachedRoles: Record<string, MemberRole> = rolesJson ? JSON.parse(rolesJson) : {};
+        if (cachedList.length > 0) {
+          setRoleMap(cachedRoles);
+          setCopros(cachedList);
+          await selectDefault(cachedList, user.uid);
+        } else {
+          setLoadError("Erreur de chargement. Vérifiez votre connexion.");
+        }
+      } catch (_) {
+        setLoadError("Erreur de chargement. Vérifiez votre connexion.");
+      }
     } finally {
-      setIsLoading(false);
+      if (!silentIfCached) setIsLoading(false);
+      setCoProReady(true); // toujours vrai après la première tentative de chargement
     }
   };
 
-  const selectDefault = async (list: CoPro[]) => {
-    const stored = await AsyncStorage.getItem(CURRENT_COPRO_KEY);
+  const selectDefault = async (list: CoPro[], uid: string) => {
+    const key = CURRENT_COPRO_KEY(uid);
+    const stored = await AsyncStorage.getItem(key);
     if (stored && list.find((c) => c.id === stored)) {
       setCurrentCoproId(stored);
     } else if (list.length > 0) {
       setCurrentCoproId(list[0].id);
-      await AsyncStorage.setItem(CURRENT_COPRO_KEY, list[0].id);
+      await AsyncStorage.setItem(key, list[0].id);
     }
   };
 
@@ -613,8 +696,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const switchCoPro = useCallback(async (id: string) => {
     setCurrentCoproId(id);
-    await AsyncStorage.setItem(CURRENT_COPRO_KEY, id);
-  }, []);
+    if (user) await AsyncStorage.setItem(CURRENT_COPRO_KEY(user.uid), id);
+  }, [user]);
 
   const createCoPro = useCallback(
     async (
@@ -744,7 +827,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       setCopros((prev) => [...prev, newCoPro]);
       setRoleMap((prev) => ({ ...prev, [coProRef.id]: "admin" }));
       setCurrentCoproId(coProRef.id);
-      await AsyncStorage.setItem(CURRENT_COPRO_KEY, coProRef.id);
+      await AsyncStorage.setItem(CURRENT_COPRO_KEY(user.uid), coProRef.id);
 
       return newCoPro;
     },
@@ -790,6 +873,14 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         await setDoc(memberRef, memberPayload);
       } else {
         joinRole = existingMember.data().role as MemberRole;
+        // Activer un membre pré-invité qui accepte son invitation
+        if (existingMember.data().accountStatus === "invited") {
+          await updateDoc(memberRef, {
+            accountStatus: "active",
+            joinedAt: new Date().toISOString(),
+            uid: user.uid,
+          });
+        }
       }
 
       const coProSnap = await getDoc(doc(db, "copros", coProId));
@@ -834,12 +925,24 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       }
 
       const copro = { id: coProId, ...coProData };
-      setCopros((prev) =>
-        prev.find((c) => c.id === coProId) ? prev : [...prev, copro]
-      );
-      setRoleMap((prev) => ({ ...prev, [coProId]: joinRole }));
+      const uid = user.uid;
+      setCopros((prev) => {
+        const next = prev.find((c) => c.id === coProId) ? prev : [...prev, copro];
+        // Sauvegarder le cache immédiatement après joinCoPro
+        try {
+          AsyncStorage.setItem(COPROS_CACHE_KEY(uid), JSON.stringify(next)).catch(() => {});
+        } catch (_) {}
+        return next;
+      });
+      setRoleMap((prev) => {
+        const next = { ...prev, [coProId]: joinRole };
+        try {
+          AsyncStorage.setItem(ROLES_CACHE_KEY(uid), JSON.stringify(next)).catch(() => {});
+        } catch (_) {}
+        return next;
+      });
       setCurrentCoproId(coProId);
-      await AsyncStorage.setItem(CURRENT_COPRO_KEY, coProId);
+      await AsyncStorage.setItem(CURRENT_COPRO_KEY(uid), coProId);
 
       return copro;
     },
@@ -946,7 +1049,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       const name = `${payload.firstName.trim()} ${payload.lastName.trim()}`.trim();
       const email = payload.email.trim().toLowerCase();
 
-      // Utilisateur déjà inscrit → on l'ajoute directement comme membre
+      // Utilisateur déjà inscrit → invitation en attente (le prestataire doit accepter via joinCoPro)
       const phoneIndexSnap = await getDoc(doc(db, "phoneIndex", phone));
       if (phoneIndexSnap.exists()) {
         const existingUid = phoneIndexSnap.data().uid;
@@ -960,16 +1063,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
             role: "prestataire",
             categoryFilter: payload.category,
             joinedAt: new Date().toISOString(),
-            accountStatus: "active",
+            accountStatus: "invited", // pas "active" — il doit accepter via son code d'invitation
             invitedBy: user?.uid ?? "",
           });
-          try {
-            await updateDoc(doc(db, "users", existingUid), {
-              managedCoproIds: arrayUnion(payload.coProId),
-            });
-          } catch {
-            await setDoc(doc(db, "users", existingUid), { managedCoproIds: [payload.coProId] }, { merge: true });
-          }
+          // Ne pas modifier managedCoproIds de l'autre utilisateur sans son consentement
         }
         return { status: "already_registered" };
       }
@@ -1027,8 +1124,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       if (!currentCopro) return;
 
       const member = members.find((m) => m.uid === uid);
-      if (!member || member.role !== "prestataire") {
-        throw new Error("Seuls les prestataires peuvent être supprimés.");
+      if (!member || member.role === "admin" || member.role === "co-admin") {
+        throw new Error("Les administrateurs ne peuvent pas être supprimés.");
       }
 
       await deleteDoc(doc(db, "copros", currentCopro.id, "members", uid));
@@ -1356,6 +1453,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       copros,
       currentCopro,
       currentRole,
+      roleMap,
+      coProReady,
       categoryFilter,
       categoryFilters,
       members,
@@ -1398,6 +1497,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       copros,
       currentCopro,
       currentRole,
+      roleMap,
+      coProReady,
       categoryFilter,
       categoryFilters,
       members,

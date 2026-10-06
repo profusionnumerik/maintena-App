@@ -343,6 +343,12 @@ export interface Intervention {
 
   archived?: boolean;
   archivedAt?: string;
+
+  teamEmails?: string[];
+
+  exceptionalBypass?: boolean;
+  bypassRequested?: boolean;
+  bypassApproved?: boolean;
 }
 
 export const CATEGORY_LABELS: Record<Category, string> = {

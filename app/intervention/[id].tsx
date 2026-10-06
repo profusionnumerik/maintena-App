@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -31,7 +31,7 @@ import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { useAuth } from "@/context/AuthContext";
-import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, increment, onSnapshot, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Entretien, EntretienEquipement, EntretienPeriodicite, ENTRETIEN_EQUIPEMENT_LABELS, ENTRETIEN_PERIODICITE_DAYS, ENTRETIEN_PERIODICITE_LABELS, EXPENSE_CATEGORY_LABELS } from "@/shared/types";
 
@@ -237,6 +237,7 @@ export default function InterventionDetailScreen() {
   const insets = useSafeAreaInsets();
   const {
     getIntervention,
+    isLoading: interventionsLoading,
     rateIntervention,
     deleteIntervention,
     deleteInterventionsByGroupId,
@@ -257,6 +258,10 @@ export default function InterventionDetailScreen() {
 
   const intervention = getIntervention(id ?? "");
 
+  const todayStr = new Date().toISOString().split("T")[0];
+  const interventionDateStr = intervention?.date?.split("T")[0] ?? "";
+  const dateNotYetReached = interventionDateStr > todayStr;
+
   const [isSaving, setIsSaving] = useState(false);
   const [locationWarning, setLocationWarning] = useState<string | null>(null);
   const [amountInput, setAmountInput] = useState(intervention?.amount !== undefined ? String(intervention.amount) : "");
@@ -273,6 +278,92 @@ export default function InterventionDetailScreen() {
   const [isSharingGuestInvite, setIsSharingGuestInvite] = useState(false);
   const [isGeneratingTeamLink, setIsGeneratingTeamLink] = useState(false);
   const [isRespondingProvider, setIsRespondingProvider] = useState(false);
+  const [teamEmailsLocal, setTeamEmailsLocal] = useState<string[]>(
+    (intervention as any)?.teamEmails ?? [""]
+  );
+  const [isSavingTeamEmails, setIsSavingTeamEmails] = useState(false);
+
+  const BYPASS_QUOTA = 4;
+  const currentYear = new Date().getFullYear();
+  const [bypassCount, setBypassCount] = useState<number | null>(null);
+  const [bypassModalVisible, setBypassModalVisible] = useState(false);
+  const [isRequestingBypass, setIsRequestingBypass] = useState(false);
+  const [isApprovingBypass, setIsApprovingBypass] = useState(false);
+
+  // Historique des modifications
+  const [history, setHistory] = useState<Array<{ id: string; action: string; by: string; at: string; note?: string }>>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  useEffect(() => {
+    if (!intervention || !currentCopro?.id) return;
+    const q = query(
+      collection(db, "copros", currentCopro.id, "interventions", intervention.id, "history"),
+      orderBy("at", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setHistory(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)));
+    }, () => {});
+    return unsub;
+  }, [intervention?.id, currentCopro?.id]);
+
+  // Historique des rappels envoyés
+  const [reminders, setReminders] = useState<Array<{ id: string; sentAt: string; adminName: string; providerEmail: string; providerName: string }>>([]);
+  const [isSendingReminder, setIsSendingReminder] = useState(false);
+  useEffect(() => {
+    if (!intervention || !currentCopro?.id || !canManage) return;
+    const q = query(
+      collection(db, "copros", currentCopro.id, "reminderLogs"),
+      where("interventionId", "==", intervention.id),
+      orderBy("sentAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setReminders(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)));
+    }, () => {});
+    return unsub;
+  }, [intervention?.id, currentCopro?.id, canManage]);
+
+  const isOverdueIntervention = intervention
+    ? interventionDateStr < todayStr && intervention.status !== "termine"
+    : false;
+
+  const handleSendReminder = async () => {
+    if (!invitedProvider?.email || !currentCopro || !intervention || !user) return;
+    setIsSendingReminder(true);
+    try {
+      const res = await apiRequest<{ sent: boolean }>("/api/remind-intervention", {
+        method: "POST",
+        body: JSON.stringify({
+          coProId:          currentCopro.id,
+          interventionId:   intervention.id,
+          providerEmail:    invitedProvider.email,
+          providerName:     `${invitedProvider.firstName ?? ""} ${invitedProvider.lastName ?? ""}`.trim() || invitedProvider.email,
+          adminEmail:       user.email ?? "",
+          adminName:        user.displayName ?? user.email ?? "Admin",
+          coProName:        currentCopro.name,
+          title:            intervention.title,
+          interventionDate: intervention.date,
+        }),
+      });
+      if (res.sent) {
+        wa("Rappel envoyé", `Un email a été envoyé à ${invitedProvider.email}. Une copie vous a été adressée.`);
+      } else {
+        wa("Non envoyé", "Le service email est temporairement indisponible.");
+      }
+    } catch {
+      wa("Erreur", "Impossible d'envoyer le rappel pour le moment.");
+    } finally {
+      setIsSendingReminder(false);
+    }
+  };
+
+  const logHistory = (action: string, note?: string) => {
+    if (!intervention || !currentCopro?.id || !user) return;
+    addDoc(collection(db, "copros", currentCopro.id, "interventions", intervention.id, "history"), {
+      action,
+      by: user.displayName ?? user.email ?? "Inconnu",
+      at: new Date().toISOString(),
+      ...(note ? { note } : {}),
+    }).catch(() => {});
+  };
 
   // Carnet d'entretien — enregistrement après validation admin
   const [carnetModalVisible, setCarnetModalVisible] = useState(false);
@@ -291,6 +382,27 @@ export default function InterventionDetailScreen() {
   const [remaining, setRemaining] = useState(
     intervention?.interventionRemaining ?? ""
   );
+
+  // Navigate back automatically when intervention is deleted from the store
+  useEffect(() => {
+    if (!interventionsLoading && !intervention) {
+      router.back();
+    }
+  }, [intervention, interventionsLoading]);
+
+  // Charge le quota de dérogations du prestataire pour l'année en cours
+  useEffect(() => {
+    if (!isPrestataire || !user || !currentCopro?.id) return;
+    getDoc(doc(db, "copros", currentCopro.id, "members", user.uid)).then((snap) => {
+      if (snap.exists()) {
+        const d = snap.data();
+        const year = d.bypassYear ?? currentYear;
+        setBypassCount(year === currentYear ? (d.bypassCount ?? 0) : 0);
+      } else {
+        setBypassCount(0);
+      }
+    }).catch(() => setBypassCount(0));
+  }, [isPrestataire, user?.uid, currentCopro?.id]);
 
   const openViewer = (urls: string[], idx: number) => {
     setViewerPhotos(urls);
@@ -649,6 +761,7 @@ export default function InterventionDetailScreen() {
       };
 
       await updateIntervention(intervention.id, updates as any);
+      logHistory("Rapport soumis", report.trim().slice(0, 120));
 
       // Push → notifie l’admin qu’un rapport est à valider
       apiRequest("POST", "/api/notify-intervention-report", {
@@ -690,6 +803,7 @@ export default function InterventionDetailScreen() {
       };
 
       await updateIntervention(intervention.id, updates as any);
+      logHistory("Intervention validée — terminée");
 
       // Push → notifie tous les membres que l’intervention est terminée
       apiRequest("POST", "/api/notify-intervention-done", {
@@ -839,33 +953,125 @@ export default function InterventionDetailScreen() {
     }
   };
 
+  const handleExceptionalBypass = async () => {
+    if (!user || !currentCopro?.id || !intervention) return;
+    setBypassModalVisible(false);
+    try {
+      await updateDoc(doc(db, "copros", currentCopro.id, "members", user.uid), {
+        bypassCount: increment(1),
+        bypassYear: currentYear,
+      });
+      setBypassCount((prev) => (prev ?? 0) + 1);
+      await updateIntervention(intervention.id, { exceptionalBypass: true } as any);
+      await handleMarkRealise();
+    } catch (e: any) {
+      wa("Erreur", e.message || "Impossible d'utiliser la dérogation.");
+    }
+  };
+
+  const handleRequestBypass = async () => {
+    if (!intervention) return;
+    setIsRequestingBypass(true);
+    try {
+      await updateIntervention(intervention.id, { bypassRequested: true } as any);
+      apiRequest("POST", "/api/notify-intervention-report", {
+        coProId: currentCopro?.id,
+        coProName: currentCopro?.name,
+        title: `Demande de dérogation — ${intervention.title}`,
+        providerName: user?.displayName ?? "Le prestataire",
+      }).catch(() => {});
+      wa("Demande envoyée", "L'admin a été notifié. Il peut vous autoriser depuis la fiche intervention.");
+    } catch (e: any) {
+      wa("Erreur", e.message);
+    } finally {
+      setIsRequestingBypass(false);
+    }
+  };
+
+  const handleApproveBypass = async () => {
+    if (!intervention) return;
+    setIsApprovingBypass(true);
+    try {
+      await updateIntervention(intervention.id, { bypassApproved: true } as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message);
+    } finally {
+      setIsApprovingBypass(false);
+    }
+  };
+
+  const handleSaveTeamEmails = async (_unused?: boolean) => {
+    if (!currentCopro?.id || !intervention) return;
+    const valid = teamEmailsLocal.map((e) => e.trim()).filter(Boolean);
+    setIsSavingTeamEmails(true);
+    try {
+      // Sauvegarde sur l'intervention
+      await updateIntervention(intervention.id, { teamEmails: valid } as any);
+      // Inscrit les emails dans teamInterventionLinks pour que le cron les envoie la veille
+      if (valid.length > 0) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          await apiRequest("POST", "/api/team-link", {
+            coProId: currentCopro.id,
+            coProName: currentCopro.name,
+            interventionId: intervention.id,
+            interventionTitle: intervention.title,
+            interventionDate: intervention.date,
+            companyName: (intervention as any).assignedToName ?? user?.displayName ?? "Prestataire",
+            employeeEmails: valid,
+          });
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      const msg = e?.name === "AbortError" ? "Délai dépassé. Vérifiez votre connexion." : (e.message || "Impossible d'enregistrer les emails.");
+      wa("Erreur", msg);
+    } finally {
+      setIsSavingTeamEmails(false);
+    }
+  };
+
   const [teamLinkModalVisible, setTeamLinkModalVisible] = useState(false);
-  const [teamLinkEmail, setTeamLinkEmail] = useState("");
+  const [teamLinkEmails, setTeamLinkEmails] = useState<string[]>([""]);
 
   const handleTeamLink = () => {
-    setTeamLinkEmail("");
+    const existing = (intervention as any)?.teamEmails as string[] | undefined;
+    setTeamLinkEmails(existing && existing.length > 0 ? existing : [""]);
     setTeamLinkModalVisible(true);
   };
 
   const handleTeamLinkConfirm = async () => {
     if (!currentCopro?.id || !intervention) return;
+    const validEmails = teamLinkEmails.map((e) => e.trim()).filter(Boolean);
     setTeamLinkModalVisible(false);
     try {
       setIsGeneratingTeamLink(true);
-      const res = await apiRequest("POST", "/api/team-link", {
-        coProId: currentCopro.id,
-        coProName: currentCopro.name,
-        interventionId: intervention.id,
-        interventionTitle: intervention.title,
-        interventionDate: intervention.date,
-        companyName: (intervention as any).assignedToName ?? "",
-        ...(teamLinkEmail.trim() ? { employeeEmail: teamLinkEmail.trim() } : {}),
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      let res: Response;
+      try {
+        res = await apiRequest("POST", "/api/team-link", {
+          coProId: currentCopro.id,
+          coProName: currentCopro.name,
+          interventionId: intervention.id,
+          interventionTitle: intervention.title,
+          interventionDate: intervention.date,
+          companyName: (intervention as any).assignedToName ?? "",
+          ...(validEmails.length > 0 ? { employeeEmails: validEmails } : {}),
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
       const data = (await res.json()) as { url: string };
       const msg = `🔧 Lien d'accès — ${intervention.title}\n\nChaque employé peut déclarer son passage via ce lien :\n${data.url}`;
       await crossShare(msg, "Lien équipe intervention");
     } catch (e: any) {
-      wa("Erreur", e.message || "Impossible de générer le lien.");
+      const msg = e?.name === "AbortError" ? "Délai dépassé. Vérifiez votre connexion." : (e.message || "Impossible de générer le lien.");
+      wa("Erreur", msg);
     } finally {
       setIsGeneratingTeamLink(false);
     }
@@ -1255,10 +1461,50 @@ export default function InterventionDetailScreen() {
               ) : (
                 <>
                   <Ionicons name="mail-outline" size={16} color={COLORS.primary} />
-                  <Text style={styles.shareBtnSecondaryText}>Renvoyer le mail</Text>
+                  <Text style={styles.shareBtnSecondaryText}>Renvoyer le mail d’invitation</Text>
                 </>
               )}
             </Pressable>
+
+            {/* Relance en retard */}
+            {isOverdueIntervention && (
+              <Pressable
+                onPress={handleSendReminder}
+                disabled={isSendingReminder}
+                style={({ pressed }) => [
+                  styles.reminderRelanceBtn,
+                  pressed && { opacity: 0.85 },
+                  isSendingReminder && { opacity: 0.65 },
+                ]}
+              >
+                {isSendingReminder ? (
+                  <ActivityIndicator color="#EF4444" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="warning-outline" size={16} color="#EF4444" />
+                    <Text style={styles.reminderRelanceBtnText}>Relancer le prestataire</Text>
+                  </>
+                )}
+              </Pressable>
+            )}
+
+            {/* Historique des rappels envoyés */}
+            {reminders.length > 0 && (
+              <View style={styles.reminderHistoryBlock}>
+                <Text style={styles.reminderHistoryTitle}>
+                  <Ionicons name="time-outline" size={12} color={COLORS.textMuted} /> Rappels envoyés
+                </Text>
+                {reminders.map((r) => (
+                  <View key={r.id} style={styles.reminderHistoryRow}>
+                    <Ionicons name="checkmark-circle-outline" size={13} color={COLORS.success} />
+                    <Text style={styles.reminderHistoryText}>
+                      {new Date(r.sentAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      {r.adminName ? ` · par ${r.adminName}` : ""}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -1330,6 +1576,75 @@ export default function InterventionDetailScreen() {
                 }
               </Pressable>
             </View>
+          </View>
+        )}
+
+        {/* Rappel avant intervention — emails des salariés alertés la veille */}
+        {isPrestataire && intervention.status !== "termine" && (
+          <View style={styles.teamCard}>
+            <View style={styles.teamCardHeader}>
+              <View style={styles.teamCardIcon}>
+                <Ionicons name="notifications-outline" size={18} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.teamCardTitle}>Rappel avant intervention</Text>
+                <Text style={styles.teamCardHint}>
+                  Ces adresses recevront automatiquement un rappel la veille de l'intervention.
+                </Text>
+              </View>
+            </View>
+
+            {teamEmailsLocal.map((email, idx) => (
+              <View key={idx} style={styles.teamLinkEmailRow}>
+                <TextInput
+                  style={[styles.teamLinkInput, { flex: 1, marginBottom: 0 }]}
+                  value={email}
+                  onChangeText={(val) => {
+                    const updated = [...teamEmailsLocal];
+                    updated[idx] = val;
+                    setTeamEmailsLocal(updated);
+                  }}
+                  placeholder="salarié@societe.fr"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {teamEmailsLocal.length > 1 && (
+                  <Pressable
+                    style={styles.teamLinkRemoveBtn}
+                    onPress={() => setTeamEmailsLocal((prev) => prev.filter((_, i) => i !== idx))}
+                  >
+                    <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
+                  </Pressable>
+                )}
+              </View>
+            ))}
+
+            {teamEmailsLocal.length < 10 && (
+              <Pressable
+                style={styles.teamLinkAddBtn}
+                onPress={() => setTeamEmailsLocal((prev) => [...prev, ""])}
+              >
+                <Ionicons name="add-circle-outline" size={16} color={COLORS.primary} />
+                <Text style={styles.teamLinkAddBtnText}>Ajouter un email</Text>
+              </Pressable>
+            )}
+
+            <Pressable
+              style={[styles.teamSendBtn, isSavingTeamEmails && { opacity: 0.6 }, { marginTop: 4 }]}
+              onPress={() => handleSaveTeamEmails(false)}
+              disabled={isSavingTeamEmails}
+            >
+              {isSavingTeamEmails ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={15} color="#fff" />
+                  <Text style={styles.teamSendBtnText}>Enregistrer</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         )}
 
@@ -1509,11 +1824,11 @@ export default function InterventionDetailScreen() {
 
               <Pressable
                 onPress={handleMarkRealise}
-                disabled={isUploadingCompletion || !report.trim()}
+                disabled={isUploadingCompletion || !report.trim() || (dateNotYetReached && !intervention.bypassApproved && !intervention.exceptionalBypass)}
                 style={({ pressed }) => [
                   styles.doneBtn,
                   pressed && { opacity: 0.85 },
-                  (isUploadingCompletion || !report.trim()) && { opacity: 0.7 },
+                  (isUploadingCompletion || !report.trim() || (dateNotYetReached && !intervention.bypassApproved && !intervention.exceptionalBypass)) && { opacity: 0.45 },
                 ]}
               >
                 {isUploadingCompletion ? (
@@ -1538,7 +1853,48 @@ export default function InterventionDetailScreen() {
                 )}
               </Pressable>
 
-              {!report.trim() && (
+              {dateNotYetReached && !intervention.bypassApproved && !intervention.exceptionalBypass && (
+                <View style={styles.bypassSection}>
+                  <Text style={styles.mandatoryHint}>
+                    Date non atteinte ({interventionDateStr}).
+                  </Text>
+                  {bypassCount !== null && bypassCount < BYPASS_QUOTA ? (
+                    <Pressable
+                      style={styles.bypassBtn}
+                      onPress={() => setBypassModalVisible(true)}
+                      disabled={!report.trim()}
+                    >
+                      <Ionicons name="alert-circle-outline" size={15} color="#D97706" />
+                      <Text style={styles.bypassBtnText}>
+                        Soumettre hors délai — dérogation ({bypassCount}/{BYPASS_QUOTA} utilisées)
+                      </Text>
+                    </Pressable>
+                  ) : intervention.bypassRequested ? (
+                    <View style={styles.bypassPendingRow}>
+                      <Ionicons name="time-outline" size={15} color={COLORS.textMuted} />
+                      <Text style={styles.bypassPendingText}>Autorisation demandée — en attente de l’admin</Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={[styles.bypassBtn, { borderColor: COLORS.danger }]}
+                      onPress={handleRequestBypass}
+                      disabled={isRequestingBypass || !report.trim()}
+                    >
+                      {isRequestingBypass ? (
+                        <ActivityIndicator size="small" color={COLORS.danger} />
+                      ) : (
+                        <>
+                          <Ionicons name="lock-closed-outline" size={15} color={COLORS.danger} />
+                          <Text style={[styles.bypassBtnText, { color: COLORS.danger }]}>
+                            Quota épuisé — demander autorisation à l’admin
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                  )}
+                </View>
+              )}
+              {!dateNotYetReached && !report.trim() && (
                 <Text style={styles.mandatoryHint}>
                   Le rapport d’intervention est obligatoire avant validation.
                 </Text>
@@ -1551,6 +1907,31 @@ export default function InterventionDetailScreen() {
                 Le prestataire devra ajouter un rapport puis marquer cette
                 intervention comme réalisée.
               </Text>
+              {intervention.bypassRequested && !intervention.bypassApproved && (
+                <View style={styles.bypassRequestCard}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <Ionicons name="alert-circle-outline" size={18} color="#D97706" />
+                    <Text style={styles.bypassRequestTitle}>Demande de dérogation</Text>
+                  </View>
+                  <Text style={styles.bypassRequestText}>
+                    Le prestataire demande à soumettre cette intervention hors délai (quota épuisé).
+                  </Text>
+                  <Pressable
+                    style={[styles.bypassApproveBtn, isApprovingBypass && { opacity: 0.6 }]}
+                    onPress={handleApproveBypass}
+                    disabled={isApprovingBypass}
+                  >
+                    {isApprovingBypass ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                        <Text style={styles.bypassApproveBtnText}>Autoriser la soumission</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              )}
             </>
           ) : intervention.status === "en_cours" && canManage ? (
             <>
@@ -1638,20 +2019,48 @@ export default function InterventionDetailScreen() {
             <View style={styles.teamLinkModal}>
               <Text style={styles.teamLinkTitle}>Lien équipe</Text>
               <Text style={styles.teamLinkHint}>
-                Email de l'employé (optionnel){"\n"}
-                Le lien lui sera envoyé automatiquement chaque jour d'intervention.
+                Emails des employés (optionnel){"\n"}
+                Le lien leur sera envoyé automatiquement chaque jour d'intervention.
               </Text>
-              <TextInput
-                style={styles.teamLinkInput}
-                value={teamLinkEmail}
-                onChangeText={setTeamLinkEmail}
-                placeholder="employe@societe.fr"
-                placeholderTextColor={COLORS.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+
+              {teamLinkEmails.map((email, idx) => (
+                <View key={idx} style={styles.teamLinkEmailRow}>
+                  <TextInput
+                    style={[styles.teamLinkInput, { flex: 1, marginBottom: 0 }]}
+                    value={email}
+                    onChangeText={(val) => {
+                      const updated = [...teamLinkEmails];
+                      updated[idx] = val;
+                      setTeamLinkEmails(updated);
+                    }}
+                    placeholder="employe@societe.fr"
+                    placeholderTextColor={COLORS.textMuted}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {teamLinkEmails.length > 1 && (
+                    <Pressable
+                      style={styles.teamLinkRemoveBtn}
+                      onPress={() => setTeamLinkEmails((prev) => prev.filter((_, i) => i !== idx))}
+                    >
+                      <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
+                    </Pressable>
+                  )}
+                </View>
+              ))}
+
+              {teamLinkEmails.length < 10 && (
+                <Pressable
+                  style={styles.teamLinkAddBtn}
+                  onPress={() => setTeamLinkEmails((prev) => [...prev, ""])}
+                >
+                  <Ionicons name="add-circle-outline" size={16} color={COLORS.primary} />
+                  <Text style={styles.teamLinkAddBtnText}>Ajouter un email</Text>
+                </Pressable>
+              )}
+
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
                 <Pressable style={styles.teamLinkCancel} onPress={() => setTeamLinkModalVisible(false)}>
                   <Text style={styles.teamLinkCancelText}>Annuler</Text>
                 </Pressable>
@@ -1883,7 +2292,74 @@ export default function InterventionDetailScreen() {
             )}
           </View>
         )}
+
+        {/* Historique */}
+        {history.length > 0 && (
+          <View style={[styles.ratingCard, { marginHorizontal: 16, marginBottom: 16 }]}>
+            <Pressable
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+              onPress={() => setShowHistory((v) => !v)}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="time-outline" size={16} color={COLORS.textMuted} />
+                <Text style={[styles.ratingTitle, { fontSize: 14 }]}>Historique ({history.length})</Text>
+              </View>
+              <Ionicons name={showHistory ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textMuted} />
+            </Pressable>
+            {showHistory && (
+              <View style={{ marginTop: 10, gap: 8 }}>
+                {history.map((h) => (
+                  <View key={h.id} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.primary, marginTop: 5 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text }}>{h.action}</Text>
+                      {h.note ? <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 }} numberOfLines={2}>{h.note}</Text> : null}
+                      <Text style={{ fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginTop: 2 }}>
+                        {h.by} · {new Date(h.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
       </ScrollView>
+
+      {/* Modal confirmation dérogation exceptionnelle */}
+      <Modal
+        visible={bypassModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBypassModalVisible(false)}
+      >
+        <View style={styles.teamLinkOverlay}>
+          <View style={styles.teamLinkModal}>
+            <Text style={styles.teamLinkTitle}>Dérogation exceptionnelle</Text>
+            <Text style={[styles.teamLinkHint, { marginBottom: 16 }]}>
+              Vous allez utiliser une dérogation ({bypassCount !== null ? bypassCount + 1 : "?"}/{BYPASS_QUOTA}) pour soumettre cette intervention avant la date prévue. Cette action est irréversible.
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable
+                style={[styles.teamSaveBtn, { flex: 1, backgroundColor: "transparent", borderWidth: 1, borderColor: COLORS.border }]}
+                onPress={() => setBypassModalVisible(false)}
+              >
+                <Text style={[styles.teamSaveBtnText, { color: COLORS.textMuted }]}>Annuler</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.teamSaveBtn, { flex: 1, backgroundColor: "#D97706", flexDirection: "row", gap: 6, justifyContent: "center" }]}
+                onPress={() => {
+                  setBypassModalVisible(false);
+                  handleExceptionalBypass();
+                }}
+              >
+                <Ionicons name="alert-circle-outline" size={16} color="#fff" />
+                <Text style={[styles.teamSaveBtnText, { color: "#fff" }]}>Confirmer</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -2234,6 +2710,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     color: "#fff",
   },
+
+  reminderRelanceBtn: {
+    flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const,
+    gap: 8, borderWidth: 1.5, borderColor: "#EF4444",
+    borderRadius: 12, paddingVertical: 10, marginTop: 4,
+    backgroundColor: "rgba(239,68,68,0.04)",
+  },
+  reminderRelanceBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#EF4444" },
+  reminderHistoryBlock: {
+    marginTop: 10, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: COLORS.border, gap: 6,
+  },
+  reminderHistoryTitle: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, marginBottom: 2 },
+  reminderHistoryRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
+  reminderHistoryText: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, flex: 1 },
 
   shareBtnSecondary: {
     flexDirection: "row",
@@ -2761,8 +3252,33 @@ const styles = StyleSheet.create({
   teamLinkTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: COLORS.text, marginBottom: 8 },
   teamLinkHint: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 14, lineHeight: 18 },
   teamLinkInput: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.text, backgroundColor: COLORS.card },
+  teamCard: { backgroundColor: COLORS.card, borderRadius: 16, padding: 16, gap: 10, borderWidth: 1, borderColor: COLORS.border },
+  teamCardHeader: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 10, marginBottom: 4 },
+  teamCardIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: "rgba(99,102,241,0.1)", alignItems: "center" as const, justifyContent: "center" as const },
+  teamCardTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.text, marginBottom: 2 },
+  teamCardHint: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, lineHeight: 17 },
+  teamSaveBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: "center" as const },
+  teamSaveBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  teamSendBtn: { flex: 2, paddingVertical: 11, borderRadius: 10, backgroundColor: COLORS.primary, flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6 },
+  teamSendBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  teamLinkEmailRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, marginBottom: 8 },
+  teamLinkRemoveBtn: { padding: 4 },
+  teamLinkAddBtn: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingVertical: 8 },
+  teamLinkAddBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
   teamLinkCancel: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, alignItems: "center" as const },
   teamLinkCancelText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
   teamLinkConfirm: { flex: 2, paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.primary, alignItems: "center" as const },
   teamLinkConfirmText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+
+  bypassSection: { marginTop: 8, gap: 8 },
+  bypassBtn: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: "#D97706", backgroundColor: "rgba(217,119,6,0.06)" },
+  bypassBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#D97706", flex: 1 },
+  bypassPendingRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingVertical: 8 },
+  bypassPendingText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, flex: 1 },
+
+  bypassRequestCard: { marginTop: 12, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: "#D97706", backgroundColor: "rgba(217,119,6,0.06)", gap: 8 },
+  bypassRequestTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#D97706" },
+  bypassRequestText: { fontSize: 13, fontFamily: "Inter_400Regular", color: COLORS.textMuted, lineHeight: 18 },
+  bypassApproveBtn: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: "#059669", marginTop: 4 },
+  bypassApproveBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

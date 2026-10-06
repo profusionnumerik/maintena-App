@@ -4344,6 +4344,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Relance prestataire — intervention en retard ────────────────────────────
+  app.post("/api/remind-intervention", async (req: Request, res: Response) => {
+    const {
+      coProId, interventionId, providerEmail, providerName,
+      adminEmail, adminName, coProName, title, interventionDate,
+    } = req.body as {
+      coProId?: string; interventionId?: string;
+      providerEmail?: string; providerName?: string;
+      adminEmail?: string; adminName?: string;
+      coProName?: string; title?: string; interventionDate?: string;
+    };
+
+    if (!providerEmail || !coProName || !title || !coProId || !interventionId) {
+      return res.status(400).json({ error: "Paramètres manquants." });
+    }
+
+    const db = getAdminDb();
+    const sentAt = new Date().toISOString();
+    const dateLabel = interventionDate
+      ? new Date(interventionDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })
+      : "date inconnue";
+
+    // ── Log du rappel dans Firestore ─────────────────────────────────────────
+    let reminderId: string | undefined;
+    if (db) {
+      try {
+        const ref = await db
+          .collection("copros").doc(coProId)
+          .collection("reminderLogs").add({
+            sentAt, providerEmail, providerName: providerName ?? "",
+            adminEmail: adminEmail ?? "", adminName: adminName ?? "",
+            interventionId, coProId, title,
+          });
+        reminderId = ref.id;
+      } catch (e) {
+        console.warn("[remind-intervention] log failed:", e);
+      }
+    }
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try { resendClient = await getUncachableResendClient(); }
+    catch { return res.json({ sent: false, reason: "resend_unavailable", reminderId }); }
+
+    const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
+
+    // ── Email prestataire ────────────────────────────────────────────────────
+    const htmlPrestataire = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
+        ⚠️ Intervention en retard
+      </div>
+      <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">Bonjour ${escapeHtml(providerName ?? "")},</h1>
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
+        Nous vous contactons car l'intervention
+        <strong style="color:#0F172A;">${escapeHtml(title)}</strong>
+        pour la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>
+        n'a pas encore été réalisée.
+      </p>
+      <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
+        <div style="font-size:12px;color:#991B1B;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention prévue</div>
+        <div style="font-size:20px;font-weight:800;color:#DC2626;">${escapeHtml(dateLabel)}</div>
+      </div>
+      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">
+        Merci de nous contacter rapidement pour confirmer la date de réalisation ou signaler un empêchement.
+        En cas de litige ou d'impossibilité, veuillez contacter directement l'administrateur de la résidence.
+      </p>
+      <p style="font-size:13px;color:#94A3B8;margin-top:20px;">
+        Ce message a été envoyé par le gestionnaire de la copropriété ${escapeHtml(coProName)}.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+
+    // ── Email admin (confirmation / preuve) ──────────────────────────────────
+    const sentAtLabel = new Date(sentAt).toLocaleDateString("fr-FR", {
+      day: "2-digit", month: "long", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+    const htmlAdmin = `<!DOCTYPE html>
+<html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:620px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">Maintena</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="display:inline-block;background:#ECFDF5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;">
+        ✅ Rappel envoyé — confirmation
+      </div>
+      <h1 style="font-size:20px;color:#0F172A;margin:0 0 16px;">Rappel envoyé à ${escapeHtml(providerName ?? providerEmail)}</h1>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;padding:20px;margin-bottom:20px;font-size:14px;color:#334155;line-height:1.8;">
+        <div><strong>Intervention :</strong> ${escapeHtml(title)}</div>
+        <div><strong>Résidence :</strong> ${escapeHtml(coProName)}</div>
+        <div><strong>Prestataire :</strong> ${escapeHtml(providerName ?? "")} · ${escapeHtml(providerEmail)}</div>
+        <div><strong>Date prévue :</strong> ${escapeHtml(dateLabel)}</div>
+        <div><strong>Rappel envoyé le :</strong> ${escapeHtml(sentAtLabel)}</div>
+        <div><strong>Envoyé par :</strong> ${escapeHtml(adminName ?? adminEmail ?? "—")}</div>
+      </div>
+      <p style="font-size:13px;color:#64748B;line-height:1.6;">
+        Ce message vous sert de preuve d'envoi. Conservez-le en cas de litige avec le prestataire.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+
+    try {
+      await resendClient.client.emails.send({
+        from,
+        to: providerEmail,
+        subject: `⚠️ Intervention en retard — ${escapeHtml(title)} · ${coProName}`,
+        html: htmlPrestataire,
+      });
+    } catch (e: any) {
+      console.error("remind-intervention (prestataire) error:", e);
+      return res.status(500).json({ error: e.message ?? "Erreur envoi prestataire" });
+    }
+
+    if (adminEmail) {
+      try {
+        await resendClient.client.emails.send({
+          from,
+          to: adminEmail,
+          subject: `✅ Rappel envoyé — ${escapeHtml(title)} · ${coProName}`,
+          html: htmlAdmin,
+        });
+      } catch (e) {
+        console.warn("remind-intervention (admin copy) error:", e);
+      }
+    }
+
+    return res.json({ sent: true, reminderId });
+  });
+
   app.post("/api/guest-access/create", async (req: Request, res: Response) => {
     const { coProId, interventionId, invitedProvider, category, categoryInviteCode } = req.body as {
       coProId?: string;
@@ -5272,16 +5412,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Lien équipe : génération ────────────────────────────────────────────────
   // Crée un lien réutilisable par tous les salariés d'une société prestataire
   app.post("/api/team-link", async (req: Request, res: Response) => {
-    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, interventionDate } = req.body as {
+    const { coProId, coProName, interventionId, interventionTitle, companyName, employeeEmail, employeeEmails, interventionDate } = req.body as {
       coProId?: string; coProName?: string;
       interventionId?: string; interventionTitle?: string; companyName?: string;
-      employeeEmail?: string; interventionDate?: string;
+      employeeEmail?: string; employeeEmails?: string[]; interventionDate?: string;
     };
     if (!coProId || !interventionId || !companyName) {
       return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
     }
     const db = getAdminDb();
     if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    // Normalise les emails : accepte tableau (nouveau) ou string unique (rétrocompat)
+    const rawEmails = employeeEmails ?? (employeeEmail ? [employeeEmail] : []);
+    const validEmails = rawEmails.map((e) => e.trim()).filter(Boolean);
 
     try {
       const baseUrl = getBaseUrl(req);
@@ -5295,9 +5439,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let token: string;
       if (!existing.empty) {
         token = existing.docs[0].data().token as string;
-        // Met à jour l'email si fourni
-        if (employeeEmail?.trim()) {
-          await existing.docs[0].ref.update({ employeeEmail: employeeEmail.trim(), interventionDate: interventionDate ?? null });
+        // Met à jour les emails si fournis
+        if (validEmails.length > 0) {
+          await existing.docs[0].ref.update({
+            employeeEmails: validEmails,
+            employeeEmail: validEmails[0], // compat cron
+            interventionDate: interventionDate ?? null,
+          });
         }
       } else {
         token = generateGuestToken();
@@ -5308,7 +5456,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           interventionId,
           interventionTitle: interventionTitle ?? "",
           companyName,
-          employeeEmail: employeeEmail?.trim() ?? null,
+          employeeEmails: validEmails.length > 0 ? validEmails : null,
+          employeeEmail: validEmails[0] ?? null, // compat cron
           interventionDate: interventionDate ?? null,
           createdAt: new Date().toISOString(),
         });
@@ -5316,14 +5465,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const linkUrl = `${baseUrl}/team-intervention/${token}`;
 
-      // Envoyer l'email immédiatement si email fourni
-      if (employeeEmail?.trim()) {
-        try {
-          const rc = await getUncachableResendClient();
+      // Répondre immédiatement — l'envoi email se fait en arrière-plan
+      res.json({ url: linkUrl, existing: !existing.empty });
+
+      // Envoyer l'email en fire-and-forget (ne bloque pas la réponse)
+      if (validEmails.length > 0) {
+        getUncachableResendClient().then((rc) => {
           const from = rc.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
-          await rc.client.emails.send({
+          return rc.client.emails.send({
             from,
-            to: [employeeEmail.trim()],
+            to: validEmails,
             subject: `🔧 Lien d'intervention — ${interventionTitle ?? "Maintena"}`,
             html: `
               <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
@@ -5343,10 +5494,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               </div>
             `,
           });
-        } catch (e: any) { console.warn("[team-link] email error:", e); }
+        }).catch((e: any) => console.warn("[team-link] email error:", e));
       }
 
-      return res.json({ url: linkUrl, existing: !existing.empty });
+      return;
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
     }
@@ -5814,18 +5965,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const errEl = document.getElementById('teamLinkError');
     if (btn) { btn.disabled = true; btn.textContent = 'Génération…'; }
     if (errEl) errEl.style.display = 'none';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
     try {
       const res = await fetch('/api/team-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           coProId: '${payload.copro.id}',
           coProName: '${escapeHtml(payload.copro.name)}',
           interventionId: '${payload.intervention.id}',
           interventionTitle: '${escapeHtml(payload.intervention.title)}',
-          companyName: '${escapeHtml(payload.provider.company || payload.provider.name)}',
+          companyName: '${escapeHtml(payload.provider.company || payload.provider.name || "Prestataire")}',
         }),
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur serveur');
       _teamLinkUrl = data.url;
@@ -5837,7 +5992,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try { await navigator.share({ title: 'Fiche intervention — Maintena', url: data.url }); } catch {}
       }
     } catch (e) {
-      if (errEl) { errEl.textContent = e.message || 'Erreur'; errEl.style.display = 'block'; }
+      clearTimeout(timeout);
+      const msg = e.name === 'AbortError' ? 'Délai dépassé — vérifiez votre connexion.' : (e.message || 'Erreur');
+      if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
       if (btn) { btn.textContent = 'Générer le lien employé'; btn.disabled = false; }
     }
   }
@@ -8850,11 +9007,14 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     const db = getAdminDb();
     if (!db) return res.status(503).json({ error: "Firebase non configuré" });
 
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    // Calcule la date de demain (YYYY-MM-DD)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
     let sent = 0, skipped = 0;
 
     try {
-      // Tous les liens équipe avec un email et une date d'intervention = aujourd'hui
+      // Tous les liens équipe avec des emails et une date d'intervention = demain
       const snap = await db.collection("teamInterventionLinks")
         .where("employeeEmail", "!=", null)
         .get();
@@ -8865,30 +9025,34 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
       for (const doc of snap.docs) {
         const link = doc.data();
-        if (!link.employeeEmail || !link.interventionDate) { skipped++; continue; }
+        const emails: string[] = link.employeeEmails ?? (link.employeeEmail ? [link.employeeEmail] : []);
+        if (emails.length === 0 || !link.interventionDate) { skipped++; continue; }
         const ivDate = String(link.interventionDate).split("T")[0];
-        if (ivDate !== today) { skipped++; continue; }
+        if (ivDate !== tomorrowStr) { skipped++; continue; }
 
         const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
         await rc.client.emails.send({
           from,
-          to: [link.employeeEmail],
-          subject: `📋 Rappel passage aujourd'hui — ${link.interventionTitle ?? "Intervention"}`,
+          to: emails,
+          subject: `📋 Rappel intervention demain — ${link.interventionTitle ?? "Intervention"}`,
           html: `
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
               <h2 style="color:#0B1628;">Rappel d'intervention</h2>
               <p style="color:#475569;">
                 Bonjour,<br><br>
-                Vous avez une intervention prévue <strong>aujourd'hui</strong> :
+                Vous avez une intervention prévue <strong>demain</strong> :
                 <strong>${link.interventionTitle ?? ""}</strong> — ${link.coProName ?? ""}.<br><br>
                 Déclarez votre passage une fois votre travail effectué :
               </p>
               <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
-                Déclarer mon passage
+                Accéder à la fiche
               </a>
+              <p style="color:#94a3b8;font-size:12px;margin-top:20px;">
+                Ce lien reste valable tout au long de l'intervention.
+              </p>
             </div>
           `,
-        }).catch((e: any) => console.warn(`[team-links-cron] email error ${link.employeeEmail}:`, e));
+        }).catch((e: any) => console.warn(`[team-links-cron] email error ${emails.join(",")}:`, e));
         sent++;
       }
 

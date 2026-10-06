@@ -6,14 +6,15 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
-import { useEffect, useState } from "react";
+import * as Notifications from "expo-notifications";
+import { useEffect, useRef, useState } from "react";
 import {
   Image, Platform, Pressable, StyleSheet, Text,
   useWindowDimensions, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { KeyboardProvider } from "react-native-keyboard-controller";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CoProProvider, useCoPro } from "@/context/CoProContext";
@@ -294,14 +295,52 @@ const hub = StyleSheet.create({
 
 // ─── Router principal ─────────────────────────────────────────────────────────
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: true, shouldShowBanner: true, shouldShowList: true }),
+});
+
 function RootLayoutNav() {
   const { user, isLoading: authLoading, isSuperAdmin, userType, hasRentalSetup } = useAuth();
-  const { currentCopro, isLoading: coProLoading, isSubscribed } = useCoPro();
+  const { currentCopro, isLoading: coProLoading, coProReady, isSubscribed, loadError, refreshCoPros } = useCoPro();
   const segments = useSegments();
   const router = useRouter();
   const segmentsSafe = [...segments] as string[];
+  const notifListenerRef = useRef<any>(null);
+  const notifResponseRef = useRef<any>(null);
 
   const [isMaintenance, setIsMaintenance] = useState(false);
+
+  // ── Enregistrement token push ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || Platform.OS === "web") return;
+
+    const register = async () => {
+      try {
+        const { status: existing } = await Notifications.getPermissionsAsync();
+        let finalStatus = existing;
+        if (existing !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== "granted") return;
+        const token = (await Notifications.getExpoPushTokenAsync()).data;
+        await setDoc(doc(db, "users", user.uid), { pushToken: token }, { merge: true });
+      } catch {}
+    };
+
+    register();
+
+    notifListenerRef.current = Notifications.addNotificationReceivedListener(() => {});
+    notifResponseRef.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as any;
+      if (data?.interventionId) router.push(`/intervention/${data.interventionId}` as any);
+    });
+
+    return () => {
+      notifListenerRef.current?.remove?.();
+      notifResponseRef.current?.remove?.();
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "appConfig", "maintenance"), (snap) => {
@@ -337,10 +376,13 @@ function RootLayoutNav() {
       router.replace(user ? "/(app)" : "/(auth)");
       return;
     }
+    // Déconnexion : pas besoin d'attendre coProReady, rediriger vers auth immédiatement
     if (!user) {
       if (!inAuth && !inLegal) router.replace("/(auth)");
       return;
     }
+    // Attendre que les copros soient chargées avant de décider où envoyer l'utilisateur
+    if (!coProReady) return;
     if (isSuperAdmin) {
       if (!inSuperAdmin && !inApp && !inModal && !inLegal) router.replace("/(superadmin)");
       return;
@@ -359,6 +401,8 @@ function RootLayoutNav() {
       return;
     }
     if (!currentCopro) {
+      // Ne pas rediriger vers l'onboarding si c'est une erreur réseau (l'utilisateur a déjà une copro)
+      if (loadError) return;
       if (!inOnboarding) router.replace("/(onboarding)");
       return;
     }
@@ -373,11 +417,30 @@ function RootLayoutNav() {
       router.replace("/(app)");
     }
   }, [
-    user, authLoading, coProLoading, currentCopro,
+    user, authLoading, coProLoading, coProReady, currentCopro, loadError,
     isSuperAdmin, isSubscribed, isMaintenance, userType, hasRentalSetup, segments, router,
   ]);
 
-  return (
+  // Erreur réseau : utilisateur connecté mais copros non chargées
+  const showNetworkError = user && !authLoading && coProReady && loadError && !currentCopro;
+
+  return showNetworkError ? (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, backgroundColor: "#F7F8FC" }}>
+      <Ionicons name="cloud-offline-outline" size={56} color="#94A3B8" />
+      <Text style={{ fontSize: 18, fontWeight: "700", color: "#1E293B", marginTop: 16, textAlign: "center" }}>
+        Connexion impossible
+      </Text>
+      <Text style={{ fontSize: 14, color: "#64748B", marginTop: 8, textAlign: "center", lineHeight: 20 }}>
+        Impossible de joindre le serveur. Vérifiez votre connexion internet et réessayez.
+      </Text>
+      <Pressable
+        onPress={() => refreshCoPros()}
+        style={{ marginTop: 24, backgroundColor: "#1E40AF", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>Réessayer</Text>
+      </Pressable>
+    </View>
+  ) : (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)" />
       <Stack.Screen name="(onboarding)" />

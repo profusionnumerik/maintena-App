@@ -1,14 +1,17 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, useWindowDimensions } from "react-native";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useCoPro } from "@/context/CoProContext";
 import { COLORS } from "@/constants/colors";
+import { Entretien, getEntretienStatut } from "@/shared/types";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean }
 
 export default function AppLayout() {
-  const { currentRole, signalements } = useCoPro();
+  const { currentCopro, currentRole, signalements } = useCoPro();
   const { width } = useWindowDimensions();
 
   // Sur web ≥ 768px la sidebar gère la navigation — on masque la tab bar du bas
@@ -21,6 +24,17 @@ export default function AppLayout() {
 
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isOwner = currentRole === "propriétaire";
+
+  const [entretienAlertCount, setEntretienAlertCount] = useState(0);
+  useEffect(() => {
+    if (!currentCopro?.id || (!isAdmin && currentRole !== "conseil")) { setEntretienAlertCount(0); return; }
+    const q = query(collection(db, "copros", currentCopro.id, "entretiens"), orderBy("nextVisitDate", "asc"));
+    const unsub = onSnapshot(q, (snap) => {
+      const count = snap.docs.filter((d) => getEntretienStatut({ nextVisitDate: d.data().nextVisitDate } as Entretien) === "retard").length;
+      setEntretienAlertCount(count);
+    }, () => setEntretienAlertCount(0));
+    return unsub;
+  }, [currentCopro?.id, currentRole]);
   const isPrestataire = currentRole === "prestataire";
   const isConseil = currentRole === "conseil";
 
@@ -125,12 +139,35 @@ export default function AppLayout() {
       />
 
       <Tabs.Screen
+        name="documents"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
+        name="calendrier"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
+        name="tantiemes"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
         name="admin"
         options={{
           title: "Menu",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
             <Ionicons name="menu" size={size} color={color} />
           ),
+          tabBarBadge: entretienAlertCount > 0 ? entretienAlertCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: "#EF4444",
+            color: "#fff",
+            fontSize: 10,
+            fontFamily: "Inter_700Bold",
+            minWidth: 18,
+          },
         }}
       />
     </Tabs>

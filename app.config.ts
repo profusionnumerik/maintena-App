@@ -11,7 +11,7 @@ const ANDROID_PACKAGE =
 const config: ExpoConfig = {
   name: APP_NAME,
   slug: APP_SLUG,
-  version: '1.0.0',
+  version: '1.2.0',
   orientation: 'portrait',
   icon: './assets/images/icon.png',
   scheme: APP_SCHEME,

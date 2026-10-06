@@ -831,6 +831,20 @@ export default function AdminScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>
+          {/* Documents de la résidence — visible à tous */}
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/documents" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons name="folder-outline" size={18} color="#2563EB" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Documents de la résidence</Text>
+              <Text style={styles.statsNavSub}>Règlement, assurance, diagnostics, PV d'AG…</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
           {/* Demandes de devis — propriétaires et conseil */}
           {(currentRole === "propriétaire" || currentRole === "conseil") && (
             <Pressable
@@ -1457,19 +1471,21 @@ export default function AdminScreen() {
                     {m.role === "admin" ? "Admin" : m.role === "co-admin" ? "Co-admin ✎" : m.role === "propriétaire" ? "Propriétaire ✎" : m.role === "conseil" ? "Conseil ✎" : m.role === "prestataire" ? "Prestataire" : "Collaborateur"}
                   </Text>
                 </Pressable>
-                {m.role === "prestataire" && (
+                {m.role !== "admin" && m.role !== "co-admin" && (
                   <View style={{ flexDirection: "row", gap: 6 }}>
-                    <Pressable
-                      style={[styles.memberDeleteBtn, { backgroundColor: "#EDE9FE" }]}
-                      onPress={() => {
-                        const current: Category[] = (m as any).categoryFilters?.length
-                          ? (m as any).categoryFilters
-                          : (m as any).categoryFilter ? [(m as any).categoryFilter] : [];
-                        setEditCatMember({ uid: m.uid, name: m.displayName || m.email || m.uid, current });
-                      }}
-                    >
-                      <Ionicons name="pricetags-outline" size={15} color="#7C3AED" />
-                    </Pressable>
+                    {m.role === "prestataire" && (
+                      <Pressable
+                        style={[styles.memberDeleteBtn, { backgroundColor: "#EDE9FE" }]}
+                        onPress={() => {
+                          const current: Category[] = (m as any).categoryFilters?.length
+                            ? (m as any).categoryFilters
+                            : (m as any).categoryFilter ? [(m as any).categoryFilter] : [];
+                          setEditCatMember({ uid: m.uid, name: m.displayName || m.email || m.uid, current });
+                        }}
+                      >
+                        <Ionicons name="pricetags-outline" size={15} color="#7C3AED" />
+                      </Pressable>
+                    )}
                     <Pressable
                       style={styles.memberDeleteBtn}
                       onPress={() => handleRemoveMember(m.uid, m.displayName || m.email || m.uid)}
@@ -1541,6 +1557,19 @@ export default function AdminScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/documents" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons name="folder-outline" size={18} color="#2563EB" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Documents de la résidence</Text>
+              <Text style={styles.statsNavSub}>Règlement, assurance, diagnostics, PV d'AG…</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
         </View>
       )}
 
@@ -1585,6 +1614,19 @@ export default function AdminScreen() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/documents" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons name="folder-outline" size={18} color="#2563EB" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Documents de la résidence</Text>
+              <Text style={styles.statsNavSub}>Règlement, assurance, diagnostics, PV d'AG…</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
         </View>
       )}
 
@@ -1613,6 +1655,32 @@ export default function AdminScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.statsNavLabel}>Statistiques & rapport</Text>
               <Text style={styles.statsNavSub}>Export PDF annuel et tableau de bord</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/calendrier" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#F0F9FF" }]}>
+              <Ionicons name="calendar-outline" size={18} color="#0891B2" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Planning calendrier</Text>
+              <Text style={styles.statsNavSub}>Vue mensuelle de toutes les interventions</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+          </Pressable>
+          <Pressable
+            style={[styles.statsNavBtn, { marginTop: 1 }]}
+            onPress={() => router.push("/(app)/tantiemes" as any)}
+          >
+            <View style={[styles.statsNavIcon, { backgroundColor: "#FFF7ED" }]}>
+              <Ionicons name="grid-outline" size={18} color="#D97706" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statsNavLabel}>Tantièmes</Text>
+              <Text style={styles.statsNavSub}>Lots, quotes-parts et calcul de charges</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
           </Pressable>

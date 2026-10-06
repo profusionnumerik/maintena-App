@@ -60,10 +60,10 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // Prestataires en attente d'inscription (écrits par le serveur Admin SDK)
+    // Prestataires en attente d'inscription
     match /pendingProviders/{phone} {
       allow read, delete: if isSignedIn();
-      allow write: if isSuperAdmin();
+      allow write: if isSignedIn();
     }
 
     match /inviteCodes/{code} {
@@ -147,6 +147,31 @@ service cloud.firestore {
         // Écriture : admin et conseil seulement
         allow create, update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
+      match /documents/{documentId} {
+        // Lecture : tous les membres de la copropriété
+        allow read: if isSignedIn() && isMember(coProId);
+        // Écriture : admin et conseil seulement
+        allow create, update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+      }
+
+      match /lots/{lotId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create, update, delete: if isSignedIn() && isCoProAdmin(coProId);
+      }
+
+      match /interventions/{interventionId}/history/{eventId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId);
+        allow update, delete: if false;
+      }
+
+      match /reminderLogs/{reminderId} {
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId);
+        allow update, delete: if false;
       }
 
       match /polls/{pollId} {

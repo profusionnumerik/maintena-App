@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FlatList, Platform, Pressable, RefreshControl, ScrollView,
   StyleSheet, Text, TextInput, View,
@@ -17,6 +17,10 @@ import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { CoPro, CoProStatus, Intervention, Signalement, STATUS_LABELS, CATEGORY_LABELS, CATEGORY_ICONS } from "@/shared/types";
 
+
+const MONTHS_CAL = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+const DAYS_CAL   = ["L","M","M","J","V","S","D"];
+const CAL_DOT: Record<string, string> = { planifie: "#F59E0B", en_cours: "#3B82F6", termine: "#10B981" };
 
 const STATUS_CONFIG: Record<string, { dot: string; bg: string; text: string }> = {
   planifie: { dot: "#F59E0B", bg: "#FEF3C7", text: "#92400E" },
@@ -191,6 +195,12 @@ function InterventionRow({ item, onPress, showCoProName }: { item: Intervention;
             </View>
           )}
         </View>
+        {isOverdue && item.assignedToName && (
+          <View style={styles.rowChangePrest}>
+            <Ionicons name="swap-horizontal-outline" size={10} color="#EF4444" />
+            <Text style={styles.rowChangePrestText}>Prestataire à relancer ou remplacer</Text>
+          </View>
+        )}
       </View>
       <Ionicons name="chevron-forward" size={15} color={COLORS.border} />
     </Pressable>
@@ -216,16 +226,53 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, logout } = useAuth();
-  const { currentCopro, copros, switchCoPro, currentRole, refreshCoPros, userSubscription, joinCoPro } = useCoPro();
+  const { currentCopro, copros, roleMap, switchCoPro, currentRole, refreshCoPros, userSubscription, joinCoPro } = useCoPro();
   const { interventions, stats, isLoading } = useInterventions();
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const isConseil = currentRole === "conseil";
+  const [viewMode, setViewMode]       = useState<"list" | "calendar">("list");
+  const [calYear, setCalYear]         = useState(() => new Date().getFullYear());
+  const [calMonth, setCalMonth]       = useState(() => new Date().getMonth());
+  const [calSelected, setCalSelected] = useState<number | null>(() => new Date().getDate());
+
+  const prevCalMonth = () => { setCalSelected(null); if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1); } else setCalMonth(m => m - 1); };
+  const nextCalMonth = () => { setCalSelected(null); if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1); } else setCalMonth(m => m + 1); };
+
+  const calPrefix = `${calYear}-${String(calMonth + 1).padStart(2, "0")}`;
+  const calByDay = useMemo(() => {
+    const map: Record<number, typeof interventions> = {};
+    for (const iv of interventions) {
+      if (!iv.date.startsWith(calPrefix)) continue;
+      const d = parseInt(iv.date.split("-")[2], 10);
+      if (!map[d]) map[d] = [];
+      map[d].push(iv);
+    }
+    return map;
+  }, [interventions, calPrefix]);
+
+  const calOffset      = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
+  const calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const calCells: (number | null)[] = ([] as (number | null)[]).concat(
+    Array<null>(calOffset).fill(null),
+    Array.from({ length: calDaysInMonth }, (_, i) => i + 1),
+  );
+  while (calCells.length % 7 !== 0) calCells.push(null);
+  const calRows: (number | null)[][] = [];
+  for (let i = 0; i < calCells.length; i += 7) calRows.push(calCells.slice(i, i + 7));
+  const calSelectedItems = calSelected ? (calByDay[calSelected] ?? []) : [];
+
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
-  const allSignalements = useAllAdminSignalements(isAdmin ? copros : []);
+
+  // Copros où l'utilisateur a un rôle de gestion (admin/co-admin/collaborateur)
+  const ADMIN_ROLES: (string | undefined)[] = ["admin", "co-admin", "collaborateur"];
+  const managedCopros = copros.filter((c) => ADMIN_ROLES.includes(roleMap[c.id]));
+
+  const allSignalements = useAllAdminSignalements(isAdmin ? managedCopros : []);
 
   const filteredCopros = searchQuery.trim()
-    ? copros.filter((c) => {
+    ? managedCopros.filter((c) => {
         const q = searchQuery.toLowerCase();
         return (
           c.name.toLowerCase().includes(q) ||
@@ -233,12 +280,21 @@ export default function HomeScreen() {
           (c.address ?? "").toLowerCase().includes(q)
         );
       })
-    : copros;
+    : managedCopros;
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
   const canAdd = currentRole === "admin" || currentRole === "collaborateur";
-  const recent = interventions.slice(0, 5);
+
+  // Prochaines interventions en haut (date ≥ aujourd'hui, croissant), passées en bas (décroissant)
+  const todayStr = new Date().toISOString().split("T")[0];
+  const upcoming = interventions
+    .filter((i) => i.date.split("T")[0] >= todayStr && i.status !== "termine")
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const past = interventions
+    .filter((i) => i.date.split("T")[0] < todayStr || i.status === "termine")
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const recent = [...upcoming, ...past].slice(0, 5);
 
   const tomorrowStr = (() => {
     const d = new Date();
@@ -324,9 +380,9 @@ export default function HomeScreen() {
         </View>
 
         <Text style={styles.listMeta}>
-          {filteredCopros.length !== copros.length
-            ? `${filteredCopros.length} résultat${filteredCopros.length !== 1 ? "s" : ""} sur ${copros.length}`
-            : `${copros.length} copropriété${copros.length !== 1 ? "s" : ""} gérée${copros.length !== 1 ? "s" : ""}`}
+          {filteredCopros.length !== managedCopros.length
+            ? `${filteredCopros.length} résultat${filteredCopros.length !== 1 ? "s" : ""} sur ${managedCopros.length}`
+            : `${managedCopros.length} copropriété${managedCopros.length !== 1 ? "s" : ""} gérée${managedCopros.length !== 1 ? "s" : ""}`}
           {totalUnread > 0 && !searchQuery ? ` · ${totalUnread} alerte${totalUnread > 1 ? "s" : ""} en attente` : ""}
         </Text>
       </View>
@@ -466,6 +522,28 @@ export default function HomeScreen() {
         </Pressable>
       )}
 
+      {stats.overdue > 0 && (isAdmin || isConseil) && (
+        <Pressable
+          style={styles.overdueBanner}
+          onPress={() => router.push("/(app)/interventions?tab=interventions")}
+        >
+          <View style={styles.overdueBannerIcon}>
+            <Ionicons name="warning-outline" size={16} color="#EF4444" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.overdueBannerTitle}>
+              {stats.overdue === 1
+                ? "1 intervention en retard"
+                : `${stats.overdue} interventions en retard`}
+            </Text>
+            <Text style={styles.overdueBannerSub}>
+              Date dépassée — intervention(s) non réalisée(s)
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={14} color="#EF4444" />
+        </Pressable>
+      )}
+
       <View style={styles.statsGrid}>
         <StatCard
           label="Total" value={stats.total} icon="construct" color={COLORS.primary}
@@ -488,28 +566,118 @@ export default function HomeScreen() {
       <View style={styles.sectionHeader}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <View style={styles.sectionDot} />
-          <Text style={styles.sectionTitle}>Interventions récentes</Text>
-          {recent.length > 0 && (
+          <Text style={styles.sectionTitle}>
+            {viewMode === "list" ? "Interventions récentes" : "Planning"}
+          </Text>
+          {viewMode === "list" && recent.length > 0 && (
             <View style={styles.sectionCount}>
               <Text style={styles.sectionCountText}>{recent.length}</Text>
             </View>
           )}
         </View>
-        <Pressable
-          onPress={() => router.push("/(app)/interventions")}
-          style={styles.seeAllBtn}
-        >
-          <Text style={styles.seeAll}>Voir tout</Text>
-          <Ionicons name="chevron-forward" size={13} color={COLORS.primary} />
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {isConseil && (
+            <View style={styles.viewToggle}>
+              <Pressable
+                style={[styles.viewToggleBtn, viewMode === "list" && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode("list")}
+              >
+                <Ionicons name="list" size={13} color={viewMode === "list" ? "#fff" : COLORS.textMuted} />
+              </Pressable>
+              <Pressable
+                style={[styles.viewToggleBtn, viewMode === "calendar" && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode("calendar")}
+              >
+                <Ionicons name="calendar" size={13} color={viewMode === "calendar" ? "#fff" : COLORS.textMuted} />
+              </Pressable>
+            </View>
+          )}
+          {viewMode === "list" && isConseil && (
+            <Pressable onPress={() => router.push("/(app)/calendrier")} style={styles.seeAllBtn}>
+              <Text style={styles.seeAll}>Voir tout</Text>
+              <Ionicons name="chevron-forward" size={13} color={COLORS.primary} />
+            </Pressable>
+          )}
+          {viewMode === "list" && !isConseil && (
+            <Pressable onPress={() => router.push("/(app)/interventions")} style={styles.seeAllBtn}>
+              <Text style={styles.seeAll}>Voir tout</Text>
+              <Ionicons name="chevron-forward" size={13} color={COLORS.primary} />
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {/* Grille calendrier — mode conseil */}
+      {viewMode === "calendar" && (
+        <View style={styles.calContainer}>
+          <View style={styles.calMonthNav}>
+            <Pressable onPress={prevCalMonth} hitSlop={10} style={styles.calNavBtn}>
+              <Ionicons name="chevron-back" size={18} color={COLORS.text} />
+            </Pressable>
+            <Text style={styles.calMonthTitle}>{MONTHS_CAL[calMonth]} {calYear}</Text>
+            <Pressable onPress={nextCalMonth} hitSlop={10} style={styles.calNavBtn}>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.text} />
+            </Pressable>
+          </View>
+          <View style={styles.calDaysRow}>
+            {DAYS_CAL.map((d, i) => (
+              <Text key={i} style={[styles.calDayLabel, i >= 5 && { color: "#EF4444" }]}>{d}</Text>
+            ))}
+          </View>
+          <View style={styles.calGrid}>
+            {calRows.map((row, ri) => (
+              <View key={ri} style={styles.calGridRow}>
+                {row.map((day, ci) => {
+                  if (!day) return <View key={ci} style={styles.calCell} />;
+                  const iso        = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                  const isTodayCell = iso === todayStr;
+                  const isSelected  = day === calSelected;
+                  const dayItems    = calByDay[day] ?? [];
+                  const dots        = [...new Set(dayItems.map(iv => CAL_DOT[iv.status] ?? "#94A3B8"))].slice(0, 3);
+                  return (
+                    <Pressable
+                      key={ci}
+                      style={[styles.calCell, isTodayCell && styles.calCellToday, isSelected && styles.calCellSelected]}
+                      onPress={() => setCalSelected(day === calSelected ? null : day)}
+                    >
+                      <Text style={[
+                        styles.calCellText,
+                        isTodayCell && styles.calCellTextToday,
+                        isSelected  && styles.calCellTextSelected,
+                        (ci === 5 || ci === 6) && !isSelected && !isTodayCell && { color: "#EF4444" },
+                      ]}>{day}</Text>
+                      {dots.length > 0 && (
+                        <View style={styles.calDotsRow}>
+                          {dots.map((c, di) => (
+                            <View key={di} style={[styles.calDot, { backgroundColor: isSelected ? "#fff" : c }]} />
+                          ))}
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+          <View style={[styles.sectionHeader, { paddingTop: 10, paddingBottom: 6, borderTopWidth: 1, borderTopColor: COLORS.border }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={styles.sectionDot} />
+              <Text style={styles.sectionTitle}>
+                {calSelected
+                  ? `${calSelected} ${MONTHS_CAL[calMonth]}${calSelectedItems.length > 0 ? ` · ${calSelectedItems.length} intervention${calSelectedItems.length > 1 ? "s" : ""}` : ""}`
+                  : "Sélectionnez un jour"}
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 
   return (
     <View style={styles.root}>
       <FlatListAny
-        data={recent}
+        data={viewMode === "calendar" ? calSelectedItems : recent}
         keyExtractor={(i: Intervention) => i.id}
         renderItem={({ item }: { item: Intervention }) => (
           <InterventionRow item={item} onPress={() => router.push(`/intervention/${item.id}`)} showCoProName={copros.length > 1} />
@@ -518,9 +686,19 @@ export default function HomeScreen() {
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.emptyState}>
-              <Ionicons name="construct-outline" size={36} color={COLORS.border} />
-              <Text style={styles.emptyTitle}>Aucune intervention</Text>
-              <Text style={styles.emptyDesc}>Appuyez sur + pour ajouter la première intervention</Text>
+              <Ionicons
+                name={viewMode === "calendar" ? (calSelected ? "calendar-outline" : "finger-print-outline") : "construct-outline"}
+                size={36}
+                color={COLORS.border}
+              />
+              <Text style={styles.emptyTitle}>
+                {viewMode === "calendar" ? (calSelected ? "Aucune intervention" : "Sélectionnez un jour") : "Aucune intervention"}
+              </Text>
+              <Text style={styles.emptyDesc}>
+                {viewMode === "calendar"
+                  ? (calSelected ? "Aucune intervention ce jour" : "Touchez un jour du calendrier pour voir ses interventions")
+                  : "Appuyez sur + pour ajouter la première intervention"}
+              </Text>
             </View>
           ) : null
         }
@@ -796,4 +974,69 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#BFDBFE",
   },
   sigAckBtnText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+
+  overdueBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    marginHorizontal: 16, marginTop: 14, marginBottom: 2,
+    backgroundColor: "rgba(239,68,68,0.07)",
+    borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: "rgba(239,68,68,0.22)",
+  },
+  overdueBannerIcon: {
+    width: 32, height: 32, borderRadius: 9,
+    backgroundColor: "rgba(239,68,68,0.12)",
+    alignItems: "center", justifyContent: "center",
+  },
+  overdueBannerTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#B91C1C" },
+  overdueBannerSub:   { fontSize: 11, fontFamily: "Inter_400Regular", color: "#DC2626", marginTop: 1 },
+
+  rowChangePrest: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    marginTop: 5,
+  },
+  rowChangePrestText: { fontSize: 10, fontFamily: "Inter_500Medium", color: "#EF4444" },
+
+  viewToggle: {
+    flexDirection: "row", gap: 2,
+    backgroundColor: COLORS.border, borderRadius: 8, padding: 2,
+  },
+  viewToggleBtn: {
+    width: 28, height: 28, borderRadius: 6,
+    alignItems: "center", justifyContent: "center",
+  },
+  viewToggleBtnActive: { backgroundColor: COLORS.primary },
+
+  calContainer: {
+    backgroundColor: COLORS.surface, borderRadius: 16,
+    marginHorizontal: 16, marginBottom: 8,
+    borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
+  },
+  calMonthNav: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  calNavBtn: { padding: 6 },
+  calMonthTitle: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
+  calDaysRow: {
+    flexDirection: "row", paddingHorizontal: 8, paddingTop: 8, paddingBottom: 2,
+  },
+  calDayLabel: {
+    flex: 1, textAlign: "center", fontSize: 10,
+    fontFamily: "Inter_600SemiBold", color: COLORS.textMuted, textTransform: "uppercase",
+  },
+  calGrid: { paddingHorizontal: 8, paddingBottom: 8 },
+  calGridRow: { flexDirection: "row" },
+  calCell: {
+    flex: 1, aspectRatio: 1,
+    alignItems: "center", justifyContent: "center",
+    borderRadius: 9, margin: 2, gap: 2,
+  },
+  calCellToday:        { borderWidth: 1.5, borderColor: COLORS.primary },
+  calCellSelected:     { backgroundColor: COLORS.primary },
+  calCellText:         { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text },
+  calCellTextToday:    { color: COLORS.primary, fontFamily: "Inter_700Bold" },
+  calCellTextSelected: { color: "#fff", fontFamily: "Inter_700Bold" },
+  calDotsRow: { flexDirection: "row", gap: 2, alignItems: "center", height: 5 },
+  calDot:     { width: 4, height: 4, borderRadius: 2 },
 });

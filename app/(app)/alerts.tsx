@@ -1,5 +1,6 @@
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import { router } from "expo-router";
 import { useMemo, useState, useEffect } from "react";
 import {
   ActivityIndicator, FlatList, Image, Keyboard, KeyboardEvent,
@@ -20,7 +21,7 @@ import {
   Category, CATEGORY_LABELS, ALL_CATEGORIES,
   ProviderContact, DemandeDevis,
 } from "@/shared/types";
-import { addDoc, collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, getDocs, doc, updateDoc, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getApiUrl } from "@/lib/query-client";
 
@@ -484,7 +485,25 @@ export default function AlertsScreen() {
   const isPrestataire  = currentRole === "prestataire";
   const isProprietaire = currentRole === "propriétaire";
 
-  const [activeTab, setActiveTab] = useState<"alertes" | "annonces" | "sondages">("alertes");
+  const isConseil = currentRole === "conseil";
+  const [activeTab, setActiveTab] = useState<"alertes" | "annonces" | "sondages" | "rappels">("alertes");
+
+  const [reminderLogs, setReminderLogs] = useState<Array<{
+    id: string; sentAt: string; title: string;
+    providerName: string; providerEmail: string;
+    adminName: string; interventionId: string;
+  }>>([]);
+  useEffect(() => {
+    if (!currentCopro?.id || (!isAdmin && !isConseil)) return;
+    const q = query(
+      collection(db, "copros", currentCopro.id, "reminderLogs"),
+      orderBy("sentAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setReminderLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)));
+    }, () => {});
+    return unsub;
+  }, [currentCopro?.id, isAdmin, isConseil]);
   const [signalModalVisible, setSignalModalVisible] = useState(false);
   const [annoModalVisible, setAnnoModalVisible] = useState(false);
   const [togglingEmail, setTogglingEmail] = useState(false);
@@ -502,7 +521,6 @@ export default function AlertsScreen() {
   const [pollExpiresAt, setPollExpiresAt] = useState(defaultExpiresAt());
   const [pollSaving, setPollSaving] = useState(false);
 
-  const isConseil = currentRole === "conseil";
   const canManageDevis = isAdmin || isConseil;
 
   const [devisSignalement, setDevisSignalement] = useState<Signalement | null>(null);
@@ -890,6 +908,21 @@ export default function AlertsScreen() {
           )}
         </Pressable>
       )}
+      {(isAdmin || isConseil) && (
+        <Pressable
+          style={[styles.tabBtn, activeTab === "rappels" && styles.tabBtnActive]}
+          onPress={() => setActiveTab("rappels")}
+        >
+          <Text style={[styles.tabBtnText, activeTab === "rappels" && styles.tabBtnTextActive]}>
+            Rappels
+          </Text>
+          {reminderLogs.length > 0 && (
+            <View style={[styles.tabBadge, { backgroundColor: "#EF4444" }]}>
+              <Text style={styles.tabBadgeText}>{reminderLogs.length}</Text>
+            </View>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 
@@ -955,6 +988,57 @@ export default function AlertsScreen() {
         </Pressable>
       )}
     </View>
+  );
+
+  const rappelsContent = (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
+    >
+      {reminderLogs.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="mail-outline" size={42} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>Aucun rappel envoyé</Text>
+          <Text style={styles.emptyDesc}>
+            Les rappels envoyés aux prestataires apparaîtront ici avec la date et l'heure d'envoi.
+          </Text>
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+          {reminderLogs.map((r) => (
+            <Pressable
+              key={r.id}
+              style={({ pressed }) => [styles.reminderLogCard, pressed && { opacity: 0.85 }]}
+              onPress={() => router.push(`/intervention/${r.interventionId}` as any)}
+            >
+              <View style={styles.reminderLogIcon}>
+                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={styles.reminderLogTitle} numberOfLines={1}>{r.title}</Text>
+                <Text style={styles.reminderLogPrest} numberOfLines={1}>
+                  {r.providerName || r.providerEmail}
+                  {r.providerEmail ? ` · ${r.providerEmail}` : ""}
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                  <Ionicons name="time-outline" size={11} color={COLORS.textMuted} />
+                  <Text style={styles.reminderLogDate}>
+                    {new Date(r.sentAt).toLocaleDateString("fr-FR", {
+                      day: "2-digit", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </Text>
+                  {r.adminName ? (
+                    <Text style={styles.reminderLogBy}>· par {r.adminName}</Text>
+                  ) : null}
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={COLORS.border} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </ScrollView>
   );
 
   const announcementsContent = (
@@ -1065,7 +1149,7 @@ export default function AlertsScreen() {
             contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
             showsVerticalScrollIndicator={false}
           />
-        ) : activeTab === "annonces" ? announcementsContent : pollsContent}
+        ) : activeTab === "rappels" ? rappelsContent : activeTab === "annonces" ? announcementsContent : pollsContent}
         <CreateAnnouncementModal
           visible={annoModalVisible}
           onClose={() => setAnnoModalVisible(false)}
@@ -1188,7 +1272,7 @@ export default function AlertsScreen() {
             </View>
           )}
         </ScrollView>
-      ) : activeTab === "annonces" ? announcementsContent : pollsContent}
+      ) : activeTab === "rappels" ? rappelsContent : activeTab === "annonces" ? announcementsContent : pollsContent}
       <SignalementModal
         visible={signalModalVisible}
         onClose={() => setSignalModalVisible(false)}
