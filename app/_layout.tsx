@@ -44,12 +44,13 @@ const LANDLORD_NAV: NavItem[] = [
 ];
 
 const SYNDIC_NAV: NavItem[] = [
-  { icon: "home-outline",       label: "Tableau de bord", route: "/(app)",                      segment: "(app)" },
-  { icon: "construct-outline",  label: "Interventions",   route: "/(app)/interventions",         segment: "interventions" },
-  { icon: "cash-outline",       label: "Finances",        route: "/(app)/conseil-finances",      segment: "conseil-finances" },
-  { icon: "calendar-outline",   label: "Entretien",       route: "/(app)/entretien",             segment: "entretien" },
-  { icon: "people-outline",     label: "Annuaire",        route: "/(app)/annuaire-prestataires", segment: "annuaire-prestataires" },
-  { icon: "bar-chart-outline",  label: "Statistiques",    route: "/(app)/stats",                 segment: "stats" },
+  { icon: "home-outline",             label: "Tableau de bord", route: "/(app)",                      segment: "(app)" },
+  { icon: "construct-outline",        label: "Interventions",   route: "/(app)/interventions",         segment: "interventions" },
+  { icon: "notifications-outline",    label: "Messages",        route: "/(app)/alerts",                segment: "alerts" },
+  { icon: "cash-outline",             label: "Finances",        route: "/(app)/conseil-finances",      segment: "conseil-finances" },
+  { icon: "calendar-outline",         label: "Entretien",       route: "/(app)/entretien",             segment: "entretien" },
+  { icon: "people-outline",           label: "Annuaire",        route: "/(app)/annuaire-prestataires", segment: "annuaire-prestataires" },
+  { icon: "bar-chart-outline",        label: "Statistiques",    route: "/(app)/stats",                 segment: "stats" },
 ];
 
 const TENANT_NAV: NavItem[] = [
