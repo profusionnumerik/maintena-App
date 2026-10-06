@@ -501,7 +501,7 @@ export default function AlertsScreen() {
     );
     const unsub = onSnapshot(q, (snap) => {
       setReminderLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)));
-    }, () => {});
+    }, (err) => console.error("[reminderLogs]", err.code, err.message));
     return unsub;
   }, [currentCopro?.id, isAdmin, isConseil]);
   const [signalModalVisible, setSignalModalVisible] = useState(false);
