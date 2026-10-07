@@ -88,7 +88,7 @@ export default function AppLayout() {
       <Tabs.Screen
         name="alerts"
         options={{
-          href: isPrestataire ? null : undefined,
+          href: undefined,
           title: "Messages",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
             <Ionicons

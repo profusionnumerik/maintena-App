@@ -21,7 +21,7 @@ import {
   Category, CATEGORY_LABELS, ALL_CATEGORIES,
   ProviderContact, DemandeDevis,
 } from "@/shared/types";
-import { addDoc, collection, deleteDoc, getDocs, doc, updateDoc, onSnapshot, orderBy, query } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, getDocs, doc, updateDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getApiUrl } from "@/lib/query-client";
 
@@ -507,6 +507,25 @@ export default function AlertsScreen() {
     return unsub;
   }, [currentCopro?.id, isAdmin, isConseil]);
 
+  // Rappels visibles par le prestataire lui-même (filtrés sur son email)
+  const [myReminderLogs, setMyReminderLogs] = useState<Array<{
+    id: string; sentAt: string; title: string;
+    providerName: string; providerEmail: string;
+    adminName: string; interventionId: string;
+  }>>([]);
+  useEffect(() => {
+    if (!currentCopro?.id || !isPrestataire || !user?.email) return;
+    const q = query(
+      collection(db, "copros", currentCopro.id, "reminderLogs"),
+      where("providerEmail", "==", user.email),
+      orderBy("sentAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setMyReminderLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)));
+    }, (err) => console.error("[myReminderLogs]", err.code, err.message));
+    return unsub;
+  }, [currentCopro?.id, isPrestataire, user?.email]);
+
   const handleArchiveReminder = (id: string) => {
     if (!currentCopro?.id) return;
     updateDoc(doc(db, "copros", currentCopro.id, "reminderLogs", id), { archived: true }).catch(() => {});
@@ -930,7 +949,7 @@ export default function AlertsScreen() {
           )}
         </Pressable>
       )}
-      {(isAdmin || isConseil) && (
+      {(isAdmin || isConseil || isPrestataire) && (
         <Pressable
           style={[styles.tabBtn, activeTab === "rappels" && styles.tabBtnActive]}
           onPress={() => setActiveTab("rappels")}
@@ -938,9 +957,11 @@ export default function AlertsScreen() {
           <Text style={[styles.tabBtnText, activeTab === "rappels" && styles.tabBtnTextActive]}>
             Rappels
           </Text>
-          {reminderLogs.filter((r) => !r.archived).length > 0 && (
+          {(isPrestataire ? myReminderLogs.length : reminderLogs.filter((r) => !r.archived).length) > 0 && (
             <View style={[styles.tabBadge, { backgroundColor: "#EF4444" }]}>
-              <Text style={styles.tabBadgeText}>{reminderLogs.filter((r) => !r.archived).length}</Text>
+              <Text style={styles.tabBadgeText}>
+                {isPrestataire ? myReminderLogs.length : reminderLogs.filter((r) => !r.archived).length}
+              </Text>
             </View>
           )}
         </Pressable>
@@ -1151,12 +1172,54 @@ export default function AlertsScreen() {
     </ScrollView>
   );
 
+  const prestataireRappelsContent = (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
+    >
+      {myReminderLogs.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="mail-outline" size={42} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>Aucun rappel reçu</Text>
+          <Text style={styles.emptyDesc}>Les rappels qui vous sont adressés apparaîtront ici.</Text>
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+          {myReminderLogs.map((r) => (
+            <Pressable
+              key={r.id}
+              style={({ pressed }) => [styles.reminderLogCard, pressed && { opacity: 0.85 }]}
+              onPress={() => r.interventionId && router.push(`/intervention/${r.interventionId}` as any)}
+            >
+              <View style={styles.reminderLogIcon}>
+                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1, gap: 3 }}>
+                <Text style={styles.reminderLogTitle} numberOfLines={1}>{r.title}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                  <Ionicons name="time-outline" size={11} color={COLORS.textMuted} />
+                  <Text style={styles.reminderLogDate}>
+                    {new Date(r.sentAt).toLocaleDateString("fr-FR", {
+                      day: "2-digit", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={COLORS.border} />
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </ScrollView>
+  );
+
   if (isPrestataire) {
     return (
       <View style={styles.root}>
         {topBar}
         {tabSwitcher}
-        {activeTab === "alertes" ? (
+        {activeTab === "rappels" ? prestataireRappelsContent : activeTab === "alertes" ? (
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
@@ -1182,7 +1245,7 @@ export default function AlertsScreen() {
         />
       </View>
     );
-  }  // Note: prestataires have no "Sondages" tab so activeTab never reaches "sondages" for them
+  }
 
   if (isAdmin) {
     return (

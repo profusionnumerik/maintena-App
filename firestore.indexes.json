@@ -7,6 +7,14 @@
         { "fieldPath": "landlordId", "order": "ASCENDING" },
         { "fieldPath": "createdAt",  "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "reminderLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "providerEmail", "order": "ASCENDING" },
+        { "fieldPath": "sentAt",        "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
