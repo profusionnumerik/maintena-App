@@ -3931,6 +3931,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
   }
 
+  async function sendPushByEmail(
+    email: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>
+  ): Promise<void> {
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return;
+      const userRecord = await adminAuth.getUserByEmail(email);
+      await sendPushToUser(userRecord.uid, title, body, data);
+    } catch (e) {
+      console.warn("[push] sendPushByEmail failed for", email, e);
+    }
+  }
+
   // ─── Intervention créée ────────────────────────────────────────────────────
 
   app.post("/api/notify-intervention-created", async (req: Request, res: Response) => {
@@ -4338,6 +4354,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         subject: `⏰ Rappel – Maintenance à venir · ${escapeHtml(title)} · ${coProName}`,
         html: htmlBody,
       });
+      // Push au prestataire
+      sendPushByEmail(
+        providerEmail,
+        `⏰ Rappel maintenance — ${coProName}`,
+        `Votre prochaine intervention "${title}" approche.`,
+        { type: "reminder" }
+      ).catch(() => {});
       // Log du rappel dans Firestore
       if (db && coProId && interventionId) {
         try {
@@ -4482,6 +4505,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("remind-intervention (prestataire) error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur envoi prestataire" });
     }
+
+    // Push au prestataire
+    sendPushByEmail(
+      providerEmail,
+      `⚠️ Intervention en retard — ${coProName}`,
+      `L'intervention "${title}" n'a pas encore été réalisée.`,
+      { type: "reminder_overdue" }
+    ).catch(() => {});
 
     if (adminEmail) {
       try {

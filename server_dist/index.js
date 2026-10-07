@@ -3330,6 +3330,16 @@ async function registerRoutes(app2) {
       body: JSON.stringify([{ to: token, title, body, data: data ?? {}, sound: "notification.wav" }])
     }).catch((e) => console.warn("[push] sendPushToUser failed:", e));
   }
+  async function sendPushByEmail(email, title, body, data) {
+    try {
+      const adminAuth = getAdminAuthInstance();
+      if (!adminAuth) return;
+      const userRecord = await adminAuth.getUserByEmail(email);
+      await sendPushToUser(userRecord.uid, title, body, data);
+    } catch (e) {
+      console.warn("[push] sendPushByEmail failed for", email, e);
+    }
+  }
   app2.post("/api/notify-intervention-created", async (req, res) => {
     const { coProId, coProName, title, category, createdByRole } = req.body;
     if (!coProId || !title) return res.status(400).json({ error: "coProId et title requis" });
@@ -3699,6 +3709,13 @@ async function registerRoutes(app2) {
         subject: `\u23F0 Rappel \u2013 Maintenance \xE0 venir \xB7 ${escapeHtml(title)} \xB7 ${coProName}`,
         html: htmlBody
       });
+      sendPushByEmail(
+        providerEmail,
+        `\u23F0 Rappel maintenance \u2014 ${coProName}`,
+        `Votre prochaine intervention "${title}" approche.`,
+        { type: "reminder" }
+      ).catch(() => {
+      });
       if (db2 && coProId && interventionId) {
         try {
           await db2.collection("copros").doc(coProId).collection("reminderLogs").add({
@@ -3841,6 +3858,13 @@ async function registerRoutes(app2) {
       console.error("remind-intervention (prestataire) error:", e);
       return res.status(500).json({ error: e.message ?? "Erreur envoi prestataire" });
     }
+    sendPushByEmail(
+      providerEmail,
+      `\u26A0\uFE0F Intervention en retard \u2014 ${coProName}`,
+      `L'intervention "${title}" n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.`,
+      { type: "reminder_overdue" }
+    ).catch(() => {
+    });
     if (adminEmail) {
       try {
         await resendClient.client.emails.send({

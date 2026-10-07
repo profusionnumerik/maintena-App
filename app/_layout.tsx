@@ -6,6 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
+import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -324,7 +325,10 @@ function RootLayoutNav() {
           finalStatus = status;
         }
         if (finalStatus !== "granted") return;
-        const token = (await Notifications.getExpoPushTokenAsync()).data;
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ??
+          "f942f5d6-18ac-41c4-89a0-4d9b2fe98138";
+        const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
         await setDoc(doc(db, "users", user.uid), { pushToken: token }, { merge: true });
       } catch {}
     };
