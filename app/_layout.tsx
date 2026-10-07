@@ -352,6 +352,7 @@ function RootLayoutNav() {
 
   useEffect(() => {
     if (authLoading || coProLoading) return;
+    if (segmentsSafe.length === 0) return; // Router pas encore prêt
 
     const inAuth             = segmentsSafe[0] === "(auth)";
     const inOnboarding       = segmentsSafe[0] === "(onboarding)";
