@@ -144,7 +144,7 @@ function CoproCard({
   );
 }
 
-function InterventionRow({ item, onPress, showCoProName }: { item: Intervention; onPress: () => void; showCoProName?: boolean }) {
+function InterventionRow({ item, onPress, showCoProName, hideOverdueHint }: { item: Intervention; onPress: () => void; showCoProName?: boolean; hideOverdueHint?: boolean }) {
   const sc = STATUS_CONFIG[item.status] ?? { dot: COLORS.textMuted, bg: COLORS.border, text: COLORS.textMuted };
   const catIcon = (CATEGORY_ICONS[item.category] ?? "construct") as any;
   const catColors = (COLORS.categoryColors as any)[item.category] ?? { bg: "#F1F5F9", text: "#334155" };
@@ -195,7 +195,7 @@ function InterventionRow({ item, onPress, showCoProName }: { item: Intervention;
             </View>
           )}
         </View>
-        {isOverdue && item.assignedToName && (
+        {isOverdue && item.assignedToName && !hideOverdueHint && (
           <View style={styles.rowChangePrest}>
             <Ionicons name="swap-horizontal-outline" size={10} color="#EF4444" />
             <Text style={styles.rowChangePrestText}>Prestataire à relancer ou remplacer</Text>
@@ -680,7 +680,7 @@ export default function HomeScreen() {
         data={viewMode === "calendar" ? calSelectedItems : recent}
         keyExtractor={(i: Intervention) => i.id}
         renderItem={({ item }: { item: Intervention }) => (
-          <InterventionRow item={item} onPress={() => router.push(`/intervention/${item.id}`)} showCoProName={copros.length > 1} />
+          <InterventionRow item={item} onPress={() => router.push(`/intervention/${item.id}`)} showCoProName={copros.length > 1} hideOverdueHint={currentRole === "prestataire"} />
         )}
         ListHeaderComponent={dashHeader}
         ListEmptyComponent={
