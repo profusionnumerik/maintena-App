@@ -3068,9 +3068,20 @@ async function registerRoutes(app2) {
   app2.post("/api/notify-signalement", async (req, res) => {
     try {
       const { adminEmail, coProName, message, senderName, apartmentNumber, photoUrl } = req.body;
-      if (!adminEmail || !message) {
-        return res.status(400).json({ error: "adminEmail et message requis" });
+      if (!message) {
+        return res.status(400).json({ error: "message requis" });
       }
+      const coProIdForPush = req.body.coProId;
+      if (coProIdForPush) {
+        sendPushToAdmins(
+          coProIdForPush,
+          `\u{1F514} Signalement \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
+          `${senderName ?? "Un r\xE9sident"} : ${message}`,
+          { type: "signalement", coProId: coProIdForPush }
+        ).catch(() => {
+        });
+      }
+      if (!adminEmail) return res.json({ sent: false, reason: "no_email" });
       let resendClient;
       try {
         resendClient = await getUncachableResendClient();
@@ -3122,16 +3133,6 @@ async function registerRoutes(app2) {
 </body>
 </html>`
       });
-      const coProId = req.body.coProId;
-      if (coProId) {
-        sendPushToMembers(
-          coProId,
-          `\u{1F514} Signalement \u2014 ${coProName ?? "Copropri\xE9t\xE9"}`,
-          `${senderName ?? "Un r\xE9sident"} : ${message}`,
-          { type: "signalement", coProId }
-        ).catch(() => {
-        });
-      }
       return res.json({ sent: true });
     } catch (e) {
       console.error("notify-signalement error:", e);

@@ -3625,9 +3625,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
           photoUrl?: string | null;
         };
 
-      if (!adminEmail || !message) {
-        return res.status(400).json({ error: "adminEmail et message requis" });
+      if (!message) {
+        return res.status(400).json({ error: "message requis" });
       }
+
+      // Push à tous les admins/membres — toujours, même sans email
+      const coProIdForPush = req.body.coProId as string | undefined;
+      if (coProIdForPush) {
+        sendPushToAdmins(
+          coProIdForPush,
+          `🔔 Signalement — ${coProName ?? "Copropriété"}`,
+          `${senderName ?? "Un résident"} : ${message}`,
+          { type: "signalement", coProId: coProIdForPush }
+        ).catch(() => {});
+      }
+
+      if (!adminEmail) return res.json({ sent: false, reason: "no_email" });
 
       let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
       try {
@@ -3684,17 +3697,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 </body>
 </html>`,
       });
-
-      // Push à l'admin de la copro
-      const coProId = req.body.coProId as string | undefined;
-      if (coProId) {
-        sendPushToMembers(
-          coProId,
-          `🔔 Signalement — ${coProName ?? "Copropriété"}`,
-          `${senderName ?? "Un résident"} : ${message}`,
-          { type: "signalement", coProId }
-        ).catch(() => {});
-      }
 
       return res.json({ sent: true });
     } catch (e: any) {

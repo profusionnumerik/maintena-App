@@ -1060,6 +1060,15 @@ export default function AddInterventionScreen() {
 
         safeHapticSuccess();
 
+        // Push — interventions récurrentes créées
+        notifyInterventionCreated({
+          coProId: currentCopro.id,
+          coProName: currentCopro.name,
+          title: title.trim(),
+          category: category ?? undefined,
+          createdByRole: isAdmin ? "admin" : "prestataire",
+        });
+
         if (isAdmin && invitedProviderPayload && newProvider.phone.trim() && category) {
           try {
             await preRegisterProvider({

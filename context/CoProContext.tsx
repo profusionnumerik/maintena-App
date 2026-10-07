@@ -1205,23 +1205,20 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const targetEmail = currentCopro.adminEmail || user.email;
-      if (currentCopro.alertEmailEnabled && targetEmail) {
-        try {
-          await apiRequest("POST", "/api/notify-signalement", {
-            signalementId: docRef.id,
-            coProId: currentCopro.id,
-            coProName: currentCopro.name,
-            adminEmail: targetEmail,
-            message,
-            senderName,
-            apartmentNumber,
-            photoUrl: photos[0] ?? null,
-          });
-        } catch (e) {
-          console.warn("Email notification failed:", e);
-        }
-      }
+      // Toujours notifier (push + email si alertEmailEnabled)
+      const targetEmail = currentCopro.alertEmailEnabled
+        ? (currentCopro.adminEmail || user.email)
+        : null;
+      apiRequest("POST", "/api/notify-signalement", {
+        signalementId: docRef.id,
+        coProId: currentCopro.id,
+        coProName: currentCopro.name,
+        adminEmail: targetEmail ?? undefined,
+        message,
+        senderName,
+        apartmentNumber,
+        photoUrl: photos[0] ?? null,
+      }).catch((e) => console.warn("Signalement notification failed:", e));
     },
     [user, currentCopro]
   );
