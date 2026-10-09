@@ -365,7 +365,7 @@ function RootLayoutNav() {
     const inSuperAdmin       = segmentsSafe[0] === "(superadmin)";
     const inLegal            = segmentsSafe[0] === "(legal)";
     const inMaintenance      = segmentsSafe[0] === "maintenance";
-    const inModal            = segmentsSafe[0] === "add" || segmentsSafe[0] === "intervention";
+    const inModal            = segmentsSafe[0] === "add" || segmentsSafe[0] === "intervention" || segmentsSafe[0] === "maintenance-group";
     const inRentalOnboarding = segmentsSafe[0] === "(rental-onboarding)";
     const inRental           = segmentsSafe[0] === "(rental)";
     const inTenant           = segmentsSafe[0] === "(tenant)";
