@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
-import { CATEGORY_ICONS, CATEGORY_LABELS } from "@/constants/categories";
+import { CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
 import { useInterventions } from "@/context/InterventionsContext";
 import type { Intervention } from "@/types/intervention";
 
@@ -54,9 +54,14 @@ export default function MaintenanceGroupScreen() {
   const { interventions } = useInterventions();
 
   const groupItems = useMemo(() => {
-    return interventions
-      .filter((i) => i.recurrenceGroupId === groupId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const today = new Date().toISOString().split("T")[0];
+    const past = interventions
+      .filter((i) => i.recurrenceGroupId === groupId && i.date.split("T")[0] <= today)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // plus récent en haut
+    const future = interventions
+      .filter((i) => i.recurrenceGroupId === groupId && i.date.split("T")[0] > today)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // plus proche en premier
+    return [...past, ...future];
   }, [interventions, groupId]);
 
   const title = groupItems[0]?.title ?? "Maintenance";
@@ -80,7 +85,14 @@ export default function MaintenanceGroupScreen() {
     return overdue[0] ?? null;
   }, [groupItems]);
 
-  const renderItem = ({ item }: { item: Intervention }) => {
+  const pastCount = useMemo(() => {
+    const today = new Date().toISOString().split("T")[0];
+    return groupItems.filter((i) => i.date.split("T")[0] <= today).length;
+  }, [groupItems]);
+
+  const renderItem = ({ item, index }: { item: Intervention; index: number }) => {
+    const today = new Date().toISOString().split("T")[0];
+    const isFutureStart = index === pastCount && pastCount > 0 && pastCount < groupItems.length;
     const effectiveStatus = getEffectiveStatus(item);
     const sc = STATUS_CONFIG[effectiveStatus];
     const dateStr = new Date(item.date).toLocaleDateString("fr-FR", {
@@ -92,6 +104,14 @@ export default function MaintenanceGroupScreen() {
     const doneChecklist = Object.values(checklist).filter(Boolean).length;
 
     return (
+      <>
+        {isFutureStart && (
+          <View style={styles.sectionDivider}>
+            <View style={styles.sectionDividerLine} />
+            <Text style={styles.sectionDividerLabel}>À venir</Text>
+            <View style={styles.sectionDividerLine} />
+          </View>
+        )}
       <Pressable
         style={({ pressed }) => [styles.card, pressed && { opacity: 0.82 }]}
         onPress={() => router.push(`/intervention/${item.id}` as any)}
@@ -136,6 +156,7 @@ export default function MaintenanceGroupScreen() {
           </View>
         )}
       </Pressable>
+      </>
     );
   };
 
@@ -203,9 +224,14 @@ export default function MaintenanceGroupScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: bottom + 24 }]}
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
-          <Text style={styles.listLabel}>
-            {groupItems.length} passage{groupItems.length !== 1 ? "s" : ""}
-          </Text>
+          <View style={{ gap: 4, marginBottom: 4 }}>
+            <Text style={styles.listLabel}>
+              {groupItems.length} passage{groupItems.length !== 1 ? "s" : ""}
+            </Text>
+            {pastCount > 0 && (
+              <Text style={styles.sectionDividerLabel}>Historique</Text>
+            )}
+          </View>
         }
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -297,4 +323,13 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: "center", paddingVertical: 48, gap: 12 },
   emptyText: { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.textMuted },
+
+  sectionDivider: {
+    flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 12,
+  },
+  sectionDividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+  sectionDividerLabel: {
+    fontSize: 11, fontFamily: "Inter_600SemiBold",
+    color: COLORS.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
+  },
 });
