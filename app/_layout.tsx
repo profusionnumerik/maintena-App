@@ -460,6 +460,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tenant)" />
       <Stack.Screen name="add" options={{ presentation: "modal", headerShown: false }} />
       <Stack.Screen name="intervention/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="maintenance-group/[groupId]" options={{ headerShown: false }} />
       <Stack.Screen name="property/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/create" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]" options={{ headerShown: false }} />
