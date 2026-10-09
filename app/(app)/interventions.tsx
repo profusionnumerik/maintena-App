@@ -856,7 +856,7 @@ export default function InterventionsScreen() {
                 isAdmin={isAdmin || isConseil}
                 isTomorrow={tomorrow}
                 isLocked={false}
-                onPress={() => router.push(`/intervention/${item.nextItemId}`)}
+                onPress={() => router.push(`/maintenance-group/${item.groupId}` as any)}
                 onRemind={() => handleSendReminder(item)}
               />
             );

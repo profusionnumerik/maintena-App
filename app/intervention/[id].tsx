@@ -592,6 +592,7 @@ export default function InterventionDetailScreen() {
   const canRespondAsProvider =
     isPrestataire &&
     isExternalProvider &&
+    !intervention.recurrenceGroupId && // maintenance récurrente = pas de validation requise
     intervention.status === "planifie" &&
     providerStatus !== "accepted" &&
     providerStatus !== "refused";
@@ -1742,30 +1743,39 @@ export default function InterventionDetailScreen() {
                     {areas.map((area) => {
                       const checked = localChecklist[area.id] === true;
                       const canEdit = isPrestataire && intervention.status === "planifie";
+                      const isDone = intervention.status === "termine";
 
                       return (
                         <Pressable
                           key={area.id}
-                          style={[styles.checklistCardRow, !checked && { opacity: 0.6 }]}
+                          style={[
+                            styles.checklistCardRow,
+                            isDone && checked && { backgroundColor: "#F0FDF4", borderRadius: 8, opacity: 1 },
+                            isDone && !checked && { backgroundColor: "#FEF2F2", borderRadius: 8, opacity: 1 },
+                            !isDone && !checked && { opacity: 0.6 },
+                          ]}
                           onPress={canEdit ? () => handleToggleChecklistItem(area.id) : undefined}
                           disabled={!canEdit || savingChecklist}
                         >
                           <Ionicons
-                            name={checked ? "checkbox" : "square-outline"}
+                            name={isDone
+                              ? (checked ? "checkmark-circle" : "close-circle")
+                              : (checked ? "checkbox" : "square-outline")}
                             size={20}
-                            color={checked ? COLORS.teal : COLORS.textMuted}
+                            color={isDone
+                              ? (checked ? "#10B981" : "#EF4444")
+                              : (checked ? COLORS.teal : COLORS.textMuted)}
                           />
                           <Text
                             style={[
                               styles.checklistCardAreaLabel,
-                              !checked && styles.checklistCardAreaDone,
+                              isDone && checked && { color: "#065F46", textDecorationLine: "none" },
+                              isDone && !checked && { color: "#991B1B", textDecorationLine: "line-through" },
+                              !isDone && !checked && styles.checklistCardAreaDone,
                             ]}
                           >
                             {area.label}
                           </Text>
-                          {checked && (
-                            <Ionicons name="checkmark" size={14} color={COLORS.teal} style={{ marginLeft: "auto" }} />
-                          )}
                         </Pressable>
                       );
                     })}
@@ -1773,18 +1783,36 @@ export default function InterventionDetailScreen() {
                 ))
               ) : (
                 <View style={styles.checklistLegacyWrap}>
-                  {Object.entries(localChecklist).map(([key, done]) => (
-                    <View key={key} style={[styles.checklistCardRow, !done && { opacity: 0.55 }]}>
-                      <Ionicons
-                        name={done ? "checkbox" : "square-outline"}
-                        size={18}
-                        color={done ? COLORS.teal : COLORS.textMuted}
-                      />
-                      <Text style={[styles.checklistCardAreaLabel, !done && styles.checklistCardAreaDone]}>
-                        {key}
-                      </Text>
-                    </View>
-                  ))}
+                  {Object.entries(localChecklist).map(([key, done]) => {
+                    const isDone = intervention.status === "termine";
+                    return (
+                      <View
+                        key={key}
+                        style={[
+                          styles.checklistCardRow,
+                          isDone && done && { backgroundColor: "#F0FDF4", borderRadius: 8 },
+                          isDone && !done && { backgroundColor: "#FEF2F2", borderRadius: 8 },
+                          !isDone && !done && { opacity: 0.55 },
+                        ]}
+                      >
+                        <Ionicons
+                          name={isDone ? (done ? "checkmark-circle" : "close-circle") : (done ? "checkbox" : "square-outline")}
+                          size={18}
+                          color={isDone ? (done ? "#10B981" : "#EF4444") : (done ? COLORS.teal : COLORS.textMuted)}
+                        />
+                        <Text
+                          style={[
+                            styles.checklistCardAreaLabel,
+                            isDone && done && { color: "#065F46" },
+                            isDone && !done && { color: "#991B1B", textDecorationLine: "line-through" },
+                            !isDone && !done && styles.checklistCardAreaDone,
+                          ]}
+                        >
+                          {key}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
               )}
 
