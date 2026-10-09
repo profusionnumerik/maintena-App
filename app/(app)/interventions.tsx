@@ -427,7 +427,9 @@ export default function InterventionsScreen() {
   const [search,          setSearch]          = useState("");
   const [catFilter,       setCatFilter]       = useState<Category | "all">("all");
   const [catModalVisible, setCatModalVisible] = useState(false);
-  const [openStatuses,    setOpenStatuses]    = useState<Set<Status>>(() => new Set<Status>(["planifie", "en_cours"]));
+  const [openStatuses,    setOpenStatuses]    = useState<Set<Status>>(() =>
+    new Set<Status>(isPrestataire ? ["planifie", "en_cours", "termine"] : ["planifie", "en_cours"])
+  );
   const [openGroups,      setOpenGroups]      = useState<Set<string>>(new Set<string>());
   const [sendingReminder, setSendingReminder] = useState<string | null>(null); // groupId en cours
   const [showArchived,    setShowArchived]    = useState(false);
