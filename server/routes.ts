@@ -9112,6 +9112,267 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     }
   });
 
+  // ─── Salarié (employee sub-account) ──────────────────────────────────────
+
+  app.post("/api/invite-salarie", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { targetEmail, coProId, coProName } = req.body as {
+      targetEmail?: string; coProId?: string; coProName?: string;
+    };
+    if (!targetEmail) return res.status(400).json({ error: "targetEmail requis" }) as any;
+
+    // Vérifier que l'appelant est bien prestataire dans ce copro
+    if (coProId) {
+      try {
+        const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+        if (!memberSnap.exists || memberSnap.data()?.role !== "prestataire") {
+          return res.status(403).json({ error: "Vous n'êtes pas prestataire dans cette copropriété" }) as any;
+        }
+      } catch { /* continue */ }
+    }
+
+    // Générer un token lisible (6 chars alphanum)
+    const token = randomBytes(4).toString("hex").toUpperCase().slice(0, 6);
+    const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+
+    // Récupérer le nom de l'employeur
+    let employerName = decoded.name ?? decoded.email ?? "Votre prestataire";
+    try {
+      const userSnap = await db.collection("users").doc(decoded.uid).get();
+      if (userSnap.exists) employerName = userSnap.data()?.displayName ?? employerName;
+    } catch { /* continue */ }
+
+    await db.collection("salarie_invites").doc(token).set({
+      token,
+      employerUid: decoded.uid,
+      employerName,
+      targetEmail: targetEmail.toLowerCase().trim(),
+      coProId: coProId ?? null,
+      coProName: coProName ?? null,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      status: "pending",
+    });
+
+    // Envoyer l'email d'invitation
+    try {
+      const rc = await getUncachableResendClient();
+      const from = rc.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
+      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+      await rc.client.emails.send({
+        from,
+        to: targetEmail.toLowerCase().trim(),
+        subject: `${employerName} vous invite sur Maintena`,
+        html: `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <div style="background:#0B1628;padding:32px 32px 24px;">
+      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#EFF6FF;color:#1E40AF;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;display:inline-block;margin-bottom:20px;">
+        Invitation salarié
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">
+        Vous êtes invité !
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        <strong>${escapeHtml(employerName)}</strong> vous invite à rejoindre Maintena en tant que salarié${coProName ? ` pour la copropriété <strong>${escapeHtml(coProName)}</strong>` : ""}.
+      </p>
+      <div style="background:#F8FAFC;border:2px dashed #CBD5E1;border-radius:14px;padding:24px;text-align:center;margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Code d'invitation</div>
+        <div style="font-size:36px;font-weight:800;color:#0B1628;letter-spacing:8px;font-family:monospace;">${token}</div>
+        <div style="font-size:12px;color:#94A3B8;margin-top:8px;">Valable 30 jours</div>
+      </div>
+      <div style="background:#EFF6FF;border-radius:12px;padding:16px;margin-bottom:20px;">
+        <div style="font-size:13px;color:#1D4ED8;font-weight:600;margin-bottom:4px;">Comment rejoindre :</div>
+        <div style="font-size:13px;color:#3B82F6;line-height:1.7;">
+          1. Téléchargez <strong>Maintena</strong><br>
+          2. Créez votre compte<br>
+          3. Dans votre profil → <strong>"Rattacher à un employeur"</strong><br>
+          4. Saisissez le code <strong style="font-family:monospace;letter-spacing:2px;">${token}</strong>
+        </div>
+      </div>
+    </div>
+    <div style="padding:20px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena — Gestion professionnelle de copropriété</p>
+    </div>
+  </div>
+</body>
+</html>`,
+      });
+    } catch (emailErr) {
+      console.warn("[invite-salarie] email error:", emailErr);
+    }
+
+    return res.json({ ok: true, token });
+  });
+
+  app.post("/api/salarie/link", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { token } = req.body as { token?: string };
+    if (!token) return res.status(400).json({ error: "Token requis" }) as any;
+
+    const tokenUpper = String(token).toUpperCase().trim();
+
+    try {
+      const invDoc = await db.collection("salarie_invites").doc(tokenUpper).get();
+      if (!invDoc.exists) return res.status(404).json({ error: "Code invalide" }) as any;
+
+      const inv = invDoc.data()!;
+      if (inv.status === "accepted") return res.status(410).json({ error: "Code déjà utilisé" }) as any;
+      if (new Date(inv.expiresAt) < new Date()) return res.status(410).json({ error: "Code expiré" }) as any;
+
+      const batch = db.batch();
+
+      // 1. Marquer l'invite comme utilisée
+      batch.update(db.collection("salarie_invites").doc(tokenUpper), {
+        status: "accepted",
+        acceptedAt: new Date().toISOString(),
+        salaryUid: decoded.uid,
+      });
+
+      // 2. Enregistrer employerUid dans le doc utilisateur du salarié
+      batch.update(db.collection("users").doc(decoded.uid), {
+        employerUid: inv.employerUid,
+        employerName: inv.employerName,
+      });
+
+      // 3. Ajouter le salarié à toutes les copros de l'employeur (même rôle: prestataire)
+      const employerMembershipsSnap = await db.collectionGroup("members")
+        .where("uid", "==", inv.employerUid)
+        .where("role", "==", "prestataire")
+        .get();
+
+      // Récupérer les infos du salarié
+      let salaryDisplayName = decoded.name ?? decoded.email ?? "";
+      let salaryEmail = decoded.email ?? "";
+      try {
+        const salaryUserSnap = await db.collection("users").doc(decoded.uid).get();
+        if (salaryUserSnap.exists) {
+          salaryDisplayName = salaryUserSnap.data()?.displayName ?? salaryDisplayName;
+          salaryEmail = salaryUserSnap.data()?.email ?? salaryEmail;
+        }
+      } catch { /* continue */ }
+
+      for (const memberDoc of employerMembershipsSnap.docs) {
+        const pathParts = memberDoc.ref.path.split("/");
+        // path: copros/{coProId}/members/{uid}
+        if (pathParts.length < 4) continue;
+        const coProId = pathParts[1];
+        const employerData = memberDoc.data();
+
+        const salaryMemberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+        batch.set(salaryMemberRef, {
+          uid: decoded.uid,
+          email: salaryEmail,
+          displayName: salaryDisplayName,
+          role: "prestataire",
+          employerUid: inv.employerUid,
+          categoryFilter: employerData.categoryFilter ?? null,
+          joinedAt: new Date().toISOString(),
+          accountStatus: "active",
+        }, { merge: true });
+      }
+
+      await batch.commit();
+      return res.json({ ok: true, employerUid: inv.employerUid, employerName: inv.employerName });
+    } catch (e: any) {
+      console.error("[salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
+  app.get("/rejoindre-salarie/:token", async (req: Request, res: Response) => {
+    const token = String(req.params.token).toUpperCase().trim();
+    const db = getAdminDb();
+    let employerName = "";
+    let isValid = false;
+
+    if (db) {
+      try {
+        const invDoc = await db.collection("salarie_invites").doc(token).get();
+        if (invDoc.exists) {
+          const inv = invDoc.data()!;
+          if (inv.status === "pending" && new Date(inv.expiresAt) > new Date()) {
+            employerName = inv.employerName ?? "";
+            isValid = true;
+          }
+        }
+      } catch { /* générique */ }
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Invitation salarié — Maintena</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f7ff;color:#0f172a;min-height:100vh}
+    nav{background:#0B1628;padding:16px 20px;display:flex;align-items:center;gap:10px}
+    .logo{background:#2563EB;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0}
+    nav span{color:#fff;font-size:17px;font-weight:700}
+    main{max-width:480px;margin:0 auto;padding:24px 16px 40px}
+    .card{background:#fff;border-radius:20px;padding:28px 24px;box-shadow:0 4px 24px rgba(11,22,40,0.08);margin-bottom:16px}
+    .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(37,99,235,0.1);border-radius:20px;padding:6px 14px;color:#2563EB;font-size:12px;font-weight:600;margin-bottom:16px}
+    h1{font-size:22px;font-weight:700;line-height:1.3;margin-bottom:12px}
+    .token-box{background:linear-gradient(135deg,#0B1628,#1E40AF);border-radius:16px;padding:24px;text-align:center;margin:20px 0}
+    .token-label{color:rgba(255,255,255,0.6);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+    .token{color:#fff;font-size:36px;font-weight:800;letter-spacing:8px;font-family:monospace;background:rgba(255,255,255,0.12);border-radius:10px;padding:14px 20px;display:inline-block}
+    ol{padding-left:20px;color:#475569;font-size:14px;line-height:2}
+    .muted{color:#94a3b8;font-size:12px;text-align:center;margin-top:16px}
+  </style>
+</head>
+<body>
+  <nav><div class="logo">M</div><span>Maintena</span></nav>
+  <main>
+    <div class="card">
+      <div class="badge">👷 Invitation salarié</div>
+      ${isValid ? `
+        <h1>${escapeHtml(employerName)} vous invite !</h1>
+        <div class="token-box">
+          <p class="token-label">Votre code d'invitation</p>
+          <div class="token">${token}</div>
+          <p style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:10px;">Valable 30 jours</p>
+        </div>
+        <p style="font-size:14px;color:#475569;font-weight:600;margin-bottom:8px;">Comment rejoindre :</p>
+        <ol>
+          <li>Téléchargez <strong>Maintena</strong> sur Android</li>
+          <li>Créez votre compte avec votre email</li>
+          <li>Dans votre profil → <strong>"Rattacher à un employeur"</strong></li>
+          <li>Saisissez le code <strong style="font-family:monospace;letter-spacing:2px;">${token}</strong></li>
+        </ol>
+      ` : `
+        <h1>Invitation introuvable ou expirée</h1>
+        <p style="color:#64748b;font-size:14px;margin-top:8px;">Ce lien n'est plus valide. Demandez à votre employeur de vous envoyer une nouvelle invitation.</p>
+      `}
+    </div>
+    <p class="muted">Maintena — Application de gestion immobilière</p>
+  </main>
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+
   app.get("/", (_req: Request, res: Response) => {
     const landingPath = path.resolve(process.cwd(), "public", "landing-page.html");
     if (fs.existsSync(landingPath)) return res.sendFile(landingPath);

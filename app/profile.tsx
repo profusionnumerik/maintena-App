@@ -23,7 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 // ─── Calcul jours d'essai restants ───────────────────────────────────────────
@@ -47,9 +47,9 @@ function formatSiret(raw: string) {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, deleteAccount, userType, rentalInfo } = useAuth();
+  const { user, logout, deleteAccount, userType, rentalInfo, employerUid, employerName } = useAuth();
   const { stats } = useInterventions();
-  const { userSubscription, currentRole } = useCoPro();
+  const { userSubscription, currentRole, currentCopro } = useCoPro();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
 
@@ -62,6 +62,83 @@ export default function ProfileScreen() {
   const [notifSignalement, setNotifSignalement] = useState(true);
   const [notifMessage,     setNotifMessage]     = useState(true);
   const [notifQuittance,   setNotifQuittance]   = useState(false);
+
+  // ── Salariés (section prestataire) ────────────────────────────────────────
+  const isPrestataire = currentRole === "prestataire";
+  const [salaries, setSalaries] = useState<{ uid: string; displayName: string; email: string }[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [linkCode, setLinkCode] = useState("");
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid || !isPrestataire) return;
+    const q = query(collection(db, "users"), where("employerUid", "==", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      setSalaries(snap.docs.map((d) => ({
+        uid: d.id,
+        displayName: d.data().displayName ?? d.data().email ?? "Salarié",
+        email: d.data().email ?? "",
+      })));
+    }, () => {});
+    return () => unsub();
+  }, [user?.uid, isPrestataire]);
+
+  const handleInviteSalarie = async () => {
+    if (!inviteEmail.trim() || !user) return;
+    setInviting(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/invite-salarie", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          targetEmail: inviteEmail.trim().toLowerCase(),
+          coProId: currentCopro?.id,
+          coProName: currentCopro?.name,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setInviteToken(data.token);
+        setInviteEmail("");
+      } else {
+        Alert.alert("Erreur", data.error ?? "Impossible d'envoyer l'invitation.");
+      }
+    } catch {
+      Alert.alert("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleLinkEmployer = async () => {
+    if (!linkCode.trim() || !user) return;
+    setLinking(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/salarie/link", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ token: linkCode.trim().toUpperCase() }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setShowLinkModal(false);
+        setLinkCode("");
+        Alert.alert("Compte rattaché", `Vous êtes maintenant rattaché à ${data.employerName}.`);
+      } else {
+        Alert.alert("Erreur", data.error ?? "Code invalide.");
+      }
+    } catch {
+      Alert.alert("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setLinking(false);
+    }
+  };
 
   // ── Profil professionnel bailleur ─────────────────────────────────────────
   const isLandlord = userType === "landlord" || userType === "both";
@@ -421,6 +498,94 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* ── Mes salariés (prestataire) ──────────────────────────────────── */}
+        {isPrestataire && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Mes salariés</Text>
+            <View style={s.card}>
+              {salaries.length === 0 ? (
+                <View style={s.row}>
+                  <View style={[s.rowIcon, { backgroundColor: "#EFF6FF" }]}>
+                    <Ionicons name="people-outline" size={18} color={COLORS.primary} />
+                  </View>
+                  <View style={s.rowContent}>
+                    <Text style={s.rowValue}>Aucun salarié</Text>
+                    <Text style={s.rowLabel}>Invitez vos employés pour qu'ils accèdent à vos interventions</Text>
+                  </View>
+                </View>
+              ) : (
+                salaries.map((sal, idx) => (
+                  <React.Fragment key={sal.uid}>
+                    {idx > 0 && <View style={s.separator} />}
+                    <View style={s.row}>
+                      <View style={[s.rowIcon, { backgroundColor: "#EFF6FF" }]}>
+                        <Ionicons name="person-circle-outline" size={18} color={COLORS.primary} />
+                      </View>
+                      <View style={s.rowContent}>
+                        <Text style={s.rowValue}>{sal.displayName}</Text>
+                        <Text style={s.rowLabel}>{sal.email}</Text>
+                      </View>
+                    </View>
+                  </React.Fragment>
+                ))
+              )}
+              {salaries.length > 0 && <View style={s.separator} />}
+              <Pressable
+                style={({ pressed }) => [s.row, pressed && { opacity: 0.75 }]}
+                onPress={() => { setInviteToken(null); setShowInviteModal(true); }}
+              >
+                <View style={[s.rowIcon, { backgroundColor: "#F0FDF4" }]}>
+                  <Ionicons name="person-add-outline" size={18} color="#16A34A" />
+                </View>
+                <View style={s.rowContent}>
+                  <Text style={[s.rowValue, { color: "#16A34A" }]}>Inviter un salarié</Text>
+                  <Text style={s.rowLabel}>Envoyer un code par email</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* ── Rattacher à un employeur (salarié) ─────────────────────────── */}
+        {isPrestataire && !employerUid && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Compte salarié</Text>
+            <View style={s.card}>
+              <Pressable
+                style={({ pressed }) => [s.row, pressed && { opacity: 0.75 }]}
+                onPress={() => setShowLinkModal(true)}
+              >
+                <View style={[s.rowIcon, { backgroundColor: "#FFF7ED" }]}>
+                  <Ionicons name="link-outline" size={18} color="#F59E0B" />
+                </View>
+                <View style={s.rowContent}>
+                  <Text style={s.rowValue}>Rattacher à un employeur</Text>
+                  <Text style={s.rowLabel}>Saisir le code reçu par email</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {isPrestataire && !!employerUid && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>Compte salarié</Text>
+            <View style={s.card}>
+              <View style={s.row}>
+                <View style={[s.rowIcon, { backgroundColor: "#F0FDF4" }]}>
+                  <Ionicons name="checkmark-circle-outline" size={18} color="#16A34A" />
+                </View>
+                <View style={s.rowContent}>
+                  <Text style={s.rowValue}>Rattaché à {employerName ?? "votre employeur"}</Text>
+                  <Text style={s.rowLabel}>Vous avez accès aux interventions de votre employeur</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* ── Informations bailleur ───────────────────────────────────────── */}
         {isLandlord && (
           <View style={s.section}>
@@ -617,6 +782,95 @@ export default function ProfileScreen() {
           <Text style={s.deleteAccountText}>Supprimer mon compte</Text>
         </Pressable>
       </ScrollView>
+
+      {/* ── Modal inviter salarié ──────────────────────────────────────────── */}
+      {showInviteModal && (
+        <Pressable
+          style={mod.overlay}
+          onPress={() => { if (!inviting) { setShowInviteModal(false); setInviteToken(null); } }}
+        >
+          <Pressable style={mod.sheet} onPress={(e) => e.stopPropagation()}>
+            {inviteToken ? (
+              <>
+                <Text style={mod.title}>Invitation envoyée !</Text>
+                <Text style={mod.sub}>Partagez ce code à votre salarié :</Text>
+                <View style={mod.tokenBox}>
+                  <Text style={mod.token}>{inviteToken}</Text>
+                </View>
+                <Text style={mod.hint}>Un email a été envoyé avec les instructions.</Text>
+                <Pressable
+                  style={({ pressed }) => [mod.btn, pressed && { opacity: 0.8 }]}
+                  onPress={() => { setShowInviteModal(false); setInviteToken(null); }}
+                >
+                  <Text style={mod.btnText}>Fermer</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={mod.title}>Inviter un salarié</Text>
+                <Text style={mod.sub}>Adresse email du salarié</Text>
+                <TextInput
+                  style={mod.input}
+                  value={inviteEmail}
+                  onChangeText={setInviteEmail}
+                  placeholder="prenom.nom@email.com"
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <Pressable
+                  style={({ pressed }) => [mod.btn, pressed && { opacity: 0.8 }, (!inviteEmail.trim() || inviting) && { opacity: 0.5 }]}
+                  onPress={handleInviteSalarie}
+                  disabled={!inviteEmail.trim() || inviting}
+                >
+                  {inviting
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={mod.btnText}>Envoyer l'invitation</Text>}
+                </Pressable>
+                <Pressable style={mod.cancel} onPress={() => setShowInviteModal(false)}>
+                  <Text style={mod.cancelText}>Annuler</Text>
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      )}
+
+      {/* ── Modal rattacher à un employeur ────────────────────────────────── */}
+      {showLinkModal && (
+        <Pressable
+          style={mod.overlay}
+          onPress={() => { if (!linking) setShowLinkModal(false); }}
+        >
+          <Pressable style={mod.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={mod.title}>Code employeur</Text>
+            <Text style={mod.sub}>Saisissez le code reçu par email de votre prestataire / employeur</Text>
+            <TextInput
+              style={[mod.input, { letterSpacing: 4, textAlign: "center", fontSize: 22, fontFamily: "Inter_700Bold" }]}
+              value={linkCode}
+              onChangeText={(t) => setLinkCode(t.toUpperCase())}
+              placeholder="ABC123"
+              placeholderTextColor={COLORS.textMuted}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={6}
+            />
+            <Pressable
+              style={({ pressed }) => [mod.btn, pressed && { opacity: 0.8 }, (!linkCode.trim() || linking) && { opacity: 0.5 }]}
+              onPress={handleLinkEmployer}
+              disabled={!linkCode.trim() || linking}
+            >
+              {linking
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={mod.btnText}>Rattacher mon compte</Text>}
+            </Pressable>
+            <Pressable style={mod.cancel} onPress={() => setShowLinkModal(false)}>
+              <Text style={mod.cancelText}>Annuler</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -665,6 +919,45 @@ const s = StyleSheet.create({
   logoutText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: COLORS.danger },
   deleteAccountBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginTop: 4, marginBottom: 8 },
   deleteAccountText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", textDecorationLine: "underline" },
+});
+
+// ─── Styles modaux salarié ────────────────────────────────────────────────────
+const mod = StyleSheet.create({
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 28, paddingBottom: 40, gap: 12,
+  },
+  title: { fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text },
+  sub:   { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textMuted, lineHeight: 20 },
+  input: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 16, fontFamily: "Inter_400Regular", color: COLORS.text,
+    backgroundColor: COLORS.background,
+  },
+  btn: {
+    backgroundColor: COLORS.primary, borderRadius: 12,
+    paddingVertical: 14, alignItems: "center", justifyContent: "center",
+    marginTop: 4,
+  },
+  btnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  cancel: { alignItems: "center", paddingVertical: 8 },
+  cancelText: { fontSize: 14, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  tokenBox: {
+    backgroundColor: "#0B1628", borderRadius: 14,
+    paddingVertical: 20, alignItems: "center",
+  },
+  token: {
+    fontSize: 36, fontFamily: "Inter_700Bold", color: "#fff",
+    letterSpacing: 8, fontVariant: ["tabular-nums"],
+  },
+  hint: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center" },
 });
 
 // ─── Styles formulaire profil bailleur/locataire ──────────────────────────────

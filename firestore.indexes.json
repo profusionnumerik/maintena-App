@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "members",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "uid",  "order": "ASCENDING" },
+        { "fieldPath": "role", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "inventoryReports",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

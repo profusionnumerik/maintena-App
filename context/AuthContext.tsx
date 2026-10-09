@@ -68,6 +68,10 @@ interface AuthContextValue {
   setUserType: (type: UserType) => Promise<void>;
   resetUserType: () => Promise<void>;
   markRentalSetup: () => Promise<void>;
+  /** UID de l'employeur si l'utilisateur est un salarié prestataire */
+  employerUid: string | null;
+  /** Nom de l'employeur si l'utilisateur est un salarié prestataire */
+  employerName: string | null;
   // ────────────────────────────────────────────────
   error: string | null;
   clearError: () => void;
@@ -136,6 +140,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hasRentalSetup, setHasRentalSetup] = useState(false);
   const [rentalInfo, setRentalInfo] = useState<RentalInfo | null>(null);
   const [rentalProfile, setRentalProfile] = useState<{ companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string; plan?: RentalPlan } | null>(null);
+  const [employerUid, setEmployerUid] = useState<string | null>(null);
+  const [employerName, setEmployerName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // isLoading reste true tant que Firebase Auth OU les données Firestore ne sont pas prêtes
@@ -152,6 +158,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setHasRentalSetup(false);
         setRentalInfo(null);
         setRentalProfile(null);
+        setEmployerUid(null);
+        setEmployerName(null);
         setUserDataLoading(false);
       }
       if (u?.uid) registerPushToken(u.uid).catch(() => {});
@@ -176,6 +184,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setHasRentalSetup(data.hasRentalSetup === true);
           setRentalInfo((data.rentalInfo as RentalInfo) ?? null);
           setRentalProfile(data.rentalProfile ?? null);
+          setEmployerUid(data.employerUid ?? null);
+          setEmployerName(data.employerName ?? null);
         }
         setUserDataLoading(false);
       },
@@ -404,6 +414,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       rentalPlan,
       planLimits,
       isPro,
+      employerUid,
+      employerName,
       error,
       clearError,
       login,
@@ -418,6 +430,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [
       user, isLoading, isSuperAdmin,
       userType, hasRentalSetup, rentalInfo, rentalProfile, rentalPlan, planLimits, isPro,
+      employerUid, employerName,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]

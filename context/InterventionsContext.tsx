@@ -115,7 +115,7 @@ export function InterventionsProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { user } = useAuth();
+  const { user, employerUid } = useAuth();
   const { currentCopro, currentRole, categoryFilter, isSubscribed, copros } = useCoPro();
   const [allInterventions, setAllInterventions] = useState<Intervention[]>([]);
   const [multiCoproInterventions, setMultiCoproInterventions] = useState<Intervention[]>([]);
@@ -191,7 +191,7 @@ export function InterventionsProvider({
       return onSnapshot(q, (snap) => {
         perCopro[copro.id] = snap.docs
           .map((d) => ({ ...toIntervention(d.id, d.data(), copro.id), coProName: copro.name }))
-          .filter((i) => i.assignedToUid === user.uid);
+          .filter((i) => i.assignedToUid === (employerUid ?? user.uid));
 
         const merged = Object.values(perCopro)
           .flat()
@@ -205,14 +205,15 @@ export function InterventionsProvider({
     });
 
     return () => unsubs.forEach((u) => u());
-  }, [hasMultipleCopros, user?.uid, copros.map((c) => c.id).join(",")]);
+  }, [hasMultipleCopros, user?.uid, employerUid, copros.map((c) => c.id).join(",")]);
 
   const interventions = useMemo(() => {
     if (hasMultipleCopros) return multiCoproInterventions;
 
     if (isPrestataire && user) {
-      // Un prestataire voit uniquement ses propres interventions (assignedToUid)
-      return allInterventions.filter((i) => i.assignedToUid === user.uid);
+      // Un salarié voit les interventions assignées à son employeur
+      const targetUid = employerUid ?? user.uid;
+      return allInterventions.filter((i) => i.assignedToUid === targetUid);
     }
 
     return allInterventions;

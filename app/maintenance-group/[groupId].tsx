@@ -13,7 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
 import { useInterventions } from "@/context/InterventionsContext";
-import type { Intervention } from "@/types/intervention";
+import type { Intervention } from "@/shared/types";
 
 const STATUS_CONFIG = {
   termine:  { label: "Effectuée",  bg: "#D1FAE5", text: "#065F46", dot: "#10B981" },
