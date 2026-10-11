@@ -63,8 +63,10 @@ export default function ProfileScreen() {
   const [notifMessage,     setNotifMessage]     = useState(true);
   const [notifQuittance,   setNotifQuittance]   = useState(false);
 
-  // ── Salariés (section prestataire) ────────────────────────────────────────
+  // ── Salariés / équipe ─────────────────────────────────────────────────────
   const isPrestataire = currentRole === "prestataire";
+  const isAdminRole   = currentRole === "admin" || currentRole === "co-admin";
+  const canInviteTeam = isPrestataire || isAdminRole;
   const [salaries, setSalaries] = useState<{ uid: string; displayName: string; email: string }[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -75,7 +77,7 @@ export default function ProfileScreen() {
   const [linking, setLinking] = useState(false);
 
   useEffect(() => {
-    if (!user?.uid || !isPrestataire) return;
+    if (!user?.uid || !canInviteTeam) return;
     const q = query(collection(db, "users"), where("employerUid", "==", user.uid));
     const unsub = onSnapshot(q, (snap) => {
       setSalaries(snap.docs.map((d) => ({
@@ -85,7 +87,7 @@ export default function ProfileScreen() {
       })));
     }, () => {});
     return () => unsub();
-  }, [user?.uid, isPrestataire]);
+  }, [user?.uid, canInviteTeam]);
 
   const handleInviteSalarie = async () => {
     if (!inviteEmail.trim() || !user) return;
@@ -498,10 +500,10 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ── Mes salariés (prestataire) ──────────────────────────────────── */}
-        {isPrestataire && (
+        {/* ── Mon équipe (prestataire ou admin) ───────────────────────────── */}
+        {canInviteTeam && (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>Mes salariés</Text>
+            <Text style={s.sectionTitle}>{isAdminRole ? "Mon équipe" : "Mes salariés"}</Text>
             <View style={s.card}>
               {salaries.length === 0 ? (
                 <View style={s.row}>
@@ -538,8 +540,8 @@ export default function ProfileScreen() {
                   <Ionicons name="person-add-outline" size={18} color="#16A34A" />
                 </View>
                 <View style={s.rowContent}>
-                  <Text style={[s.rowValue, { color: "#16A34A" }]}>Inviter un salarié</Text>
-                  <Text style={s.rowLabel}>Envoyer un code par email</Text>
+                  <Text style={[s.rowValue, { color: "#16A34A" }]}>{isAdminRole ? "Inviter un technicien" : "Inviter un salarié"}</Text>
+                  <Text style={s.rowLabel}>Envoyer un lien + code par email</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
               </Pressable>
@@ -548,7 +550,7 @@ export default function ProfileScreen() {
         )}
 
         {/* ── Rattacher à un employeur (salarié) ─────────────────────────── */}
-        {isPrestataire && !employerUid && (
+        {isPrestataire && !isAdminRole && !employerUid && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>Compte salarié</Text>
             <View style={s.card}>
@@ -569,7 +571,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {isPrestataire && !!employerUid && (
+        {isPrestataire && !isAdminRole && !!employerUid && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>Compte salarié</Text>
             <View style={s.card}>
@@ -807,7 +809,7 @@ export default function ProfileScreen() {
               </>
             ) : (
               <>
-                <Text style={mod.title}>Inviter un salarié</Text>
+                <Text style={mod.title}>{isAdminRole ? "Inviter un technicien" : "Inviter un salarié"}</Text>
                 <Text style={mod.sub}>Adresse email du salarié</Text>
                 <TextInput
                   style={mod.input}

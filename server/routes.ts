@@ -9126,31 +9126,43 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     };
     if (!targetEmail) return res.status(400).json({ error: "targetEmail requis" }) as any;
 
-    // Vérifier que l'appelant est bien prestataire dans ce copro
+    // Vérifier que l'appelant est membre (prestataire OU admin) de cette copro
+    let inviterRole: "prestataire" | "admin" | "co-admin" | null = null;
     if (coProId) {
       try {
         const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
-        if (!memberSnap.exists || memberSnap.data()?.role !== "prestataire") {
-          return res.status(403).json({ error: "Vous n'êtes pas prestataire dans cette copropriété" }) as any;
+        if (memberSnap.exists) {
+          const role = memberSnap.data()?.role as string;
+          if (role === "prestataire" || role === "admin" || role === "co-admin") {
+            inviterRole = role as any;
+          }
         }
       } catch { /* continue */ }
+      if (!inviterRole) {
+        return res.status(403).json({ error: "Vous n'avez pas accès à cette copropriété" }) as any;
+      }
     }
+
+    const isAdminInvite = inviterRole === "admin" || inviterRole === "co-admin";
 
     // Générer un token lisible (6 chars alphanum)
     const token = randomBytes(4).toString("hex").toUpperCase().slice(0, 6);
     const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
 
-    // Récupérer le nom de l'employeur
-    let employerName = decoded.name ?? decoded.email ?? "Votre prestataire";
+    // Récupérer le nom de l'inviteur
+    let inviterName = decoded.name ?? decoded.email ?? "Votre responsable";
     try {
       const userSnap = await db.collection("users").doc(decoded.uid).get();
-      if (userSnap.exists) employerName = userSnap.data()?.displayName ?? employerName;
+      if (userSnap.exists) inviterName = userSnap.data()?.displayName ?? inviterName;
     } catch { /* continue */ }
 
     await db.collection("salarie_invites").doc(token).set({
       token,
-      employerUid: decoded.uid,
-      employerName,
+      employerUid: isAdminInvite ? null : decoded.uid,
+      employerName: isAdminInvite ? null : inviterName,
+      inviterUid: decoded.uid,
+      inviterName,
+      inviterRole: inviterRole ?? "prestataire",
       targetEmail: targetEmail.toLowerCase().trim(),
       coProId: coProId ?? null,
       coProName: coProName ?? null,
@@ -9159,51 +9171,105 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       status: "pending",
     });
 
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+    const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+    const invitePageUrl = `${baseUrl}/rejoindre-salarie/${token}`;
+    const roleLabel = isAdminInvite ? "membre de l'équipe" : "salarié";
+    const contextLine = coProName
+      ? ` pour la copropriété <strong>${escapeHtml(coProName)}</strong>`
+      : "";
+
     // Envoyer l'email d'invitation
     try {
       const rc = await getUncachableResendClient();
       const from = rc.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
-      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
       await rc.client.emails.send({
         from,
         to: targetEmail.toLowerCase().trim(),
-        subject: `${employerName} vous invite sur Maintena`,
+        subject: `${inviterName} vous invite sur Maintena`,
         html: `
 <!DOCTYPE html>
 <html lang="fr">
-<head><meta charset="UTF-8"/></head>
-<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
-  <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-    <div style="background:#0B1628;padding:32px 32px 24px;">
-      <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">Gestion de copropriété</div>
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+
+    <!-- Header -->
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropriété</div>
     </div>
+
+    <!-- Body -->
     <div style="padding:32px;">
-      <div style="background:#EFF6FF;color:#1E40AF;font-size:13px;font-weight:600;padding:8px 16px;border-radius:20px;display:inline-block;margin-bottom:20px;">
-        Invitation salarié
+      <div style="background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        Invitation
       </div>
-      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">
-        Vous êtes invité !
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(inviterName)} vous invite !
       </h1>
       <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
-        <strong>${escapeHtml(employerName)}</strong> vous invite à rejoindre Maintena en tant que salarié${coProName ? ` pour la copropriété <strong>${escapeHtml(coProName)}</strong>` : ""}.
+        Rejoignez <strong>Maintena</strong> en tant que ${roleLabel}${contextLine}.
+        Téléchargez l'application et utilisez le code ci-dessous pour accéder à vos interventions.
       </p>
-      <div style="background:#F8FAFC;border:2px dashed #CBD5E1;border-radius:14px;padding:24px;text-align:center;margin-bottom:24px;">
-        <div style="font-size:11px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Code d'invitation</div>
-        <div style="font-size:36px;font-weight:800;color:#0B1628;letter-spacing:8px;font-family:monospace;">${token}</div>
-        <div style="font-size:12px;color:#94A3B8;margin-top:8px;">Valable 30 jours</div>
-      </div>
-      <div style="background:#EFF6FF;border-radius:12px;padding:16px;margin-bottom:20px;">
-        <div style="font-size:13px;color:#1D4ED8;font-weight:600;margin-bottom:4px;">Comment rejoindre :</div>
-        <div style="font-size:13px;color:#3B82F6;line-height:1.7;">
-          1. Téléchargez <strong>Maintena</strong><br>
-          2. Créez votre compte<br>
-          3. Dans votre profil → <strong>"Rattacher à un employeur"</strong><br>
-          4. Saisissez le code <strong style="font-family:monospace;letter-spacing:2px;">${token}</strong>
+
+      <!-- Code -->
+      <div style="background:#0B1628;border-radius:16px;padding:28px 24px;text-align:center;margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">
+          Votre code d'accès
+        </div>
+        <div style="font-size:42px;font-weight:800;color:#fff;letter-spacing:10px;font-family:monospace;line-height:1;">
+          ${token}
+        </div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:12px;">
+          Valable 30 jours · À saisir dans l'application
         </div>
       </div>
+
+      <!-- Bouton téléchargement -->
+      <div style="margin-bottom:24px;">
+        <p style="font-size:13px;font-weight:600;color:#0F172A;margin:0 0 10px;">
+          Étape 1 — Téléchargez l'application :
+        </p>
+        <a href="${googlePlayUrl}" target="_blank" style="display:flex;align-items:center;gap:12px;background:#000;color:#fff;padding:14px 18px;border-radius:12px;text-decoration:none;border:1px solid rgba(255,255,255,0.12);margin-bottom:8px;">
+          <span style="font-size:22px;">▶</span>
+          <div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;">DISPONIBLE SUR</div>
+            <div style="font-size:15px;font-weight:700;margin-top:1px;">Google Play</div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Étapes -->
+      <div style="background:#F8FAFC;border-radius:12px;padding:18px 20px;">
+        <p style="font-size:13px;font-weight:600;color:#0F172A;margin:0 0 12px;">
+          Étape 2 — Créez votre compte :
+        </p>
+        <div style="color:#475569;font-size:14px;line-height:1.9;">
+          <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">1</span>
+            Ouvrez <strong>Maintena</strong> et créez votre compte
+          </div>
+          <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">2</span>
+            Allez dans <strong>Profil → "Rattacher à un employeur"</strong>
+          </div>
+          <div style="display:flex;gap:10px;align-items:baseline;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">3</span>
+            Saisissez le code <strong style="font-family:monospace;letter-spacing:3px;font-size:15px;">${token}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;text-align:center;">
+        <a href="${invitePageUrl}" style="color:#2563EB;font-size:13px;text-decoration:none;">
+          Voir cette invitation dans le navigateur →
+        </a>
+      </div>
     </div>
-    <div style="padding:20px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+
+    <!-- Footer -->
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
       <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena — Gestion professionnelle de copropriété</p>
     </div>
   </div>
@@ -9214,7 +9280,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       console.warn("[invite-salarie] email error:", emailErr);
     }
 
-    return res.json({ ok: true, token });
+    return res.json({ ok: true, token, invitePageUrl });
   });
 
   app.post("/api/salarie/link", async (req: Request, res: Response) => {
@@ -9246,18 +9312,6 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         salaryUid: decoded.uid,
       });
 
-      // 2. Enregistrer employerUid dans le doc utilisateur du salarié
-      batch.update(db.collection("users").doc(decoded.uid), {
-        employerUid: inv.employerUid,
-        employerName: inv.employerName,
-      });
-
-      // 3. Ajouter le salarié à toutes les copros de l'employeur (même rôle: prestataire)
-      const employerMembershipsSnap = await db.collectionGroup("members")
-        .where("uid", "==", inv.employerUid)
-        .where("role", "==", "prestataire")
-        .get();
-
       // Récupérer les infos du salarié
       let salaryDisplayName = decoded.name ?? decoded.email ?? "";
       let salaryEmail = decoded.email ?? "";
@@ -9269,28 +9323,61 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         }
       } catch { /* continue */ }
 
-      for (const memberDoc of employerMembershipsSnap.docs) {
-        const pathParts = memberDoc.ref.path.split("/");
-        // path: copros/{coProId}/members/{uid}
-        if (pathParts.length < 4) continue;
-        const coProId = pathParts[1];
-        const employerData = memberDoc.data();
+      const isAdminInvite = !inv.employerUid; // admin invite: pas d'employerUid
 
-        const salaryMemberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
-        batch.set(salaryMemberRef, {
-          uid: decoded.uid,
-          email: salaryEmail,
-          displayName: salaryDisplayName,
-          role: "prestataire",
+      if (isAdminInvite) {
+        // Invite admin : accès direct à la copro ciblée (sans lien employeur)
+        if (inv.coProId) {
+          const salaryMemberRef = db.collection("copros").doc(inv.coProId).collection("members").doc(decoded.uid);
+          batch.set(salaryMemberRef, {
+            uid: decoded.uid,
+            email: salaryEmail,
+            displayName: salaryDisplayName,
+            role: "prestataire",
+            joinedAt: new Date().toISOString(),
+            accountStatus: "active",
+          }, { merge: true });
+          // Ajouter à managedCoproIds
+          try {
+            const { FieldValue: FV } = await import("firebase-admin/firestore");
+            batch.update(db.collection("users").doc(decoded.uid), {
+              managedCoproIds: FV.arrayUnion(inv.coProId),
+            });
+          } catch { /* continue */ }
+        }
+      } else {
+        // Invite prestataire : lier salarié à l'employeur + toutes ses copros
+        batch.update(db.collection("users").doc(decoded.uid), {
           employerUid: inv.employerUid,
-          categoryFilter: employerData.categoryFilter ?? null,
-          joinedAt: new Date().toISOString(),
-          accountStatus: "active",
-        }, { merge: true });
+          employerName: inv.employerName,
+        });
+
+        const employerMembershipsSnap = await db.collectionGroup("members")
+          .where("uid", "==", inv.employerUid)
+          .where("role", "==", "prestataire")
+          .get();
+
+        for (const memberDoc of employerMembershipsSnap.docs) {
+          const pathParts = memberDoc.ref.path.split("/");
+          if (pathParts.length < 4) continue;
+          const coProId = pathParts[1];
+          const employerData = memberDoc.data();
+          const salaryMemberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+          batch.set(salaryMemberRef, {
+            uid: decoded.uid,
+            email: salaryEmail,
+            displayName: salaryDisplayName,
+            role: "prestataire",
+            employerUid: inv.employerUid,
+            categoryFilter: employerData.categoryFilter ?? null,
+            joinedAt: new Date().toISOString(),
+            accountStatus: "active",
+          }, { merge: true });
+        }
       }
 
       await batch.commit();
-      return res.json({ ok: true, employerUid: inv.employerUid, employerName: inv.employerName });
+      return res.json({ ok: true, employerUid: inv.employerUid ?? null, employerName: inv.employerName ?? inv.inviterName });
     } catch (e: any) {
       console.error("[salarie/link] error:", e);
       return res.status(500).json({ error: "Erreur serveur" }) as any;
@@ -9300,7 +9387,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
   app.get("/rejoindre-salarie/:token", async (req: Request, res: Response) => {
     const token = String(req.params.token).toUpperCase().trim();
     const db = getAdminDb();
-    let employerName = "";
+    let inviterName = "";
+    let coProName = "";
     let isValid = false;
 
     if (db) {
@@ -9309,33 +9397,46 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         if (invDoc.exists) {
           const inv = invDoc.data()!;
           if (inv.status === "pending" && new Date(inv.expiresAt) > new Date()) {
-            employerName = inv.employerName ?? "";
+            inviterName = inv.inviterName ?? inv.employerName ?? "";
+            coProName   = inv.coProName ?? "";
             isValid = true;
           }
         }
       } catch { /* générique */ }
     }
 
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+
     const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>Invitation salarié — Maintena</title>
+  <title>Invitation Maintena</title>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f7ff;color:#0f172a;min-height:100vh}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f4ff;color:#0f172a;min-height:100vh}
     nav{background:#0B1628;padding:16px 20px;display:flex;align-items:center;gap:10px}
-    .logo{background:#2563EB;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0}
+    .logo{background:#2563EB;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0;letter-spacing:-1px}
     nav span{color:#fff;font-size:17px;font-weight:700}
-    main{max-width:480px;margin:0 auto;padding:24px 16px 40px}
+    main{max-width:460px;margin:0 auto;padding:24px 16px 48px}
     .card{background:#fff;border-radius:20px;padding:28px 24px;box-shadow:0 4px 24px rgba(11,22,40,0.08);margin-bottom:16px}
-    .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(37,99,235,0.1);border-radius:20px;padding:6px 14px;color:#2563EB;font-size:12px;font-weight:600;margin-bottom:16px}
-    h1{font-size:22px;font-weight:700;line-height:1.3;margin-bottom:12px}
-    .token-box{background:linear-gradient(135deg,#0B1628,#1E40AF);border-radius:16px;padding:24px;text-align:center;margin:20px 0}
-    .token-label{color:rgba(255,255,255,0.6);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-    .token{color:#fff;font-size:36px;font-weight:800;letter-spacing:8px;font-family:monospace;background:rgba(255,255,255,0.12);border-radius:10px;padding:14px 20px;display:inline-block}
-    ol{padding-left:20px;color:#475569;font-size:14px;line-height:2}
+    .badge{display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:11px;font-weight:700;padding:5px 13px;border-radius:20px;margin-bottom:18px;text-transform:uppercase;letter-spacing:0.5px}
+    h1{font-size:21px;font-weight:700;line-height:1.3;margin-bottom:8px}
+    .sub{font-size:14px;color:#64748b;margin-bottom:22px;line-height:1.5}
+    .token-box{background:#0B1628;border-radius:16px;padding:24px;text-align:center;margin-bottom:24px}
+    .token-label{font-size:10px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+    .token{font-size:44px;font-weight:800;color:#fff;letter-spacing:10px;font-family:monospace;display:block;line-height:1}
+    .token-exp{font-size:11px;color:rgba(255,255,255,0.35);margin-top:10px}
+    .steps{background:#F8FAFC;border-radius:12px;padding:18px 20px;margin-bottom:20px}
+    .steps-title{font-size:13px;font-weight:600;color:#0f172a;margin-bottom:12px}
+    .step{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;font-size:14px;color:#475569;line-height:1.5}
+    .step:last-child{margin-bottom:0}
+    .step-num{background:#2563EB;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px}
+    .dl-btn{display:flex;align-items:center;gap:14px;background:#000;color:#fff;padding:14px 18px;border-radius:12px;text-decoration:none;margin-bottom:10px}
+    .dl-icon{font-size:26px;flex-shrink:0}
+    .dl-label{font-size:10px;color:rgba(255,255,255,0.55);letter-spacing:0.5px;text-transform:uppercase}
+    .dl-name{font-size:16px;font-weight:700;margin-top:1px}
     .muted{color:#94a3b8;font-size:12px;text-align:center;margin-top:16px}
   </style>
 </head>
@@ -9343,24 +9444,44 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
   <nav><div class="logo">M</div><span>Maintena</span></nav>
   <main>
     <div class="card">
-      <div class="badge">👷 Invitation salarié</div>
+      <div class="badge">Invitation</div>
       ${isValid ? `
-        <h1>${escapeHtml(employerName)} vous invite !</h1>
+        <h1>${escapeHtml(inviterName)} vous invite !</h1>
+        <p class="sub">${coProName ? `Copropriété : <strong>${escapeHtml(coProName)}</strong><br>` : ""}Téléchargez l'application et utilisez le code ci-dessous pour accéder à vos interventions.</p>
+
         <div class="token-box">
-          <p class="token-label">Votre code d'invitation</p>
-          <div class="token">${token}</div>
-          <p style="color:rgba(255,255,255,0.4);font-size:11px;margin-top:10px;">Valable 30 jours</p>
+          <p class="token-label">Votre code d'accès</p>
+          <span class="token">${token}</span>
+          <p class="token-exp">Valable 30 jours · À saisir dans l'application</p>
         </div>
-        <p style="font-size:14px;color:#475569;font-weight:600;margin-bottom:8px;">Comment rejoindre :</p>
-        <ol>
-          <li>Téléchargez <strong>Maintena</strong> sur Android</li>
-          <li>Créez votre compte avec votre email</li>
-          <li>Dans votre profil → <strong>"Rattacher à un employeur"</strong></li>
-          <li>Saisissez le code <strong style="font-family:monospace;letter-spacing:2px;">${token}</strong></li>
-        </ol>
+
+        <p style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:10px;">1 — Téléchargez Maintena :</p>
+        <a class="dl-btn" href="${googlePlayUrl}" target="_blank" rel="noopener">
+          <span class="dl-icon">▶</span>
+          <div>
+            <div class="dl-label">Disponible sur</div>
+            <div class="dl-name">Google Play</div>
+          </div>
+        </a>
+
+        <div class="steps" style="margin-top:18px">
+          <p class="steps-title">2 — Créez votre compte :</p>
+          <div class="step">
+            <div class="step-num">1</div>
+            <span>Ouvrez <strong>Maintena</strong> et créez votre compte avec votre email</span>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <span>Allez dans <strong>Profil → "Rattacher à un employeur"</strong></span>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <span>Saisissez le code <strong style="font-family:monospace;letter-spacing:3px;">${token}</strong></span>
+          </div>
+        </div>
       ` : `
         <h1>Invitation introuvable ou expirée</h1>
-        <p style="color:#64748b;font-size:14px;margin-top:8px;">Ce lien n'est plus valide. Demandez à votre employeur de vous envoyer une nouvelle invitation.</p>
+        <p class="sub">Ce lien n'est plus valide. Demandez à votre responsable de vous envoyer une nouvelle invitation.</p>
       `}
     </div>
     <p class="muted">Maintena — Application de gestion immobilière</p>
