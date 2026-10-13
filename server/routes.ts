@@ -9733,6 +9733,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       const { FieldValue: FV } = await import("firebase-admin/firestore");
       const batch = db.batch();
       const memberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+      const entretienId = entretienDoc.id;
       batch.set(memberRef, {
         uid: decoded.uid,
         email: salaryEmail,
@@ -9741,6 +9742,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         joinedAt: new Date().toISOString(),
         accountStatus: "active",
         fromEntretienCode: true,
+        entretienId,
       }, { merge: true });
       batch.set(db.collection("users").doc(decoded.uid), {
         managedCoproIds: FV.arrayUnion(coProId),
@@ -9756,6 +9758,52 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       });
     } catch (e: any) {
       console.error("[entretien-salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
+  app.delete("/api/entretien-salarie/:coProId/:memberUid", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { coProId, memberUid } = req.params as { coProId: string; memberUid: string };
+
+    try {
+      // Vérifier que le demandeur est admin de la copro
+      const callerMember = await db.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      const callerRole = callerMember.exists ? callerMember.data()?.role : null;
+      if (!callerRole || !["admin", "co-admin"].includes(callerRole)) {
+        return res.status(403).json({ error: "Accès refusé" }) as any;
+      }
+
+      const { FieldValue: FV } = await import("firebase-admin/firestore");
+      const batch = db.batch();
+
+      // Supprimer le member doc
+      batch.delete(db.collection("copros").doc(coProId).collection("members").doc(memberUid));
+
+      // Retirer la copro de managedCoproIds du salarié
+      batch.update(db.collection("users").doc(memberUid), {
+        managedCoproIds: FV.arrayRemove(coProId),
+      });
+
+      await batch.commit();
+
+      // Effacer fromEntretienCode si le salarié n'a plus de copros via entretien
+      try {
+        const userSnap = await db.collection("users").doc(memberUid).get();
+        const remaining: string[] = userSnap.data()?.managedCoproIds ?? [];
+        if (remaining.length === 0) {
+          await db.collection("users").doc(memberUid).update({ fromEntretienCode: false });
+        }
+      } catch { /* non bloquant */ }
+
+      return res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[entretien-salarie/delete] error:", e);
       return res.status(500).json({ error: "Erreur serveur" }) as any;
     }
   });

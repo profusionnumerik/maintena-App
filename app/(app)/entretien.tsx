@@ -7,8 +7,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  addDoc, collection, deleteDoc, doc, onSnapshot,
-  orderBy, query, Timestamp, updateDoc,
+  addDoc, collection, deleteDoc, doc, getDocs, onSnapshot,
+  orderBy, query, Timestamp, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
@@ -441,6 +441,8 @@ function DetailModal({
   onDeleteVisit,
   onGenerateSalarieCode,
   salarieCodeLoading,
+  salarieMembers,
+  onDeleteSalarie,
 }: {
   visible: boolean;
   entretien: Entretien | null;
@@ -451,6 +453,8 @@ function DetailModal({
   onDeleteVisit: (visitId: string) => void;
   onGenerateSalarieCode: () => void;
   salarieCodeLoading: boolean;
+  salarieMembers: { uid: string; displayName: string; email: string }[];
+  onDeleteSalarie: (uid: string, name: string) => void;
 }) {
   if (!entretien) return null;
   const statut = getEntretienStatut(entretien);
@@ -578,6 +582,27 @@ function DetailModal({
             </View>
           )}
 
+          {/* Salariés actifs */}
+          {isAdmin && salarieMembers.length > 0 && (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>Salarié(s) actif(s)</Text>
+              {salarieMembers.map((s) => (
+                <View key={s.uid} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#F8FAFC", borderRadius: 10, padding: 12, marginBottom: 8 }}>
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: "600", color: "#1E293B" }}>{s.displayName || s.email}</Text>
+                    {s.email && s.displayName ? <Text style={{ fontSize: 12, color: "#64748B" }}>{s.email}</Text> : null}
+                  </View>
+                  <Pressable
+                    onPress={() => onDeleteSalarie(s.uid, s.displayName || s.email)}
+                    style={{ backgroundColor: "#FEF2F2", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+                  >
+                    <Text style={{ fontSize: 13, color: "#DC2626", fontWeight: "600" }}>Supprimer</Text>
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Historique */}
           <Text style={styles.sectionTitle}>Historique des visites ({sortedVisits.length})</Text>
 
@@ -668,6 +693,7 @@ export default function EntretienScreen() {
   const [detailTarget, setDetailTarget] = useState<Entretien | null>(null);
   const [saving, setSaving] = useState(false);
   const [salarieCodeLoading, setSalarieCodeLoading] = useState(false);
+  const [salaries, setSalaries] = useState<Record<string, { uid: string; displayName: string; email: string }[]>>({});
 
   // ── Chargement Firestore ──────────────────────────────────────────────────
   useEffect(() => {
@@ -705,6 +731,27 @@ export default function EntretienScreen() {
     });
     return () => unsub();
   }, [currentCopro?.id]);
+
+  // ── Chargement salariés (membres via code entretien) ──────────────────────
+  useEffect(() => {
+    if (!currentCopro || !isAdmin) return;
+    getDocs(
+      query(
+        collection(db, "copros", currentCopro.id, "members"),
+        where("fromEntretienCode", "==", true)
+      )
+    ).then((snap) => {
+      const map: Record<string, { uid: string; displayName: string; email: string }[]> = {};
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const entId = data.entretienId as string | undefined;
+        if (!entId) return;
+        if (!map[entId]) map[entId] = [];
+        map[entId].push({ uid: data.uid, displayName: data.displayName ?? "", email: data.email ?? "" });
+      });
+      setSalaries(map);
+    }).catch(() => {});
+  }, [currentCopro?.id, isAdmin, entretiens]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -841,6 +888,33 @@ export default function EntretienScreen() {
     );
   }, [currentCopro, detailTarget]);
 
+  const handleDeleteSalarie = useCallback(async (memberUid: string, name: string) => {
+    if (!currentCopro || !user) return;
+    const ok = await wConfirm("Supprimer le salarié", `Retirer ${name} de cet entretien ?`);
+    if (!ok) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(
+        new URL(`/api/entretien-salarie/${currentCopro.id}/${memberUid}`, getApiUrl()).toString(),
+        { method: "DELETE", headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      const data = await res.json();
+      if (data.ok) {
+        setSalaries((prev) => {
+          const next = { ...prev };
+          for (const key of Object.keys(next)) {
+            next[key] = next[key].filter((s) => s.uid !== memberUid);
+          }
+          return next;
+        });
+      } else {
+        wa("Erreur", data.error ?? "Impossible de supprimer le salarié.");
+      }
+    } catch {
+      wa("Erreur", "Impossible de joindre le serveur.");
+    }
+  }, [currentCopro, user]);
+
   const handleGenerateSalarieCode = useCallback(async () => {
     if (!currentCopro || !detailTarget || !user) return;
     setSalarieCodeLoading(true);
@@ -974,6 +1048,8 @@ export default function EntretienScreen() {
         onDeleteVisit={handleDeleteVisit}
         onGenerateSalarieCode={handleGenerateSalarieCode}
         salarieCodeLoading={salarieCodeLoading}
+        salarieMembers={detailTarget ? (salaries[detailTarget.id] ?? []) : []}
+        onDeleteSalarie={handleDeleteSalarie}
       />
     </View>
   );

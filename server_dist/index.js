@@ -8337,6 +8337,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       const { FieldValue: FV } = await import("firebase-admin/firestore");
       const batch = db2.batch();
       const memberRef = db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+      const entretienId = entretienDoc.id;
       batch.set(memberRef, {
         uid: decoded.uid,
         email: salaryEmail,
@@ -8344,7 +8345,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         role: "prestataire",
         joinedAt: (/* @__PURE__ */ new Date()).toISOString(),
         accountStatus: "active",
-        fromEntretienCode: true
+        fromEntretienCode: true,
+        entretienId
       }, { merge: true });
       batch.set(db2.collection("users").doc(decoded.uid), {
         managedCoproIds: FV.arrayUnion(coProId),
@@ -8359,6 +8361,39 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       });
     } catch (e) {
       console.error("[entretien-salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.delete("/api/entretien-salarie/:coProId/:memberUid", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { coProId, memberUid } = req.params;
+    try {
+      const callerMember = await db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      const callerRole = callerMember.exists ? callerMember.data()?.role : null;
+      if (!callerRole || !["admin", "co-admin"].includes(callerRole)) {
+        return res.status(403).json({ error: "Acc\xE8s refus\xE9" });
+      }
+      const { FieldValue: FV } = await import("firebase-admin/firestore");
+      const batch = db2.batch();
+      batch.delete(db2.collection("copros").doc(coProId).collection("members").doc(memberUid));
+      batch.update(db2.collection("users").doc(memberUid), {
+        managedCoproIds: FV.arrayRemove(coProId)
+      });
+      await batch.commit();
+      try {
+        const userSnap = await db2.collection("users").doc(memberUid).get();
+        const remaining = userSnap.data()?.managedCoproIds ?? [];
+        if (remaining.length === 0) {
+          await db2.collection("users").doc(memberUid).update({ fromEntretienCode: false });
+        }
+      } catch {
+      }
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[entretien-salarie/delete] error:", e);
       return res.status(500).json({ error: "Erreur serveur" });
     }
   });
