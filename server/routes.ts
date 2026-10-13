@@ -9631,10 +9631,14 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
           .where("role", "==", "prestataire")
           .get();
 
+        const { FieldValue: FV } = await import("firebase-admin/firestore");
+        const coProIds: string[] = [];
+
         for (const memberDoc of employerMembershipsSnap.docs) {
           const pathParts = memberDoc.ref.path.split("/");
           if (pathParts.length < 4) continue;
           const coProId = pathParts[1];
+          coProIds.push(coProId);
           const employerData = memberDoc.data();
           const salaryMemberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
           batch.set(salaryMemberRef, {
@@ -9646,6 +9650,13 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
             categoryFilter: employerData.categoryFilter ?? null,
             joinedAt: new Date().toISOString(),
             accountStatus: "active",
+          }, { merge: true });
+        }
+
+        // Mettre à jour managedCoproIds pour que CoProContext charge les copros au démarrage
+        if (coProIds.length > 0) {
+          batch.set(db.collection("users").doc(decoded.uid), {
+            managedCoproIds: FV.arrayUnion(...coProIds),
           }, { merge: true });
         }
       }
