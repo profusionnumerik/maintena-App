@@ -9805,8 +9805,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         entretienLabel: entretienData.label ?? "",
       });
     } catch (e: any) {
-      console.error("[entretien-salarie/link] error:", e);
-      return res.status(500).json({ error: "Erreur serveur" }) as any;
+      console.error("[entretien-salarie/link] error:", e?.message ?? e);
+      const msg = e?.code === 9 ? "Index Firestore manquant — contactez l'admin" : "Erreur serveur";
+      return res.status(500).json({ error: msg, detail: e?.message }) as any;
     }
   });
 

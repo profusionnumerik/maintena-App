@@ -47101,8 +47101,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         entretienLabel: entretienData.label ?? ""
       });
     } catch (e) {
-      console.error("[entretien-salarie/link] error:", e);
-      return res.status(500).json({ error: "Erreur serveur" });
+      console.error("[entretien-salarie/link] error:", e?.message ?? e);
+      const msg = e?.code === 9 ? "Index Firestore manquant \u2014 contactez l'admin" : "Erreur serveur";
+      return res.status(500).json({ error: msg, detail: e?.message });
     }
   });
   app.delete("/api/entretien-salarie/:coProId/:memberUid", async (req, res) => {

@@ -9,6 +9,14 @@
       ]
     },
     {
+      "collectionGroup": "members",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "fromEntretienCode", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "inventoryReports",
       "queryScope": "COLLECTION_GROUP",
       "fields": [
@@ -25,5 +33,14 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "entretiens",
+      "fieldPath": "salarieCode",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }
