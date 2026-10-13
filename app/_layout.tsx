@@ -69,6 +69,7 @@ const TENANT_NAV: NavItem[] = [
 
 function WebSidebar({ compact }: { compact: boolean }) {
   const { user, userType, isSuperAdmin, isCollaborator, activeMode } = useAuth();
+  const { currentRole } = useCoPro();
   const router  = useRouter();
   const segments = useSegments();
 
@@ -78,7 +79,12 @@ function WebSidebar({ compact }: { compact: boolean }) {
   let items: NavItem[] = [];
   if (effectiveType === "landlord") items = LANDLORD_NAV;
   else if (effectiveType === "tenant") items = TENANT_NAV;
-  else items = SYNDIC_NAV;
+  else {
+    items = [...SYNDIC_NAV];
+    if (currentRole === "prestataire") {
+      items.push({ icon: "people-outline", label: "Mes salariés", route: "/(app)/admin", segment: "admin" });
+    }
+  }
 
   const activeSegment = (segments as string[])[1] ?? (segments as string[])[0] ?? "";
 
