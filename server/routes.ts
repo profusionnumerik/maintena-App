@@ -9686,9 +9686,10 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       });
 
       // Retirer le salarié de tous les member docs liés à cet employeur
-      // (filtre en code pour éviter un index composite Firestore)
+      // index existant : uid + role (COLLECTION_GROUP)
       const membershipsSnap = await db.collectionGroup("members")
         .where("uid", "==", salaryUid)
+        .where("role", "==", "prestataire")
         .get();
 
       for (const memberDoc of membershipsSnap.docs) {
