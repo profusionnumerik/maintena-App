@@ -9685,14 +9685,16 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         employerName: FV.delete(),
       });
 
-      // Retirer le salarié de tous les member docs où employerUid === decoded.uid
+      // Retirer le salarié de tous les member docs liés à cet employeur
+      // (filtre en code pour éviter un index composite Firestore)
       const membershipsSnap = await db.collectionGroup("members")
         .where("uid", "==", salaryUid)
-        .where("employerUid", "==", decoded.uid)
         .get();
 
       for (const memberDoc of membershipsSnap.docs) {
-        batch.delete(memberDoc.ref);
+        if (memberDoc.data().employerUid === decoded.uid) {
+          batch.delete(memberDoc.ref);
+        }
       }
 
       await batch.commit();

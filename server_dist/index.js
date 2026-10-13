@@ -47008,9 +47008,11 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         employerUid: FV.delete(),
         employerName: FV.delete()
       });
-      const membershipsSnap = await db2.collectionGroup("members").where("uid", "==", salaryUid).where("employerUid", "==", decoded.uid).get();
+      const membershipsSnap = await db2.collectionGroup("members").where("uid", "==", salaryUid).get();
       for (const memberDoc of membershipsSnap.docs) {
-        batch.delete(memberDoc.ref);
+        if (memberDoc.data().employerUid === decoded.uid) {
+          batch.delete(memberDoc.ref);
+        }
       }
       await batch.commit();
       return res.json({ ok: true });
