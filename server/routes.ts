@@ -9620,10 +9620,11 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         }
       } else {
         // Invite prestataire : lier salarié à l'employeur + toutes ses copros
-        batch.update(db.collection("users").doc(decoded.uid), {
+        // batch.set + merge pour supporter les comptes Google OAuth sans doc Firestore
+        batch.set(db.collection("users").doc(decoded.uid), {
           employerUid: inv.employerUid,
           employerName: inv.employerName,
-        });
+        }, { merge: true });
 
         const employerMembershipsSnap = await db.collectionGroup("members")
           .where("uid", "==", inv.employerUid)

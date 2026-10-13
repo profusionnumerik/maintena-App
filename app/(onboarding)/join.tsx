@@ -99,7 +99,9 @@ export default function JoinCoPro() {
       }
 
       let linked = false;
+      let inviteError: string | null = null;
 
+      // Tentative 2 : code salarie_invites (invitation email)
       try {
         const res2 = await fetch(new URL("/api/salarie/link", getApiUrl()).toString(), {
           method: "POST",
@@ -107,7 +109,12 @@ export default function JoinCoPro() {
           body: JSON.stringify({ token: trimmed }),
         });
         const data2 = await res2.json();
-        if (data2.ok) linked = true;
+        if (data2.ok) {
+          linked = true;
+        } else if (res2.status !== 404) {
+          // Code trouvé mais erreur (expiré, déjà utilisé, erreur serveur)
+          inviteError = data2.error ?? null;
+        }
       } catch { /* fallback suivant */ }
 
       // Tentative 3 : code salarié entretien récurrent
@@ -119,14 +126,18 @@ export default function JoinCoPro() {
             body: JSON.stringify({ code: trimmed }),
           });
           const data3 = await res3.json();
-          if (data3.ok) linked = true;
-          else if (!linked) {
-            setError(data3.error ?? "Code invalide. Vérifiez et réessayez.");
+          if (data3.ok) {
+            linked = true;
+          } else {
+            // Afficher l'erreur la plus pertinente
+            const msg = inviteError ?? data3.error ?? "Code invalide. Vérifiez et réessayez.";
+            setError(msg);
             if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             return;
           }
         } catch (e3: any) {
-          setError(e3.message ?? "Code invalide. Vérifiez et réessayez.");
+          const msg = inviteError ?? e3.message ?? "Code invalide. Vérifiez et réessayez.";
+          setError(msg);
           if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           return;
         }

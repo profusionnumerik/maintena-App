@@ -46959,10 +46959,10 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
           }
         }
       } else {
-        batch.update(db2.collection("users").doc(decoded.uid), {
+        batch.set(db2.collection("users").doc(decoded.uid), {
           employerUid: inv.employerUid,
           employerName: inv.employerName
-        });
+        }, { merge: true });
         const employerMembershipsSnap = await db2.collectionGroup("members").where("uid", "==", inv.employerUid).where("role", "==", "prestataire").get();
         for (const memberDoc of employerMembershipsSnap.docs) {
           const pathParts = memberDoc.ref.path.split("/");
