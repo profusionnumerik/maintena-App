@@ -11,6 +11,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
+import { getApiUrl } from "@/lib/query-client";
 import { db } from "@/lib/firebase";
 import { ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
 
@@ -37,7 +38,8 @@ const CAT_COLORS: Record<string, { bg: string; icon: string; num: string }> = {
 export default function JoinCoPro() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { joinCoPro } = useCoPro();
+  const { joinCoPro, refreshCoPros, currentCopro } = useCoPro();
+  const { user } = useAuth();
   const codeRef = useRef<TextInput>(null);
   const { code: codeParam } = useLocalSearchParams<{ code?: string }>();
 
@@ -45,6 +47,15 @@ export default function JoinCoPro() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCategories, setShowCategories] = useState(false);
+  const [pendingNav, setPendingNav] = useState<"/(app)" | "/(blocked)" | null>(null);
+
+  // Naviguer seulement quand currentCopro est chargé (évite la race condition avec le guard)
+  useEffect(() => {
+    if (pendingNav && currentCopro) {
+      router.replace(pendingNav);
+      setPendingNav(null);
+    }
+  }, [pendingNav, currentCopro]);
 
   // Pré-remplir le code depuis le lien /rejoindre/:code
   useEffect(() => {
@@ -64,7 +75,7 @@ export default function JoinCoPro() {
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
 
   const handleJoin = async () => {
-    const trimmed = code.trim();
+    const trimmed = code.trim().toUpperCase();
     if (trimmed.length < 4) {
       setError("Code trop court — minimum 4 caractères.");
       return;
@@ -73,12 +84,59 @@ export default function JoinCoPro() {
     setLoading(true);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
+      // Tentative 1 : code de copropriété
       const copro = await joinCoPro(trimmed);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(copro.status === "active" ? "/(app)" : "/(blocked)");
-    } catch (e: any) {
-      setError(e.message ?? "Code invalide. Vérifiez et réessayez.");
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      const isActive = copro.subscriptionStatus === "active" || copro.status === "active";
+      router.replace(isActive ? "/(app)" : "/(blocked)");
+    } catch {
+      // Tentative 2 : code salarie_invites (email invite)
+      const idToken = await user?.getIdToken().catch(() => null);
+      if (!idToken) {
+        setError("Non connecté. Reconnectez-vous.");
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        return;
+      }
+
+      let linked = false;
+
+      try {
+        const res2 = await fetch(new URL("/api/salarie/link", getApiUrl()).toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ token: trimmed }),
+        });
+        const data2 = await res2.json();
+        if (data2.ok) linked = true;
+      } catch { /* fallback suivant */ }
+
+      // Tentative 3 : code salarié entretien récurrent
+      if (!linked) {
+        try {
+          const res3 = await fetch(new URL("/api/entretien-salarie/link", getApiUrl()).toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ code: trimmed }),
+          });
+          const data3 = await res3.json();
+          if (data3.ok) linked = true;
+          else if (!linked) {
+            setError(data3.error ?? "Code invalide. Vérifiez et réessayez.");
+            if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            return;
+          }
+        } catch (e3: any) {
+          setError(e3.message ?? "Code invalide. Vérifiez et réessayez.");
+          if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          return;
+        }
+      }
+
+      if (linked) {
+        if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await refreshCoPros();
+        setPendingNav("/(app)");
+      }
     } finally {
       setLoading(false);
     }
@@ -113,7 +171,8 @@ export default function JoinCoPro() {
       const copro = await joinCoPro(trimmed);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setModalVisible(false);
-      router.replace(copro.status === "active" ? "/(app)" : "/(blocked)");
+      const isActive = copro.subscriptionStatus === "active" || copro.status === "active";
+      router.replace(isActive ? "/(app)" : "/(blocked)");
     } catch (e: any) {
       setCatError(e.message ?? "Code invalide. Vérifiez et réessayez.");
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

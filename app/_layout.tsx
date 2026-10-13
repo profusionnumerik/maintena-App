@@ -6,7 +6,11 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { SplashScreen, Stack, useRouter, useSegments } from "expo-router";
+import { LogBox } from "react-native";
 import Constants from "expo-constants";
+
+// Masquer l'overlay d'erreur Expo en développement
+LogBox.ignoreAllLogs();
 import * as Notifications from "expo-notifications";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -64,15 +68,16 @@ const TENANT_NAV: NavItem[] = [
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 
 function WebSidebar({ compact }: { compact: boolean }) {
-  const { user, userType, isSuperAdmin } = useAuth();
+  const { user, userType, isSuperAdmin, isCollaborator, activeMode } = useAuth();
   const router  = useRouter();
   const segments = useSegments();
 
   if (!user) return null;
 
+  const effectiveType = userType === "both" ? (activeMode === "rental" ? "landlord" : "copro") : userType;
   let items: NavItem[] = [];
-  if (userType === "landlord") items = LANDLORD_NAV;
-  else if (userType === "tenant") items = TENANT_NAV;
+  if (effectiveType === "landlord") items = LANDLORD_NAV;
+  else if (effectiveType === "tenant") items = TENANT_NAV;
   else items = SYNDIC_NAV;
 
   const activeSegment = (segments as string[])[1] ?? (segments as string[])[0] ?? "";
@@ -89,8 +94,8 @@ function WebSidebar({ compact }: { compact: boolean }) {
       {!compact && (
         <View style={sb.moduleBadge}>
           <Text style={sb.moduleText}>
-            {userType === "landlord" ? "🏠 Gestion locative"
-              : userType === "tenant" ? "🔑 Espace locataire"
+            {effectiveType === "landlord" ? "🏠 Gestion locative"
+              : effectiveType === "tenant" ? "🔑 Espace locataire"
               : "🏢 Copropriété"}
           </Text>
         </View>
@@ -140,8 +145,9 @@ function WebSidebar({ compact }: { compact: boolean }) {
               <Text style={sb.userName} numberOfLines={1}>{user.email}</Text>
               <Text style={sb.userRole}>
                 {isSuperAdmin ? "Super admin"
-                  : userType === "landlord" ? "Bailleur"
-                  : userType === "tenant" ? "Locataire"
+                  : isCollaborator ? "Collaborateur admin"
+                  : effectiveType === "landlord" ? "Bailleur"
+                  : effectiveType === "tenant" ? "Locataire"
                   : "Gestionnaire"}
               </Text>
             </View>
@@ -302,8 +308,8 @@ Notifications.setNotificationHandler({
 });
 
 function RootLayoutNav() {
-  const { user, isLoading: authLoading, isSuperAdmin, userType, hasRentalSetup } = useAuth();
-  const { currentCopro, isLoading: coProLoading, coProReady, isSubscribed, loadError, refreshCoPros } = useCoPro();
+  const { user, isLoading: authLoading, isSuperAdmin, isCollaborator, userType, hasRentalSetup, activeMode, previewRole, setPreviewRole } = useAuth();
+  const { currentCopro, isLoading: coProLoading, coProReady, isSubscribed, loadError, refreshCoPros, setPreviewCoproRole, setPreviewCoPro } = useCoPro();
   const segments = useSegments();
   const router = useRouter();
   const segmentsSafe = [...segments] as string[];
@@ -374,8 +380,14 @@ function RootLayoutNav() {
     const secondSegment      = segmentsSafe[1];
     const inCreateCopro      = inOnboarding && secondSegment === "create";
 
-    if (isMaintenance && !isSuperAdmin) {
-      if (!inMaintenance) router.replace("/maintenance");
+    if (isMaintenance && !isSuperAdmin && !isCollaborator) {
+      if (!user) {
+        // Pas connecté → laisser accès à l'écran de connexion pour que le super admin puisse s'authentifier
+        if (!inAuth && !inLegal) router.replace("/(auth)");
+      } else {
+        // Connecté mais pas super admin → écran de maintenance
+        if (!inMaintenance) router.replace("/maintenance");
+      }
       return;
     }
     if (!isMaintenance && inMaintenance) {
@@ -389,11 +401,37 @@ function RootLayoutNav() {
     }
     // Attendre que les copros soient chargées avant de décider où envoyer l'utilisateur
     if (!coProReady) return;
-    if (isSuperAdmin) {
+    // Mode prévisualisation super admin : bypass le routing superadmin
+    if (previewRole && (isSuperAdmin || isCollaborator)) {
+      if (previewRole === "rental") {
+        if (!hasRentalSetup) {
+          if (!inRentalOnboarding) router.replace("/(rental-onboarding)");
+        } else {
+          if (!inRental && !inRentalOnboarding && !inProperty && !inInventory) router.replace("/(rental)");
+        }
+        return;
+      }
+      if (previewRole === "tenant") {
+        const inTenantDocuments = segmentsSafe[0] === "documents";
+        if (!inTenant && !inInventory && !inTenantDocuments) router.replace("/(tenant)");
+        return;
+      }
+      // previewRole === "copro"
+      if (!currentCopro) {
+        if (!inOnboarding) router.replace("/(onboarding)");
+        return;
+      }
+      if (!inApp && !inModal && !inCreateCopro && !inLegal && !inOnboarding) {
+        router.replace("/(app)");
+      }
+      return;
+    }
+
+    if (isSuperAdmin || isCollaborator) {
       if (!inSuperAdmin && !inApp && !inModal && !inLegal) router.replace("/(superadmin)");
       return;
     }
-    if (userType === "landlord") {
+    if (userType === "landlord" || (userType === "both" && activeMode === "rental")) {
       if (!hasRentalSetup) {
         if (!inRentalOnboarding) router.replace("/(rental-onboarding)");
       } else {
@@ -424,11 +462,12 @@ function RootLayoutNav() {
     }
   }, [
     user, authLoading, coProLoading, coProReady, currentCopro, loadError,
-    isSuperAdmin, isSubscribed, isMaintenance, userType, hasRentalSetup, segments, router,
+    isSuperAdmin, isCollaborator, isSubscribed, isMaintenance, userType, hasRentalSetup, activeMode, previewRole, segments, router,
   ]);
 
   // Erreur réseau : utilisateur connecté mais copros non chargées
-  const showNetworkError = user && !authLoading && coProReady && loadError && !currentCopro;
+  // Exclure le super admin et les collaborateurs — ils n'ont pas forcément de copro
+  const showNetworkError = user && !authLoading && coProReady && loadError && !currentCopro && !isSuperAdmin && !isCollaborator;
 
   return showNetworkError ? (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, backgroundColor: "#F7F8FC" }}>
@@ -447,8 +486,9 @@ function RootLayoutNav() {
       </Pressable>
     </View>
   ) : (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
+    <View style={{ flex: 1 }}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
       <Stack.Screen name="(onboarding)" />
       <Stack.Screen name="(blocked)" />
       <Stack.Screen name="(app)" />
@@ -470,8 +510,31 @@ function RootLayoutNav() {
       <Stack.Screen name="inventory/[id]/keys" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]/equipment" options={{ headerShown: false }} />
       <Stack.Screen name="inventory/[id]/summary" options={{ headerShown: false }} />
-      <Stack.Screen name="rental-upgrade" options={{ headerShown: false }} />
-    </Stack>
+        <Stack.Screen name="rental-upgrade" options={{ headerShown: false }} />
+      </Stack>
+      {previewRole && (
+        <View style={{
+          position: "absolute", bottom: 0, left: 0, right: 0,
+          backgroundColor: "#7C3AED", flexDirection: "row", alignItems: "center",
+          justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10,
+          paddingBottom: 20,
+        }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="eye-outline" size={16} color="#fff" />
+            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+              Prévisualisation :{" "}
+              {previewRole === "copro" ? "Admin copro" : previewRole === "rental" ? "Bailleur" : "Locataire"}
+            </Text>
+          </View>
+          <Pressable
+            onPress={() => { setPreviewRole(null); setPreviewCoproRole(null); setPreviewCoPro(null); router.replace("/(superadmin)"); }}
+            style={{ backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5 }}
+          >
+            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>✕ Quitter</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
   );
 }
 

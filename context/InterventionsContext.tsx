@@ -115,7 +115,7 @@ export function InterventionsProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, employerUid } = useAuth();
+  const { user, employerUid, fromEntretienCode } = useAuth();
   const { currentCopro, currentRole, categoryFilter, isSubscribed, copros } = useCoPro();
   const [allInterventions, setAllInterventions] = useState<Intervention[]>([]);
   const [multiCoproInterventions, setMultiCoproInterventions] = useState<Intervention[]>([]);
@@ -189,9 +189,10 @@ export function InterventionsProvider({
         orderBy("date", "asc")
       );
       return onSnapshot(q, (snap) => {
-        perCopro[copro.id] = snap.docs
-          .map((d) => ({ ...toIntervention(d.id, d.data(), copro.id), coProName: copro.name }))
-          .filter((i) => i.assignedToUid === (employerUid ?? user.uid));
+        const raw = snap.docs.map((d) => ({ ...toIntervention(d.id, d.data(), copro.id), coProName: copro.name }));
+        perCopro[copro.id] = fromEntretienCode
+          ? raw
+          : raw.filter((i) => i.assignedToUid === (employerUid ?? user.uid));
 
         const merged = Object.values(perCopro)
           .flat()
@@ -211,13 +212,15 @@ export function InterventionsProvider({
     if (hasMultipleCopros) return multiCoproInterventions;
 
     if (isPrestataire && user) {
-      // Un salarié voit les interventions assignées à son employeur
+      // Salarié via code entretien : accès à toutes les interventions de la copro
+      if (fromEntretienCode) return allInterventions;
+      // Salarié via salarie_invites : interventions de l'employeur ; prestataire direct : ses propres
       const targetUid = employerUid ?? user.uid;
       return allInterventions.filter((i) => i.assignedToUid === targetUid);
     }
 
     return allInterventions;
-  }, [allInterventions, multiCoproInterventions, hasMultipleCopros, isPrestataire, user]);
+  }, [allInterventions, multiCoproInterventions, hasMultipleCopros, isPrestataire, user, employerUid, fromEntretienCode]);
 
   const addIntervention = useCallback(
     async (

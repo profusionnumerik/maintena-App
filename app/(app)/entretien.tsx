@@ -2,7 +2,7 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator, FlatList, Modal, Platform, Pressable,
-  RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
+  RefreshControl, ScrollView, Share, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +21,8 @@ import {
   ENTRETIEN_STATUT_CONFIG, getEntretienStatut,
 } from "@/shared/types";
 import { wa, wConfirm } from "@/shared/dialogs";
+import { getApiUrl } from "@/lib/query-client";
+import * as Clipboard from "expo-clipboard";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -437,6 +439,8 @@ function DetailModal({
   onEdit,
   onDelete,
   onDeleteVisit,
+  onGenerateSalarieCode,
+  salarieCodeLoading,
 }: {
   visible: boolean;
   entretien: Entretien | null;
@@ -445,6 +449,8 @@ function DetailModal({
   onEdit: () => void;
   onDelete: () => void;
   onDeleteVisit: (visitId: string) => void;
+  onGenerateSalarieCode: () => void;
+  salarieCodeLoading: boolean;
 }) {
   if (!entretien) return null;
   const statut = getEntretienStatut(entretien);
@@ -499,6 +505,78 @@ function DetailModal({
               <InfoRow icon="document-text-outline" label="Notes" value={entretien.notes} multiline />
             )}
           </View>
+
+          {/* Code salarié */}
+          {isAdmin && (
+            <View style={styles.salarieCodeCard}>
+              <View style={styles.salarieCodeHeader}>
+                <Ionicons name="person-add-outline" size={15} color={COLORS.primary} />
+                <Text style={styles.salarieCodeTitle}>Code salarié</Text>
+              </View>
+              {entretien.salarieCode ? (
+                <>
+                  <View style={styles.salarieCodeBox}>
+                    <Text style={styles.salarieCodeValue}>{entretien.salarieCode}</Text>
+                  </View>
+                  <Text style={styles.salarieCodeHint}>
+                    Partagez ce lien à votre salarié pour qu'il déclare ses passages.
+                  </Text>
+                  <View style={styles.salarieCodeActions}>
+                    <Pressable
+                      style={styles.salarieCodeBtn}
+                      onPress={async () => {
+                        const msg = `Votre code d'accès Maintena : ${entretien.salarieCode}\n\nTéléchargez l'app : https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena`;
+                        try { await Share.share({ message: msg }); } catch { /* noop */ }
+                      }}
+                    >
+                      <Ionicons name="share-outline" size={14} color={COLORS.primary} />
+                      <Text style={styles.salarieCodeBtnText}>Partager</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.salarieCodeBtn, { marginLeft: 8 }]}
+                      onPress={async () => {
+                        await Clipboard.setStringAsync(entretien.salarieCode ?? "");
+                        wa("Copié", "Code copié dans le presse-papiers.");
+                      }}
+                    >
+                      <Ionicons name="copy-outline" size={14} color={COLORS.primary} />
+                      <Text style={styles.salarieCodeBtnText}>Copier</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.salarieCodeBtn, { marginLeft: 8 }]}
+                      onPress={onGenerateSalarieCode}
+                      disabled={salarieCodeLoading}
+                    >
+                      {salarieCodeLoading
+                        ? <ActivityIndicator size="small" color={COLORS.primary} />
+                        : <Ionicons name="refresh-outline" size={14} color={COLORS.textMuted} />
+                      }
+                      <Text style={[styles.salarieCodeBtnText, { color: COLORS.textMuted }]}>Régénérer</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.salarieCodeHint}>
+                    Générez un code à partager avec votre salarié pour qu'il déclare ses passages.
+                  </Text>
+                  <Pressable
+                    style={styles.salarieCodeGenBtn}
+                    onPress={onGenerateSalarieCode}
+                    disabled={salarieCodeLoading}
+                  >
+                    {salarieCodeLoading
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="key-outline" size={15} color="#fff" />
+                    }
+                    <Text style={styles.salarieCodeGenBtnText}>
+                      {salarieCodeLoading ? "Génération…" : "Générer un code"}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          )}
 
           {/* Historique */}
           <Text style={styles.sectionTitle}>Historique des visites ({sortedVisits.length})</Text>
@@ -578,7 +656,7 @@ export default function EntretienScreen() {
   const { currentCopro, currentRole } = useCoPro();
 
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
-  const canEdit = currentRole === "admin" || currentRole === "conseil";
+  const canEdit = currentRole === "admin" || currentRole === "co-admin" || currentRole === "conseil";
 
   const [entretiens, setEntretiens] = useState<Entretien[]>([]);
   const [loading, setLoading] = useState(true);
@@ -589,6 +667,7 @@ export default function EntretienScreen() {
   const [visitModalTarget, setVisitModalTarget] = useState<Entretien | null>(null);
   const [detailTarget, setDetailTarget] = useState<Entretien | null>(null);
   const [saving, setSaving] = useState(false);
+  const [salarieCodeLoading, setSalarieCodeLoading] = useState(false);
 
   // ── Chargement Firestore ──────────────────────────────────────────────────
   useEffect(() => {
@@ -612,6 +691,7 @@ export default function EntretienScreen() {
           nextVisitDate: data.nextVisitDate ?? undefined,
           notes: data.notes ?? undefined,
           visits: (data.visits ?? []) as EntretienVisit[],
+          salarieCode: data.salarieCode ?? undefined,
           createdBy: data.createdBy ?? "",
           createdByName: data.createdByName ?? "",
           createdAt: data.createdAt instanceof Timestamp
@@ -761,6 +841,28 @@ export default function EntretienScreen() {
     );
   }, [currentCopro, detailTarget]);
 
+  const handleGenerateSalarieCode = useCallback(async () => {
+    if (!currentCopro || !detailTarget || !user) return;
+    setSalarieCodeLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(
+        new URL(`/api/entretien/${currentCopro.id}/${detailTarget.id}/salarie-code`, getApiUrl()).toString(),
+        { method: "POST", headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      const data = await res.json();
+      if (data.code) {
+        setDetailTarget((prev) => prev ? { ...prev, salarieCode: data.code } : prev);
+      } else {
+        wa("Erreur", data.error ?? "Impossible de générer le code.");
+      }
+    } catch {
+      wa("Erreur", "Impossible de joindre le serveur.");
+    } finally {
+      setSalarieCodeLoading(false);
+    }
+  }, [currentCopro, detailTarget, user]);
+
   const top = Platform.OS === "web" ? 67 : insets.top;
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -870,6 +972,8 @@ export default function EntretienScreen() {
         }}
         onDelete={handleDeleteEntretien}
         onDeleteVisit={handleDeleteVisit}
+        onGenerateSalarieCode={handleGenerateSalarieCode}
+        salarieCodeLoading={salarieCodeLoading}
       />
     </View>
   );
@@ -1116,4 +1220,31 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   deleteEquipBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.danger },
+
+  // ── Code salarié ────────────────────────────────────────────────────────────
+  salarieCodeCard: {
+    backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1,
+    borderColor: COLORS.border, padding: 16, marginBottom: 16,
+  },
+  salarieCodeHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
+  salarieCodeTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+  salarieCodeBox: {
+    backgroundColor: "#0B1628", borderRadius: 12, paddingVertical: 14,
+    alignItems: "center", marginBottom: 10,
+  },
+  salarieCodeValue: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#fff", letterSpacing: 8 },
+  salarieCodeHint: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted, marginBottom: 10, lineHeight: 17 },
+  salarieCodeActions: { flexDirection: "row", flexWrap: "wrap" },
+  salarieCodeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingVertical: 7, paddingHorizontal: 12, borderRadius: 20,
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.background,
+  },
+  salarieCodeBtnText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.primary },
+  salarieCodeGenBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.primary, borderRadius: 12,
+    paddingVertical: 11, paddingHorizontal: 16,
+  },
+  salarieCodeGenBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 });

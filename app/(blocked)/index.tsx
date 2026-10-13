@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   Alert,
 } from "react-native";
@@ -39,10 +41,66 @@ export default function BlockedScreen() {
     userSubscription,
     refreshCoPros,
     refreshSubscription,
+    joinCoPro,
     isInTrial,
   } = useCoPro();
 
   const [loading, setLoading] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [showJoinInput, setShowJoinInput] = useState(false);
+
+  const handleJoinWithCode = async () => {
+    const trimmed = joinCode.trim().toUpperCase();
+    if (trimmed.length < 4) { setJoinError("Code trop court — minimum 4 caractères."); return; }
+    setJoinError(null);
+    setJoinLoading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      // Tentative 1 : code copropriété
+      await joinCoPro(trimmed);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      router.replace("/(app)");
+    } catch {
+      // Tentative 2 & 3 : code salarié
+      const idToken = await user?.getIdToken().catch(() => null);
+      if (!idToken) { setJoinError("Non connecté."); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+
+      let linked = false;
+      try {
+        const r2 = await fetch(new URL("/api/salarie/link", getApiUrl()).toString(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ token: trimmed }),
+        });
+        if ((await r2.json()).ok) linked = true;
+      } catch { /* fallback */ }
+
+      if (!linked) {
+        try {
+          const r3 = await fetch(new URL("/api/entretien-salarie/link", getApiUrl()).toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ code: trimmed }),
+          });
+          const d3 = await r3.json();
+          if (d3.ok) linked = true;
+          else { setJoinError(d3.error ?? "Code invalide."); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+        } catch (e3: any) {
+          setJoinError(e3.message ?? "Code invalide."); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return;
+        }
+      }
+
+      if (linked) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await refreshCoPros();
+        router.replace("/(app)");
+      }
+    } finally {
+      setJoinLoading(false);
+    }
+  };
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan>("starter");
@@ -533,17 +591,53 @@ export default function BlockedScreen() {
                   <ActivityIndicator color={COLORS.primary} size="small" />
                 ) : (
                   <>
-                    <Ionicons
-                      name="refresh-outline"
-                      size={16}
-                      color={COLORS.primary}
-                    />
-                    <Text style={styles.refreshBtnText}>
-                      Vérifier le statut
-                    </Text>
+                    <Ionicons name="refresh-outline" size={16} color={COLORS.primary} />
+                    <Text style={styles.refreshBtnText}>Vérifier le statut</Text>
                   </>
                 )}
               </Pressable>
+
+              <View style={styles.joinDividerRow}>
+                <View style={styles.joinDividerLine} />
+                <Text style={styles.joinDividerText}>ou</Text>
+                <View style={styles.joinDividerLine} />
+              </View>
+
+              {showJoinInput ? (
+                <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+                  <View style={styles.joinInputRow}>
+                    <TextInput
+                      style={styles.joinInput}
+                      value={joinCode}
+                      onChangeText={(t) => { setJoinCode(t.toUpperCase()); setJoinError(null); }}
+                      placeholder="Code d'invitation"
+                      placeholderTextColor={COLORS.textMuted}
+                      autoCapitalize="characters"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      onSubmitEditing={handleJoinWithCode}
+                    />
+                    <Pressable
+                      style={[styles.joinSubmitBtn, joinLoading && { opacity: 0.6 }]}
+                      onPress={handleJoinWithCode}
+                      disabled={joinLoading}
+                    >
+                      {joinLoading
+                        ? <ActivityIndicator color="#fff" size="small" />
+                        : <Ionicons name="arrow-forward" size={18} color="#fff" />}
+                    </Pressable>
+                  </View>
+                  {joinError && <Text style={styles.joinError}>{joinError}</Text>}
+                </KeyboardAvoidingView>
+              ) : (
+                <Pressable
+                  style={styles.joinCodeLink}
+                  onPress={() => setShowJoinInput(true)}
+                >
+                  <Ionicons name="key-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.joinCodeLinkText}>J'ai un code d'invitation</Text>
+                </Pressable>
+              )}
             </View>
           </>
         )}
@@ -928,6 +1022,42 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "#065F46",
     lineHeight: 18,
+  },
+
+  joinDividerRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+  },
+  joinDividerLine: {
+    flex: 1, height: 1, backgroundColor: "#E2E8F0",
+  },
+  joinDividerText: {
+    fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted,
+  },
+  joinCodeLink: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 6,
+  },
+  joinCodeLinkText: {
+    fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.primary,
+  },
+  joinInputRow: {
+    flexDirection: "row", gap: 8,
+  },
+  joinInput: {
+    flex: 1, height: 44, borderRadius: 12, borderWidth: 1.5,
+    borderColor: COLORS.border, paddingHorizontal: 14,
+    fontSize: 16, fontFamily: "Inter_600SemiBold",
+    color: COLORS.text, backgroundColor: COLORS.surfaceAlt,
+    letterSpacing: 2, textAlign: "center",
+  },
+  joinSubmitBtn: {
+    width: 44, height: 44, borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    alignItems: "center", justifyContent: "center",
+  },
+  joinError: {
+    marginTop: 6, fontSize: 12, fontFamily: "Inter_400Regular",
+    color: COLORS.danger, textAlign: "center",
   },
 
   logoutBtn: {

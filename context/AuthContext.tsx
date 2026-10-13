@@ -22,6 +22,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   useCallback,
@@ -53,18 +54,34 @@ interface AuthContextValue {
   user: any | null;
   isLoading: boolean;
   isSuperAdmin: boolean;
+  /** Vrai si l'utilisateur est un collaborateur super admin (accès complet sauf suppression super admin) */
+  isCollaborator: boolean;
   // ── Module Location ──────────────────────────────
   userType: UserType | null;
   hasRentalSetup: boolean;
   rentalInfo: RentalInfo | null;
   /** Profil bailleur : companyType, siret, companyName, agenceName, plan */
   rentalProfile: { companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string; plan?: RentalPlan } | null;
-  /** Plan d'abonnement actif : "free" | "starter" | "pro" | "business" */
+  /** Plan d'abonnement actif : "free" | "trial" | "simple" | "starter" | "pro" | "business" */
   rentalPlan: RentalPlan;
   /** Limites du plan actif (logements, locataires, stockage) */
   planLimits: PlanLimits;
-  /** Vrai si le bailleur est sur un plan payant (starter, pro ou business) */
+  /** Vrai si le bailleur est sur un plan payant (simple, starter, pro ou business) */
   isPro: boolean;
+  /** Vrai si l'essai gratuit est en cours */
+  isOnTrial: boolean;
+  /** Vrai si l'essai gratuit est terminé et non converti */
+  isTrialExpired: boolean;
+  /** Jours restants dans l'essai (0 si expiré ou non en trial) */
+  trialDaysLeft: number;
+  /** Mode actif pour les utilisateurs "both" : copro ou bailleur */
+  activeMode: "copro" | "rental";
+  setActiveMode: (mode: "copro" | "rental") => Promise<void>;
+  /** Active le module bailleur sur un compte copro existant */
+  activateRentalModule: () => Promise<void>;
+  /** Mode prévisualisation super admin : simule un rôle utilisateur sans se déconnecter */
+  previewRole: "copro" | "rental" | "tenant" | null;
+  setPreviewRole: (role: "copro" | "rental" | "tenant" | null) => void;
   setUserType: (type: UserType) => Promise<void>;
   resetUserType: () => Promise<void>;
   markRentalSetup: () => Promise<void>;
@@ -72,6 +89,8 @@ interface AuthContextValue {
   employerUid: string | null;
   /** Nom de l'employeur si l'utilisateur est un salarié prestataire */
   employerName: string | null;
+  /** Vrai si l'utilisateur a rejoint via un code d'entretien (pas via salarie_invites) */
+  fromEntretienCode: boolean;
   // ────────────────────────────────────────────────
   error: string | null;
   clearError: () => void;
@@ -142,7 +161,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rentalProfile, setRentalProfile] = useState<{ companyType?: "particulier" | "société"; siret?: string; companyName?: string; agenceName?: string; plan?: RentalPlan } | null>(null);
   const [employerUid, setEmployerUid] = useState<string | null>(null);
   const [employerName, setEmployerName] = useState<string | null>(null);
+  const [fromEntretienCode, setFromEntretienCode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeMode, setActiveModeState] = useState<"copro" | "rental">("copro");
+  const [isCollaborator, setIsCollaborator] = useState(false);
+  const [previewRole, setPreviewRoleState] = useState<"copro" | "rental" | "tenant" | null>(null);
+  const setPreviewRole = useCallback((role: "copro" | "rental" | "tenant" | null) => setPreviewRoleState(role), []);
 
   // isLoading reste true tant que Firebase Auth OU les données Firestore ne sont pas prêtes
   const isLoading = !authReady || userDataLoading;
@@ -167,6 +191,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, []);
 
+  // Effet 1c : vérification collaborateur super admin
+  useEffect(() => {
+    if (!user?.email) { setIsCollaborator(false); return; }
+    const unsub = onSnapshot(doc(db, "appConfig", "collaborators"), (snap) => {
+      const emails: string[] = snap.exists() ? (snap.data()?.emails ?? []) : [];
+      setIsCollaborator(emails.map((e: string) => e.toLowerCase()).includes(user.email.toLowerCase()));
+    }, () => setIsCollaborator(false));
+    return unsub;
+  }, [user?.email]);
+
+  // Effet 1b : activeMode depuis AsyncStorage (par utilisateur)
+  useEffect(() => {
+    if (!user?.uid) { setActiveModeState("copro"); return; }
+    AsyncStorage.getItem(`activeMode:${user.uid}`)
+      .then((v) => { if (v === "rental" || v === "copro") setActiveModeState(v); })
+      .catch(() => {});
+  }, [user?.uid]);
+
+  // Effet : init custom claim superAdmin sur le token Firebase (pour que Firestore rules fonctionne)
+  useEffect(() => {
+    if (!user || user.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) return;
+    // Vérifier si le claim est déjà en place pour ne pas appeler à chaque render
+    user.getIdTokenResult().then(async (result) => {
+      if (result.claims.superAdmin === true) return; // déjà OK
+      const token = await user.getIdToken();
+      await fetch(`${process.env.EXPO_PUBLIC_API_BASE_URL ?? ""}/api/auth/init-super-admin-claim`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+      // Forcer le refresh du token pour que les nouvelles règles prennent effet immédiatement
+      await user.getIdToken(true).catch(() => {});
+    }).catch(() => {});
+  }, [user?.uid]);
+
   // Effet 2 : chargement en temps réel de userType et hasRentalSetup depuis Firestore
   useEffect(() => {
     if (!authReady || !user?.uid) {
@@ -186,6 +244,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setRentalProfile(data.rentalProfile ?? null);
           setEmployerUid(data.employerUid ?? null);
           setEmployerName(data.employerName ?? null);
+          setFromEntretienCode(data.fromEntretienCode === true);
         }
         setUserDataLoading(false);
       },
@@ -363,6 +422,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Module Location ─────────────────────────────────────────────────────────
 
+  const setActiveMode = useCallback(async (mode: "copro" | "rental") => {
+    setActiveModeState(mode);
+    if (user?.uid) {
+      await AsyncStorage.setItem(`activeMode:${user.uid}`, mode).catch(() => {});
+    }
+  }, [user?.uid]);
+
+  /** Active le module bailleur : passe userType à "both" et bascule en mode rental */
+  const activateRentalModule = useCallback(async () => {
+    if (!user?.uid) return;
+    await setDoc(doc(db, "users", user.uid), { userType: "both" }, { merge: true });
+    await setActiveMode("rental");
+  }, [user?.uid, setActiveMode]);
+
   /** Définit le type d'utilisateur (copro, landlord, tenant, both) dans Firestore */
   const setUserType = useCallback(async (type: UserType) => {
     if (!user?.uid) return;
@@ -398,15 +471,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
   // isPro = vrai si le bailleur a un plan payant OU un SIRET/société (transition)
   const isPro = useMemo(
-    () => rentalPlan !== "free" || rentalProfile?.companyType === "société" || !!rentalProfile?.siret,
+    () => (rentalPlan !== "free" && rentalPlan !== "trial") || rentalProfile?.companyType === "société" || !!rentalProfile?.siret,
     [rentalPlan, rentalProfile]
   );
+
+  const trialEndsAt = useMemo(
+    () => (rentalProfile as any)?.trialEndsAt ? new Date((rentalProfile as any).trialEndsAt) : null,
+    [rentalProfile]
+  );
+  const isOnTrial = useMemo(
+    () => rentalPlan === "trial" && !!trialEndsAt && trialEndsAt > new Date(),
+    [rentalPlan, trialEndsAt]
+  );
+  const isTrialExpired = useMemo(
+    () => rentalPlan === "trial" && !!trialEndsAt && trialEndsAt <= new Date(),
+    [rentalPlan, trialEndsAt]
+  );
+  const trialDaysLeft = useMemo(() => {
+    if (!isOnTrial || !trialEndsAt) return 0;
+    return Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000));
+  }, [isOnTrial, trialEndsAt]);
 
   const value = useMemo(
     () => ({
       user,
       isLoading,
       isSuperAdmin,
+      isCollaborator,
       userType,
       hasRentalSetup,
       rentalInfo,
@@ -414,8 +505,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       rentalPlan,
       planLimits,
       isPro,
+      isOnTrial,
+      isTrialExpired,
+      trialDaysLeft,
       employerUid,
       employerName,
+      fromEntretienCode,
+      activeMode,
+      setActiveMode,
+      activateRentalModule,
+      previewRole,
+      setPreviewRole,
       error,
       clearError,
       login,
@@ -428,9 +528,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       markRentalSetup,
     }),
     [
-      user, isLoading, isSuperAdmin,
+      user, isLoading, isSuperAdmin, isCollaborator,
       userType, hasRentalSetup, rentalInfo, rentalProfile, rentalPlan, planLimits, isPro,
-      employerUid, employerName,
+      isOnTrial, isTrialExpired, trialDaysLeft,
+      activeMode, setActiveMode, activateRentalModule,
+      previewRole, setPreviewRole,
+      employerUid, employerName, fromEntretienCode,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]

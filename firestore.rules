@@ -7,7 +7,10 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.superAdmin == true;
+      return isSignedIn() && (
+        request.auth.token.superAdmin == true ||
+        request.auth.token.email == "bijourobert1@gmail.com"
+      );
     }
 
     function isMember(coProId) {
@@ -42,6 +45,8 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
+      // Employeur peut lire les profils de ses salariés
+      allow read: if isSignedIn() && resource.data.employerUid == request.auth.uid;
 
       // Annuaire professionnels bailleur — accessible uniquement par le propriétaire du compte
       match /providerContacts/{contactId} {

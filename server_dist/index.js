@@ -2852,6 +2852,227 @@ async function registerRoutes(app2) {
       return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
     }
   });
+  app2.post("/api/superadmin/grant-free-access", async (req, res) => {
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    try {
+      await verifySuperAdmin(req, db2);
+      const { coProId, durationDays, reason } = req.body;
+      if (!coProId) return res.status(400).json({ error: "coProId requis." });
+      const expiresAt = durationDays ? new Date(Date.now() + durationDays * 864e5).toISOString() : null;
+      const update = {
+        subscriptionStatus: "active",
+        subscriptionPlan: "offert",
+        subscriptionActivatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        freeAccessReason: reason ?? "Offert par l'administrateur",
+        freeAccessGrantedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      if (expiresAt) {
+        update.subscriptionExpiresAt = expiresAt;
+      } else {
+        update.subscriptionExpiresAt = FieldValue.delete();
+      }
+      await db2.collection("copros").doc(coProId).update(update);
+      return res.json({ ok: true, expiresAt: expiresAt ?? "lifetime" });
+    } catch (e) {
+      return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/superadmin/list-trials", async (req, res) => {
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    try {
+      await verifySuperAdmin(req, db2);
+      const now = (/* @__PURE__ */ new Date()).toISOString();
+      const coProSnap = await db2.collection("copros").where("trialEndsAt", "!=", null).orderBy("trialEndsAt", "desc").get();
+      const coProTrials = coProSnap.docs.map((d) => {
+        const data = d.data();
+        const trialEndsAt = data.trialEndsAt;
+        const expired = trialEndsAt < now;
+        const daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 864e5);
+        const isSubscribed = data.subscription?.status === "active";
+        return {
+          id: d.id,
+          type: "copro",
+          name: data.name ?? "Copropri\xE9t\xE9",
+          email: data.adminEmail ?? "",
+          adminId: data.adminId ?? "",
+          trialEndsAt,
+          daysLeft,
+          status: isSubscribed ? "converted" : expired ? "expired" : "active",
+          createdAt: data.createdAt ?? trialEndsAt
+        };
+      });
+      const userSnap = await db2.collection("users").where("rentalProfile.plan", "==", "trial").get();
+      const rentalTrials = userSnap.docs.filter((d) => d.data().rentalProfile?.trialEndsAt).map((d) => {
+        const data = d.data();
+        const trialEndsAt = data.rentalProfile.trialEndsAt;
+        const expired = trialEndsAt < now;
+        const daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 864e5);
+        return {
+          id: d.id,
+          type: "rental",
+          name: data.displayName ?? data.email ?? "Bailleur",
+          email: data.email ?? "",
+          adminId: d.id,
+          trialEndsAt,
+          daysLeft,
+          status: expired ? "expired" : "active",
+          createdAt: data.rentalProfile?.trialStartedAt ?? trialEndsAt
+        };
+      });
+      const all = [...coProTrials, ...rentalTrials].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      return res.json({ trials: all });
+    } catch (e) {
+      return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/superadmin/extend-trial", async (req, res) => {
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    try {
+      await verifySuperAdmin(req, db2);
+      const { type, id, extraDays } = req.body;
+      if (!type || !id || !extraDays || extraDays < 1 || extraDays > 3650) {
+        return res.status(400).json({ error: "type, id et extraDays (1-3650) requis." });
+      }
+      let toEmail = "";
+      let toName = "";
+      let newEndsAt = "";
+      if (type === "copro") {
+        const ref = db2.collection("copros").doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return res.status(404).json({ error: "Copro introuvable." });
+        const data = snap.data();
+        const current = data.trialEndsAt;
+        const base = current && current > (/* @__PURE__ */ new Date()).toISOString() ? new Date(current) : /* @__PURE__ */ new Date();
+        newEndsAt = new Date(base.getTime() + extraDays * 864e5).toISOString();
+        await ref.update({ trialEndsAt: newEndsAt });
+        toEmail = data.adminEmail ?? "";
+        toName = data.name ?? "Copropri\xE9t\xE9";
+      } else if (type === "rental") {
+        const ref = db2.collection("users").doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return res.status(404).json({ error: "Utilisateur introuvable." });
+        const data = snap.data();
+        const current = data.rentalProfile?.trialEndsAt;
+        const base = current && current > (/* @__PURE__ */ new Date()).toISOString() ? new Date(current) : /* @__PURE__ */ new Date();
+        newEndsAt = new Date(base.getTime() + extraDays * 864e5).toISOString();
+        await ref.update({ "rentalProfile.trialEndsAt": newEndsAt });
+        toEmail = data.email ?? "";
+        toName = data.displayName ?? "Bailleur";
+      } else {
+        return res.status(400).json({ error: "type invalide." });
+      }
+      try {
+        const rc = await getUncachableResendClient();
+        const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const newEndDate = new Date(newEndsAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+        const html = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        \u{1F381} ${extraDays} jours offerts
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(toName)}, votre essai a \xE9t\xE9 prolong\xE9 !
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px;">
+        Nous avons remarqu\xE9 que vous n'avez pas encore eu l'occasion de tester pleinement Maintena.
+        C'est pourquoi nous vous offrons <strong>${extraDays} jours suppl\xE9mentaires</strong> pour d\xE9couvrir toutes les fonctionnalit\xE9s de l'application.
+      </p>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;">
+        <p style="margin:0 0 4px;color:#64748B;font-size:12px;">Votre essai est maintenant valable jusqu'au</p>
+        <p style="margin:0;color:#0F172A;font-size:22px;font-weight:800;">${newEndDate}</p>
+      </div>
+      <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 24px;">
+        Profitez de cette p\xE9riode pour explorer les interventions, la gestion des membres, les finances et bien plus encore.
+      </p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Continuer sur Maintena \u2192
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Pour toute question, r\xE9pondez \xE0 cet email ou \xE9crivez-nous \xE0 contact@maintena-pro.fr.
+      </p>
+    </div>
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena \u2014 Gestion professionnelle de copropri\xE9t\xE9</p>
+    </div>
+  </div>
+</body>
+</html>`;
+        if (toEmail) {
+          await rc.client.emails.send({
+            from: fromEmail,
+            to: toEmail,
+            subject: `\u{1F381} Votre essai Maintena a \xE9t\xE9 prolong\xE9 de ${extraDays} jours`,
+            html
+          });
+        }
+      } catch (emailErr) {
+        console.warn("[extend-trial] email send failed:", emailErr);
+      }
+      return res.json({ ok: true, trialEndsAt: newEndsAt, emailSent: !!toEmail });
+    } catch (e) {
+      return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/superadmin/send-discount-offer", async (req, res) => {
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
+    try {
+      await verifySuperAdmin(req, db2);
+      const { email, name, discountPercent, extraDays, message } = req.body;
+      if (!email) return res.status(400).json({ error: "email requis." });
+      const rc = await getUncachableResendClient().catch(() => null);
+      if (!rc) return res.status(503).json({ error: "Email non configur\xE9." });
+      const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const displayName = name ?? "Utilisateur";
+      const hasDiscount = discountPercent && discountPercent > 0;
+      const hasExtension = extraDays && extraDays > 0;
+      const html = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+    <div style="padding:32px;">
+      ${hasDiscount ? `<div style="background:#FEF3C7;color:#92400E;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">\u{1F381} Offre exclusive ${discountPercent}% de r\xE9duction</div>` : ""}
+      ${hasExtension ? `<div style="background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">\u23F0 +${extraDays} jours offerts</div>` : ""}
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(displayName)}, on a quelque chose pour vous.
+      </h1>
+      ${message ? `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">${escapeHtml(message)}</p>` : `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">Votre p\xE9riode d'essai Maintena est termin\xE9e, mais nous souhaitions vous proposer une offre sp\xE9ciale pour continuer \xE0 utiliser l'application.</p>`}
+      ${hasDiscount ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;"><p style="margin:0 0 4px;color:#64748B;font-size:12px;">Votre r\xE9duction</p><p style="margin:0;color:#0F172A;font-size:32px;font-weight:800;">${discountPercent}%</p><p style="margin:4px 0 0;color:#64748B;font-size:12px;">Contactez-nous pour en b\xE9n\xE9ficier</p></div>` : ""}
+      <a href="mailto:contact@maintena-pro.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Profiter de l'offre \u2192
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Pour toute question, r\xE9pondez \xE0 cet email ou \xE9crivez-nous \xE0 contact@maintena-pro.fr.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+      const subject = hasDiscount ? `Offre exclusive : ${discountPercent}% de r\xE9duction sur Maintena` : hasExtension ? `${extraDays} jours d'essai suppl\xE9mentaires offerts` : "Une offre sp\xE9ciale vous attend sur Maintena";
+      await rc.client.emails.send({ from: fromEmail, to: email, subject, html });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
+    }
+  });
   app2.post("/api/cron/demo-reminders", async (req, res) => {
     const db2 = getAdminDb();
     if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9." });
@@ -6609,6 +6830,8 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
   }
   function getRentalPriceId(plan) {
     switch (plan) {
+      case "simple":
+        return process.env.STRIPE_RENTAL_PRICE_SIMPLE;
       case "starter":
         return process.env.STRIPE_RENTAL_PRICE_STARTER;
       case "pro":
@@ -6630,7 +6853,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       return res.status(401).json({ error: "Token invalide." });
     }
     const { plan, landlordEmail } = req.body;
-    if (!plan || !["starter", "pro", "business"].includes(plan)) {
+    if (!plan || !["simple", "starter", "pro", "business"].includes(plan)) {
       return res.status(400).json({ error: "Plan invalide." });
     }
     const stripe = getStripe();
@@ -6642,6 +6865,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
       return res.status(503).json({ error: `Prix Stripe manquant pour le plan "${plan}". Contactez contact@maintena-pro.fr.` });
     }
     const PLAN_LABELS = {
+      simple: "Simple \u2014 1,99\u20AC/mois",
       starter: "Starter \u2014 4,99\u20AC/mois",
       pro: "Pro \u2014 14,99\u20AC/mois",
       business: "Business \u2014 34,99\u20AC/mois"
@@ -7823,12 +8047,563 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       return res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/invite-salarie", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { targetEmail, coProId, coProName } = req.body;
+    if (!targetEmail) return res.status(400).json({ error: "targetEmail requis" });
+    let inviterRole = null;
+    if (coProId) {
+      try {
+        const memberSnap = await db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+        if (memberSnap.exists) {
+          const role = memberSnap.data()?.role;
+          if (role === "prestataire" || role === "admin" || role === "co-admin") {
+            inviterRole = role;
+          }
+        }
+      } catch {
+      }
+      if (!inviterRole) {
+        return res.status(403).json({ error: "Vous n'avez pas acc\xE8s \xE0 cette copropri\xE9t\xE9" });
+      }
+    }
+    const isAdminInvite = inviterRole === "admin" || inviterRole === "co-admin";
+    const token = randomBytes(4).toString("hex").toUpperCase().slice(0, 6);
+    const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1e3).toISOString();
+    let inviterName = decoded.name ?? decoded.email ?? "Votre responsable";
+    try {
+      const userSnap = await db2.collection("users").doc(decoded.uid).get();
+      if (userSnap.exists) inviterName = userSnap.data()?.displayName ?? inviterName;
+    } catch {
+    }
+    await db2.collection("salarie_invites").doc(token).set({
+      token,
+      employerUid: isAdminInvite ? null : decoded.uid,
+      employerName: isAdminInvite ? null : inviterName,
+      inviterUid: decoded.uid,
+      inviterName,
+      inviterRole: inviterRole ?? "prestataire",
+      targetEmail: targetEmail.toLowerCase().trim(),
+      coProId: coProId ?? null,
+      coProName: coProName ?? null,
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      expiresAt,
+      status: "pending"
+    });
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+    const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+    const invitePageUrl = `${baseUrl}/rejoindre-salarie/${token}`;
+    const roleLabel = isAdminInvite ? "membre de l'\xE9quipe" : "salari\xE9";
+    const contextLine = coProName ? ` pour la copropri\xE9t\xE9 <strong>${escapeHtml(coProName)}</strong>` : "";
+    try {
+      const rc = await getUncachableResendClient();
+      const from = rc.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
+      await rc.client.emails.send({
+        from,
+        to: targetEmail.toLowerCase().trim(),
+        subject: `${inviterName} vous invite sur Maintena`,
+        html: `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+
+    <!-- Header -->
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+
+    <!-- Body -->
+    <div style="padding:32px;">
+      <div style="background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        Invitation
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(inviterName)} vous invite !
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Rejoignez <strong>Maintena</strong> en tant que ${roleLabel}${contextLine}.
+        T\xE9l\xE9chargez l'application et utilisez le code ci-dessous pour acc\xE9der \xE0 vos interventions.
+      </p>
+
+      <!-- Code -->
+      <div style="background:#0B1628;border-radius:16px;padding:28px 24px;text-align:center;margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;">
+          Votre code d'acc\xE8s
+        </div>
+        <div style="font-size:42px;font-weight:800;color:#fff;letter-spacing:10px;font-family:monospace;line-height:1;">
+          ${token}
+        </div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-top:12px;">
+          Valable 30 jours \xB7 \xC0 saisir dans l'application
+        </div>
+      </div>
+
+      <!-- Bouton t\xE9l\xE9chargement -->
+      <div style="margin-bottom:24px;">
+        <p style="font-size:13px;font-weight:600;color:#0F172A;margin:0 0 10px;">
+          \xC9tape 1 \u2014 T\xE9l\xE9chargez l'application :
+        </p>
+        <a href="${googlePlayUrl}" target="_blank" style="display:flex;align-items:center;gap:12px;background:#000;color:#fff;padding:14px 18px;border-radius:12px;text-decoration:none;border:1px solid rgba(255,255,255,0.12);margin-bottom:8px;">
+          <span style="font-size:22px;">\u25B6</span>
+          <div>
+            <div style="font-size:10px;color:rgba(255,255,255,0.6);letter-spacing:0.5px;">DISPONIBLE SUR</div>
+            <div style="font-size:15px;font-weight:700;margin-top:1px;">Google Play</div>
+          </div>
+        </a>
+      </div>
+
+      <!-- \xC9tapes -->
+      <div style="background:#F8FAFC;border-radius:12px;padding:18px 20px;">
+        <p style="font-size:13px;font-weight:600;color:#0F172A;margin:0 0 12px;">
+          \xC9tape 2 \u2014 Cr\xE9ez votre compte :
+        </p>
+        <div style="color:#475569;font-size:14px;line-height:1.9;">
+          <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">1</span>
+            Ouvrez <strong>Maintena</strong> et cr\xE9ez votre compte
+          </div>
+          <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">2</span>
+            Allez dans <strong>Profil \u2192 "Rattacher \xE0 un employeur"</strong>
+          </div>
+          <div style="display:flex;gap:10px;align-items:baseline;">
+            <span style="background:#2563EB;color:#fff;border-radius:50%;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">3</span>
+            Saisissez le code <strong style="font-family:monospace;letter-spacing:3px;font-size:15px;">${token}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;text-align:center;">
+        <a href="${invitePageUrl}" style="color:#2563EB;font-size:13px;text-decoration:none;">
+          Voir cette invitation dans le navigateur \u2192
+        </a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena \u2014 Gestion professionnelle de copropri\xE9t\xE9</p>
+    </div>
+  </div>
+</body>
+</html>`
+      });
+    } catch (emailErr) {
+      console.warn("[invite-salarie] email error:", emailErr);
+    }
+    return res.json({ ok: true, token, invitePageUrl });
+  });
+  app2.post("/api/salarie/link", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: "Token requis" });
+    const tokenUpper = String(token).toUpperCase().trim();
+    try {
+      const invDoc = await db2.collection("salarie_invites").doc(tokenUpper).get();
+      if (!invDoc.exists) return res.status(404).json({ error: "Code invalide" });
+      const inv = invDoc.data();
+      if (inv.status === "accepted") return res.status(410).json({ error: "Code d\xE9j\xE0 utilis\xE9" });
+      if (new Date(inv.expiresAt) < /* @__PURE__ */ new Date()) return res.status(410).json({ error: "Code expir\xE9" });
+      const batch = db2.batch();
+      batch.update(db2.collection("salarie_invites").doc(tokenUpper), {
+        status: "accepted",
+        acceptedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        salaryUid: decoded.uid
+      });
+      let salaryDisplayName = decoded.name ?? decoded.email ?? "";
+      let salaryEmail = decoded.email ?? "";
+      try {
+        const salaryUserSnap = await db2.collection("users").doc(decoded.uid).get();
+        if (salaryUserSnap.exists) {
+          salaryDisplayName = salaryUserSnap.data()?.displayName ?? salaryDisplayName;
+          salaryEmail = salaryUserSnap.data()?.email ?? salaryEmail;
+        }
+      } catch {
+      }
+      const isAdminInvite = !inv.employerUid;
+      if (isAdminInvite) {
+        if (inv.coProId) {
+          const salaryMemberRef = db2.collection("copros").doc(inv.coProId).collection("members").doc(decoded.uid);
+          batch.set(salaryMemberRef, {
+            uid: decoded.uid,
+            email: salaryEmail,
+            displayName: salaryDisplayName,
+            role: "prestataire",
+            joinedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            accountStatus: "active"
+          }, { merge: true });
+          try {
+            const { FieldValue: FV } = await import("firebase-admin/firestore");
+            batch.update(db2.collection("users").doc(decoded.uid), {
+              managedCoproIds: FV.arrayUnion(inv.coProId)
+            });
+          } catch {
+          }
+        }
+      } else {
+        batch.update(db2.collection("users").doc(decoded.uid), {
+          employerUid: inv.employerUid,
+          employerName: inv.employerName
+        });
+        const employerMembershipsSnap = await db2.collectionGroup("members").where("uid", "==", inv.employerUid).where("role", "==", "prestataire").get();
+        for (const memberDoc of employerMembershipsSnap.docs) {
+          const pathParts = memberDoc.ref.path.split("/");
+          if (pathParts.length < 4) continue;
+          const coProId = pathParts[1];
+          const employerData = memberDoc.data();
+          const salaryMemberRef = db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+          batch.set(salaryMemberRef, {
+            uid: decoded.uid,
+            email: salaryEmail,
+            displayName: salaryDisplayName,
+            role: "prestataire",
+            employerUid: inv.employerUid,
+            categoryFilter: employerData.categoryFilter ?? null,
+            joinedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            accountStatus: "active"
+          }, { merge: true });
+        }
+      }
+      await batch.commit();
+      return res.json({ ok: true, employerUid: inv.employerUid ?? null, employerName: inv.employerName ?? inv.inviterName });
+    } catch (e) {
+      console.error("[salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.post("/api/entretien/:coProId/:entretienId/salarie-code", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { coProId, entretienId } = req.params;
+    try {
+      const memberSnap = await db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      const role = memberSnap.data()?.role;
+      if (!role || !["admin", "co-admin", "conseil"].includes(role)) {
+        return res.status(403).json({ error: "Non autoris\xE9" });
+      }
+    } catch {
+      return res.status(403).json({ error: "Non autoris\xE9" });
+    }
+    const code = randomBytes(3).toString("hex").toUpperCase();
+    try {
+      await db2.collection("copros").doc(coProId).collection("entretiens").doc(entretienId).update({
+        salarieCode: code,
+        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      return res.json({ ok: true, code });
+    } catch (e) {
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.post("/api/entretien-salarie/link", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: "Code requis" });
+    const codeUpper = String(code).toUpperCase().trim();
+    try {
+      const snap = await db2.collectionGroup("entretiens").where("salarieCode", "==", codeUpper).limit(1).get();
+      if (snap.empty) return res.status(404).json({ error: "Code invalide" });
+      const entretienDoc = snap.docs[0];
+      const pathParts = entretienDoc.ref.path.split("/");
+      if (pathParts.length < 2) return res.status(500).json({ error: "Erreur serveur" });
+      const coProId = pathParts[1];
+      const entretienData = entretienDoc.data();
+      const coProSnap = await db2.collection("copros").doc(coProId).get();
+      const coProName = coProSnap.data()?.name ?? "";
+      let salaryDisplayName = decoded.name ?? decoded.email ?? "";
+      let salaryEmail = decoded.email ?? "";
+      try {
+        const userSnap = await db2.collection("users").doc(decoded.uid).get();
+        if (userSnap.exists) {
+          salaryDisplayName = userSnap.data()?.displayName ?? salaryDisplayName;
+          salaryEmail = userSnap.data()?.email ?? salaryEmail;
+        }
+      } catch {
+      }
+      const { FieldValue: FV } = await import("firebase-admin/firestore");
+      const batch = db2.batch();
+      const memberRef = db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+      batch.set(memberRef, {
+        uid: decoded.uid,
+        email: salaryEmail,
+        displayName: salaryDisplayName,
+        role: "prestataire",
+        joinedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        accountStatus: "active",
+        fromEntretienCode: true
+      }, { merge: true });
+      batch.set(db2.collection("users").doc(decoded.uid), {
+        managedCoproIds: FV.arrayUnion(coProId),
+        fromEntretienCode: true
+      }, { merge: true });
+      await batch.commit();
+      return res.json({
+        ok: true,
+        coProId,
+        coProName,
+        entretienLabel: entretienData.label ?? ""
+      });
+    } catch (e) {
+      console.error("[entretien-salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app2.get("/rejoindre-salarie/:token", async (req, res) => {
+    const token = String(req.params.token).toUpperCase().trim();
+    const db2 = getAdminDb();
+    let inviterName = "";
+    let coProName = "";
+    let isValid = false;
+    if (db2) {
+      try {
+        const invDoc = await db2.collection("salarie_invites").doc(token).get();
+        if (invDoc.exists) {
+          const inv = invDoc.data();
+          if (inv.status === "pending" && new Date(inv.expiresAt) > /* @__PURE__ */ new Date()) {
+            inviterName = inv.inviterName ?? inv.employerName ?? "";
+            coProName = inv.coProName ?? "";
+            isValid = true;
+          }
+        }
+      } catch {
+      }
+    }
+    const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.profusionnumerik.maintena";
+    const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Invitation Maintena</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f4ff;color:#0f172a;min-height:100vh}
+    nav{background:#0B1628;padding:16px 20px;display:flex;align-items:center;gap:10px}
+    .logo{background:#2563EB;width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0;letter-spacing:-1px}
+    nav span{color:#fff;font-size:17px;font-weight:700}
+    main{max-width:460px;margin:0 auto;padding:24px 16px 48px}
+    .card{background:#fff;border-radius:20px;padding:28px 24px;box-shadow:0 4px 24px rgba(11,22,40,0.08);margin-bottom:16px}
+    .badge{display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:11px;font-weight:700;padding:5px 13px;border-radius:20px;margin-bottom:18px;text-transform:uppercase;letter-spacing:0.5px}
+    h1{font-size:21px;font-weight:700;line-height:1.3;margin-bottom:8px}
+    .sub{font-size:14px;color:#64748b;margin-bottom:22px;line-height:1.5}
+    .token-box{background:#0B1628;border-radius:16px;padding:24px;text-align:center;margin-bottom:24px}
+    .token-label{font-size:10px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+    .token{font-size:44px;font-weight:800;color:#fff;letter-spacing:10px;font-family:monospace;display:block;line-height:1}
+    .token-exp{font-size:11px;color:rgba(255,255,255,0.35);margin-top:10px}
+    .steps{background:#F8FAFC;border-radius:12px;padding:18px 20px;margin-bottom:20px}
+    .steps-title{font-size:13px;font-weight:600;color:#0f172a;margin-bottom:12px}
+    .step{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;font-size:14px;color:#475569;line-height:1.5}
+    .step:last-child{margin-bottom:0}
+    .step-num{background:#2563EB;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px}
+    .dl-btn{display:flex;align-items:center;gap:14px;background:#000;color:#fff;padding:14px 18px;border-radius:12px;text-decoration:none;margin-bottom:10px}
+    .dl-icon{font-size:26px;flex-shrink:0}
+    .dl-label{font-size:10px;color:rgba(255,255,255,0.55);letter-spacing:0.5px;text-transform:uppercase}
+    .dl-name{font-size:16px;font-weight:700;margin-top:1px}
+    .muted{color:#94a3b8;font-size:12px;text-align:center;margin-top:16px}
+  </style>
+</head>
+<body>
+  <nav><div class="logo">M</div><span>Maintena</span></nav>
+  <main>
+    <div class="card">
+      <div class="badge">Invitation</div>
+      ${isValid ? `
+        <h1>${escapeHtml(inviterName)} vous invite !</h1>
+        <p class="sub">${coProName ? `Copropri\xE9t\xE9 : <strong>${escapeHtml(coProName)}</strong><br>` : ""}T\xE9l\xE9chargez l'application et utilisez le code ci-dessous pour acc\xE9der \xE0 vos interventions.</p>
+
+        <div class="token-box">
+          <p class="token-label">Votre code d'acc\xE8s</p>
+          <span class="token">${token}</span>
+          <p class="token-exp">Valable 30 jours \xB7 \xC0 saisir dans l'application</p>
+        </div>
+
+        <p style="font-size:13px;font-weight:600;color:#0f172a;margin-bottom:10px;">1 \u2014 T\xE9l\xE9chargez Maintena :</p>
+        <a class="dl-btn" href="${googlePlayUrl}" target="_blank" rel="noopener">
+          <span class="dl-icon">\u25B6</span>
+          <div>
+            <div class="dl-label">Disponible sur</div>
+            <div class="dl-name">Google Play</div>
+          </div>
+        </a>
+
+        <div class="steps" style="margin-top:18px">
+          <p class="steps-title">2 \u2014 Cr\xE9ez votre compte :</p>
+          <div class="step">
+            <div class="step-num">1</div>
+            <span>Ouvrez <strong>Maintena</strong> et cr\xE9ez votre compte avec votre email</span>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <span>Allez dans <strong>Profil \u2192 "Rattacher \xE0 un employeur"</strong></span>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <span>Saisissez le code <strong style="font-family:monospace;letter-spacing:3px;">${token}</strong></span>
+          </div>
+        </div>
+      ` : `
+        <h1>Invitation introuvable ou expir\xE9e</h1>
+        <p class="sub">Ce lien n'est plus valide. Demandez \xE0 votre responsable de vous envoyer une nouvelle invitation.</p>
+      `}
+    </div>
+    <p class="muted">Maintena \u2014 Application de gestion immobili\xE8re</p>
+  </main>
+</body>
+</html>`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  });
+  app2.post("/api/cron/trial-reminders", async (req, res) => {
+    const secret = process.env.CRON_SECRET;
+    const authHeader = req.headers["authorization"];
+    if (!secret || authHeader !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autoris\xE9" });
+    }
+    const db2 = getAdminDb();
+    if (!db2) return res.status(503).json({ error: "Firebase non configur\xE9" });
+    const rc = await getUncachableResendClient().catch(() => null);
+    if (!rc) return res.status(503).json({ error: "Email non configur\xE9" });
+    const now = Date.now();
+    const from = new Date(now + 4.5 * 24 * 3600 * 1e3).toISOString();
+    const to = new Date(now + 5.5 * 24 * 3600 * 1e3).toISOString();
+    let sent = 0;
+    const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+    const buildHtml = (name, daysLeft, link) => `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropri\xE9t\xE9</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#FEF3C7;color:#92400E;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        \u23F0 Essai bient\xF4t termin\xE9
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(name)}, votre p\xE9riode d'essai se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Pour continuer \xE0 utiliser Maintena sans interruption, choisissez un abonnement.
+        C'est simple, sans engagement, et vous pouvez annuler \xE0 tout moment.
+      </p>
+      <a href="${link}" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Continuer avec Maintena \u2192
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Si vous avez des questions, r\xE9pondez \xE0 cet email ou contactez-nous \xE0 contact@maintena-pro.fr.
+      </p>
+    </div>
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena \u2014 Gestion professionnelle de copropri\xE9t\xE9</p>
+    </div>
+  </div>
+</body>
+</html>`;
+    try {
+      const coprosSnap = await db2.collection("copros").where("trialEndsAt", ">=", from).where("trialEndsAt", "<=", to).get();
+      for (const coProDoc of coprosSnap.docs) {
+        const copro = coProDoc.data();
+        const adminEmail = copro.adminEmail;
+        if (!adminEmail) continue;
+        const daysLeft = Math.max(1, Math.ceil((new Date(copro.trialEndsAt).getTime() - now) / 864e5));
+        let adminName = "Admin";
+        try {
+          const adminDoc = await db2.collection("users").doc(copro.adminId).get();
+          if (adminDoc.exists) adminName = adminDoc.data()?.displayName ?? adminName;
+        } catch {
+        }
+        const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+        await rc.client.emails.send({
+          from: fromEmail,
+          to: adminEmail,
+          subject: `Votre essai Maintena se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+          html: buildHtml(adminName, daysLeft, `${baseUrl}/upgrade`)
+        });
+        sent++;
+      }
+    } catch (err) {
+      console.warn("[trial-reminders] copros error:", err);
+    }
+    try {
+      const usersSnap = await db2.collection("users").where("rentalProfile.trialEndsAt", ">=", from).where("rentalProfile.trialEndsAt", "<=", to).get();
+      for (const userDoc of usersSnap.docs) {
+        const userData = userDoc.data();
+        const email = userData.email;
+        if (!email) continue;
+        const trialEndsAt = userData.rentalProfile?.trialEndsAt;
+        const daysLeft = Math.max(1, Math.ceil((new Date(trialEndsAt).getTime() - now) / 864e5));
+        const name = userData.displayName ?? "Bailleur";
+        const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+        await rc.client.emails.send({
+          from: fromEmail,
+          to: email,
+          subject: `Votre essai Maintena se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+          html: buildHtml(name, daysLeft, `${baseUrl}/rental-upgrade`)
+        });
+        sent++;
+      }
+    } catch (err) {
+      console.warn("[trial-reminders] bailleurs error:", err);
+    }
+    return res.json({ ok: true, sent });
+  });
   app2.get("/", (_req, res) => {
     const landingPath = path.resolve(process.cwd(), "public", "landing-page.html");
     if (fs.existsSync(landingPath)) return res.sendFile(landingPath);
     const idx = path.resolve(process.cwd(), "static-build", "index.html");
     if (fs.existsSync(idx)) return res.sendFile(idx);
     return res.status(503).send("Service indisponible.");
+  });
+  app2.post("/api/superadmin/set-maintenance", async (req, res) => {
+    try {
+      await verifySuperAdmin(req, db);
+      const { active, message, estimatedEnd } = req.body;
+      await db.collection("appConfig").doc("maintenance").set({
+        active: !!active,
+        message: message ?? "",
+        estimatedEnd: estimatedEnd ?? "",
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(e.message === "Acc\xE8s refus\xE9." ? 403 : 500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/auth/init-super-admin-claim", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "").trim();
+      if (!idToken) return res.status(401).json({ error: "Token manquant" });
+      const adminAuth = getAuth();
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      const superAdminEmail = (process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "").toLowerCase();
+      if (!decoded.email || decoded.email.toLowerCase() !== superAdminEmail) {
+        return res.status(403).json({ error: "Acc\xE8s refus\xE9" });
+      }
+      if (decoded.superAdmin !== true) {
+        await adminAuth.setCustomUserClaims(decoded.uid, { superAdmin: true });
+      }
+      return res.json({ ok: true });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   });
   app2.get("/terms", (_req, res) => {
     return res.sendFile("terms.html", { root: "public" });

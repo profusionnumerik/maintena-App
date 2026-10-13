@@ -83,6 +83,7 @@ interface CoProContextValue {
   userSubscription: UserSubscription | null;
   isSubscribed: boolean;
   isInTrial: boolean;
+  trialDaysLeft: number;
   switchCoPro: (id: string) => void;
   createCoPro: (
     name: string,
@@ -133,6 +134,12 @@ interface CoProContextValue {
   castPollVote: (pollId: string, optionIndex: number) => Promise<void>;
   closePoll: (pollId: string) => Promise<void>;
   deletePoll: (pollId: string) => Promise<void>;
+  /** Copro simulée pour la prévisualisation super admin */
+  previewCoPro: CoPro | null;
+  setPreviewCoPro: (copro: CoPro | null) => void;
+  /** Rôle simulé pour la prévisualisation super admin */
+  previewCoproRole: MemberRole | null;
+  setPreviewCoproRole: (role: MemberRole | null) => void;
 }
 
 const CoProContext = createContext<CoProContextValue | null>(null);
@@ -190,6 +197,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const [coProReady, setCoProReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [roleMap, setRoleMap] = useState<Record<string, MemberRole>>({});
+  const [previewCoproRole, setPreviewCoproRole] = useState<MemberRole | null>(null);
+  const [previewCoPro, setPreviewCoPro] = useState<CoPro | null>(null);
   const [userSubscription, setUserSubscription] =
     useState<UserSubscription | null>(null);
   const [signalements, setSignalements] = useState<Signalement[]>([]);
@@ -395,12 +404,45 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           const extraIds: string[] = [];
 
           memberships.docs.forEach((d) => {
-            // Exclure les invitations non encore acceptées
             if (d.data().accountStatus === "invited") return;
             const coProId = d.ref.parent.parent!.id;
             roles[coProId] = d.data().role as MemberRole;
             if (!coProMap[coProId]) extraIds.push(coProId);
           });
+
+          // Fallback par email : trouve les membres pré-ajoutés par l'admin (accountStatus "invited")
+          if (user.email && extraIds.length === 0) {
+            const invitedMemberships = await getDocs(
+              query(collectionGroup(db, "members"), where("email", "==", user.email))
+            ).catch(() => null);
+
+            if (invitedMemberships) {
+              await Promise.all(
+                invitedMemberships.docs.map(async (d) => {
+                  const data = d.data();
+                  const coProId = d.ref.parent.parent!.id;
+                  if (coProMap[coProId] || extraIds.includes(coProId)) return;
+
+                  // Crée/met à jour le doc membres avec l'UID comme clé (autorisé par règle uid == userId)
+                  try {
+                    await setDoc(
+                      doc(db, "copros", coProId, "members", user.uid),
+                      {
+                        ...data,
+                        uid: user.uid,
+                        accountStatus: "active",
+                        joinedAt: data.joinedAt ?? new Date().toISOString(),
+                      },
+                      { merge: true }
+                    );
+                  } catch (_) {}
+
+                  roles[coProId] = data.role as MemberRole;
+                  extraIds.push(coProId);
+                })
+              );
+            }
+          }
 
           await Promise.all(
             extraIds.map(async (id) => {
@@ -536,13 +578,13 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   }, [currentCoproId]);
 
   const currentCopro = useMemo(
-    () => copros.find((c) => c.id === currentCoproId) ?? null,
-    [copros, currentCoproId]
+    () => previewCoPro ?? copros.find((c) => c.id === currentCoproId) ?? null,
+    [previewCoPro, copros, currentCoproId]
   );
 
   const currentRole = useMemo(
-    () => (currentCoproId ? roleMap[currentCoproId] ?? null : null),
-    [roleMap, currentCoproId]
+    () => previewCoproRole ?? (currentCoproId ? roleMap[currentCoproId] ?? null : null),
+    [previewCoproRole, roleMap, currentCoproId]
   );
 
   useEffect(() => {
@@ -667,7 +709,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
         setSignalements(mapped);
 
-        if (toDelete.length > 0 && role === "admin") {
+        if (toDelete.length > 0 && (role === "admin" || role === "co-admin")) {
           toDelete.forEach((id) =>
             deleteDoc(
               doc(db, "copros", currentCoproId, "signalements", id)
@@ -682,16 +724,23 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const isInTrial = useMemo(() => {
     if (!currentCopro?.trialEndsAt) return false;
+    if (currentCopro?.subscriptionStatus === "active") return false;
     return new Date(currentCopro.trialEndsAt) > new Date();
   }, [currentCopro]);
+
+  const trialDaysLeft = useMemo(() => {
+    if (!isInTrial || !currentCopro?.trialEndsAt) return 0;
+    return Math.max(0, Math.ceil((new Date(currentCopro.trialEndsAt).getTime() - Date.now()) / 86400000));
+  }, [isInTrial, currentCopro?.trialEndsAt]);
 
   const isSubscribed = useMemo(
     () =>
       isSuperAdmin ||
       isInTrial ||
+      currentCopro?.subscriptionStatus === "active" ||
       userSubscription?.status === "active" ||
       userSubscription?.status === "trialing",
-    [isSuperAdmin, isInTrial, userSubscription]
+    [isSuperAdmin, isInTrial, currentCopro, userSubscription]
   );
 
   const switchCoPro = useCallback(async (id: string) => {
@@ -872,14 +921,19 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         if (codeCategory) memberPayload.categoryFilter = codeCategory;
         await setDoc(memberRef, memberPayload);
       } else {
-        joinRole = existingMember.data().role as MemberRole;
-        // Activer un membre pré-invité qui accepte son invitation
-        if (existingMember.data().accountStatus === "invited") {
+        const existingRole = existingMember.data().role as MemberRole;
+        const isElevation = joinRole === "co-admin" && existingRole !== "admin" && existingRole !== "co-admin";
+        if (isElevation || existingMember.data().accountStatus === "invited") {
+          // Mettre à jour le rôle si le code donne un accès supérieur, ou activer une invitation en attente
           await updateDoc(memberRef, {
+            role: isElevation ? joinRole : existingRole,
             accountStatus: "active",
             joinedAt: new Date().toISOString(),
             uid: user.uid,
           });
+          if (!isElevation) joinRole = existingRole;
+        } else {
+          joinRole = existingRole;
         }
       }
 
@@ -906,7 +960,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       const trialActive = coProData.createdAt
         ? Date.now() - new Date(coProData.createdAt).getTime() < 30 * 24 * 60 * 60 * 1000
         : false;
-      if (coProData.status !== "active" && !trialActive && coProData.adminId !== user.uid) {
+      const coProActive = coProData.subscriptionStatus === "active" || coProData.status === "active" || trialActive;
+      if (!coProActive && coProData.adminId !== user.uid) {
         throw new Error(
           "Cette copropriété n'est pas encore activée. Contactez votre admin."
         );
@@ -972,7 +1027,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const generateCategoryCode = useCallback(
     async (category: Category): Promise<string> => {
-      if (!currentCopro || currentRole !== "admin")
+      if (!currentCopro || (currentRole !== "admin" && currentRole !== "co-admin"))
         throw new Error("Non autorisé");
 
       const existing = currentCopro.categoryInviteCodes?.[category];
@@ -1002,7 +1057,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     async (
       payload: InvitePrestatairePayload
     ): Promise<{ inviteCode: string; memberId: string }> => {
-      if (!user || !currentCopro || currentRole !== "admin") {
+      if (!user || !currentCopro || (currentRole !== "admin" && currentRole !== "co-admin")) {
         throw new Error("Non autorisé");
       }
 
@@ -1462,6 +1517,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       userSubscription,
       isSubscribed,
       isInTrial,
+      trialDaysLeft,
       switchCoPro,
       createCoPro,
       joinCoPro,
@@ -1489,12 +1545,18 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       castPollVote,
       closePoll,
       deletePoll,
+      previewCoPro,
+      setPreviewCoPro,
+      previewCoproRole,
+      setPreviewCoproRole,
     }),
     [
       copros,
       currentCopro,
       currentRole,
       roleMap,
+      previewCoPro,
+      previewCoproRole,
       coProReady,
       categoryFilter,
       categoryFilters,
@@ -1507,6 +1569,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       userSubscription,
       isSubscribed,
       isInTrial,
+      trialDaysLeft,
       switchCoPro,
       createCoPro,
       joinCoPro,

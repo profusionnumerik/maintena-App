@@ -257,6 +257,9 @@ export interface CoPro {
   disabledCategories?: Category[];
   categoryInviteCodes?: Partial<Record<Category, string>>;
   trialEndsAt?: string;
+  subscriptionStatus?: "none" | "trialing" | "active" | "canceled";
+  subscriptionPlan?: string;
+  subscriptionExpiresAt?: string;
   alertEmailEnabled?: boolean;
   buildingConfig?: BuildingConfig;
   tresorierUid?: string | null;
@@ -716,6 +719,7 @@ export interface Entretien {
   nextVisitDate?: string;    // ISO date (calculée ou manuelle)
   notes?: string;            // Notes générales sur l'équipement
   visits: EntretienVisit[];  // Historique des visites
+  salarieCode?: string;      // Code partageable pour le salarié du prestataire
   createdBy: string;
   createdByName: string;
   createdAt: string;

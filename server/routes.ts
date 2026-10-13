@@ -3341,6 +3341,277 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Accès offert (abonnement gratuit, durée libre ou à vie) ─────────────
+  app.post("/api/superadmin/grant-free-access", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { coProId, durationDays, reason } = req.body as {
+        coProId?: string;
+        durationDays?: number | null; // null = à vie
+        reason?: string;
+      };
+      if (!coProId) return res.status(400).json({ error: "coProId requis." });
+
+      const expiresAt = durationDays
+        ? new Date(Date.now() + durationDays * 86400000).toISOString()
+        : null;
+
+      const update: Record<string, any> = {
+        subscriptionStatus: "active",
+        subscriptionPlan: "offert",
+        subscriptionActivatedAt: new Date().toISOString(),
+        freeAccessReason: reason ?? "Offert par l'administrateur",
+        freeAccessGrantedAt: new Date().toISOString(),
+      };
+      if (expiresAt) {
+        update.subscriptionExpiresAt = expiresAt;
+      } else {
+        // À vie : supprimer toute date d'expiration existante
+        update.subscriptionExpiresAt = FieldValue.delete();
+      }
+
+      await db.collection("copros").doc(coProId).update(update);
+      return res.json({ ok: true, expiresAt: expiresAt ?? "lifetime" });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Liste tous les essais (copro + bailleur) avec statut ─────────────────
+  app.get("/api/superadmin/list-trials", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const now = new Date().toISOString();
+
+      // Essais copro : copros avec trialEndsAt
+      const coProSnap = await db.collection("copros")
+        .where("trialEndsAt", "!=", null)
+        .orderBy("trialEndsAt", "desc")
+        .get();
+
+      const coProTrials = coProSnap.docs.map((d) => {
+        const data = d.data();
+        const trialEndsAt = data.trialEndsAt as string;
+        const expired = trialEndsAt < now;
+        const daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000);
+        const isSubscribed = data.subscription?.status === "active";
+        return {
+          id: d.id,
+          type: "copro" as const,
+          name: data.name ?? "Copropriété",
+          email: data.adminEmail ?? "",
+          adminId: data.adminId ?? "",
+          trialEndsAt,
+          daysLeft,
+          status: isSubscribed ? "converted" : expired ? "expired" : "active",
+          createdAt: data.createdAt ?? trialEndsAt,
+        };
+      });
+
+      // Essais bailleur : users avec rentalProfile.plan === "trial"
+      const userSnap = await db.collection("users")
+        .where("rentalProfile.plan", "==", "trial")
+        .get();
+
+      const rentalTrials = userSnap.docs
+        .filter((d) => d.data().rentalProfile?.trialEndsAt)
+        .map((d) => {
+          const data = d.data();
+          const trialEndsAt = data.rentalProfile.trialEndsAt as string;
+          const expired = trialEndsAt < now;
+          const daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000);
+          return {
+            id: d.id,
+            type: "rental" as const,
+            name: data.displayName ?? data.email ?? "Bailleur",
+            email: data.email ?? "",
+            adminId: d.id,
+            trialEndsAt,
+            daysLeft,
+            status: expired ? "expired" : "active",
+            createdAt: data.rentalProfile?.trialStartedAt ?? trialEndsAt,
+          };
+        });
+
+      const all = [...coProTrials, ...rentalTrials].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      return res.json({ trials: all });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Prolonger un essai ────────────────────────────────────────────────────
+  app.post("/api/superadmin/extend-trial", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { type, id, extraDays } = req.body as { type?: string; id?: string; extraDays?: number };
+      if (!type || !id || !extraDays || extraDays < 1 || extraDays > 3650) {
+        return res.status(400).json({ error: "type, id et extraDays (1-3650) requis." });
+      }
+
+      let toEmail = "";
+      let toName = "";
+      let newEndsAt = "";
+
+      if (type === "copro") {
+        const ref = db.collection("copros").doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return res.status(404).json({ error: "Copro introuvable." });
+        const data = snap.data()!;
+        const current = data.trialEndsAt as string | undefined;
+        const base = current && current > new Date().toISOString() ? new Date(current) : new Date();
+        newEndsAt = new Date(base.getTime() + extraDays * 86400000).toISOString();
+        await ref.update({ trialEndsAt: newEndsAt });
+        toEmail = data.adminEmail ?? "";
+        toName = data.name ?? "Copropriété";
+      } else if (type === "rental") {
+        const ref = db.collection("users").doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) return res.status(404).json({ error: "Utilisateur introuvable." });
+        const data = snap.data()!;
+        const current = data.rentalProfile?.trialEndsAt as string | undefined;
+        const base = current && current > new Date().toISOString() ? new Date(current) : new Date();
+        newEndsAt = new Date(base.getTime() + extraDays * 86400000).toISOString();
+        await ref.update({ "rentalProfile.trialEndsAt": newEndsAt });
+        toEmail = data.email ?? "";
+        toName = data.displayName ?? "Bailleur";
+      } else {
+        return res.status(400).json({ error: "type invalide." });
+      }
+
+      // ── Email automatique de notification ────────────────────────────────
+      try {
+        const rc = await getUncachableResendClient();
+        const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+        const newEndDate = new Date(newEndsAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+
+        const html = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        🎁 ${extraDays} jours offerts
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(toName)}, votre essai a été prolongé !
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px;">
+        Nous avons remarqué que vous n'avez pas encore eu l'occasion de tester pleinement Maintena.
+        C'est pourquoi nous vous offrons <strong>${extraDays} jours supplémentaires</strong> pour découvrir toutes les fonctionnalités de l'application.
+      </p>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;">
+        <p style="margin:0 0 4px;color:#64748B;font-size:12px;">Votre essai est maintenant valable jusqu'au</p>
+        <p style="margin:0;color:#0F172A;font-size:22px;font-weight:800;">${newEndDate}</p>
+      </div>
+      <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 24px;">
+        Profitez de cette période pour explorer les interventions, la gestion des membres, les finances et bien plus encore.
+      </p>
+      <a href="https://maintena-pro.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Continuer sur Maintena →
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Pour toute question, répondez à cet email ou écrivez-nous à contact@maintena-pro.fr.
+      </p>
+    </div>
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena — Gestion professionnelle de copropriété</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+        if (toEmail) {
+          await rc.client.emails.send({
+            from: fromEmail,
+            to: toEmail,
+            subject: `🎁 Votre essai Maintena a été prolongé de ${extraDays} jours`,
+            html,
+          });
+        }
+      } catch (emailErr) {
+        console.warn("[extend-trial] email send failed:", emailErr);
+      }
+
+      return res.json({ ok: true, trialEndsAt: newEndsAt, emailSent: !!toEmail });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Envoyer une offre de remise à un compte expiré ────────────────────────
+  app.post("/api/superadmin/send-discount-offer", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { email, name, discountPercent, extraDays, message } =
+        req.body as { email?: string; name?: string; discountPercent?: number; extraDays?: number; message?: string };
+      if (!email) return res.status(400).json({ error: "email requis." });
+
+      const rc = await getUncachableResendClient().catch(() => null);
+      if (!rc) return res.status(503).json({ error: "Email non configuré." });
+
+      const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+      const displayName = name ?? "Utilisateur";
+      const hasDiscount = discountPercent && discountPercent > 0;
+      const hasExtension = extraDays && extraDays > 0;
+
+      const html = `<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      ${hasDiscount ? `<div style="background:#FEF3C7;color:#92400E;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">🎁 Offre exclusive ${discountPercent}% de réduction</div>` : ""}
+      ${hasExtension ? `<div style="background:#D1FAE5;color:#065F46;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">⏰ +${extraDays} jours offerts</div>` : ""}
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(displayName)}, on a quelque chose pour vous.
+      </h1>
+      ${message ? `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">${escapeHtml(message)}</p>` : `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">Votre période d'essai Maintena est terminée, mais nous souhaitions vous proposer une offre spéciale pour continuer à utiliser l'application.</p>`}
+      ${hasDiscount ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;"><p style="margin:0 0 4px;color:#64748B;font-size:12px;">Votre réduction</p><p style="margin:0;color:#0F172A;font-size:32px;font-weight:800;">${discountPercent}%</p><p style="margin:4px 0 0;color:#64748B;font-size:12px;">Contactez-nous pour en bénéficier</p></div>` : ""}
+      <a href="mailto:contact@maintena-pro.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Profiter de l'offre →
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Pour toute question, répondez à cet email ou écrivez-nous à contact@maintena-pro.fr.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const subject = hasDiscount
+        ? `Offre exclusive : ${discountPercent}% de réduction sur Maintena`
+        : hasExtension
+          ? `${extraDays} jours d'essai supplémentaires offerts`
+          : "Une offre spéciale vous attend sur Maintena";
+
+      await rc.client.emails.send({ from: fromEmail, to: email, subject, html });
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
   // Envoie des rappels aux utilisateurs dont le démo expire dans les 7 prochains jours
   // Appelé par Cloud Scheduler (cron quotidien) ou manuellement via le panel
   app.post("/api/cron/demo-reminders", async (req: Request, res: Response) => {
@@ -7679,6 +7950,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
   // ── Prix Stripe pour les plans bailleur ─────────────────────────────────────
   function getRentalPriceId(plan: string): string | undefined {
     switch (plan) {
+      case "simple":   return process.env.STRIPE_RENTAL_PRICE_SIMPLE;
       case "starter":  return process.env.STRIPE_RENTAL_PRICE_STARTER;
       case "pro":      return process.env.STRIPE_RENTAL_PRICE_PRO;
       case "business": return process.env.STRIPE_RENTAL_PRICE_BUSINESS;
@@ -7701,7 +7973,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     catch { return res.status(401).json({ error: "Token invalide." }); }
 
     const { plan, landlordEmail } = req.body as { plan?: string; landlordEmail?: string };
-    if (!plan || !["starter", "pro", "business"].includes(plan)) {
+    if (!plan || !["simple", "starter", "pro", "business"].includes(plan)) {
       return res.status(400).json({ error: "Plan invalide." });
     }
 
@@ -7716,6 +7988,7 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
     }
 
     const PLAN_LABELS: Record<string, string> = {
+      simple:  "Simple — 1,99€/mois",
       starter: "Starter — 4,99€/mois",
       pro:     "Pro — 14,99€/mois",
       business:"Business — 34,99€/mois",
@@ -9384,6 +9657,109 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     }
   });
 
+  // ─── Code salarié entretien — génération ─────────────────────────────────
+  app.post("/api/entretien/:coProId/:entretienId/salarie-code", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { coProId, entretienId } = req.params as { coProId: string; entretienId: string };
+
+    // Vérifier que l'appelant est admin/co-admin ou conseil
+    try {
+      const memberSnap = await db.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      const role = memberSnap.data()?.role as string | undefined;
+      if (!role || !["admin", "co-admin", "conseil"].includes(role)) {
+        return res.status(403).json({ error: "Non autorisé" }) as any;
+      }
+    } catch {
+      return res.status(403).json({ error: "Non autorisé" }) as any;
+    }
+
+    const code = randomBytes(3).toString("hex").toUpperCase(); // 6 chars hex
+    try {
+      await db.collection("copros").doc(coProId).collection("entretiens").doc(entretienId).update({
+        salarieCode: code,
+        updatedAt: new Date().toISOString(),
+      });
+      return res.json({ ok: true, code });
+    } catch (e: any) {
+      return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
+  // ─── Code salarié entretien — rejoindre via le code ──────────────────────
+  app.post("/api/entretien-salarie/link", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { code } = req.body as { code?: string };
+    if (!code) return res.status(400).json({ error: "Code requis" }) as any;
+
+    const codeUpper = String(code).toUpperCase().trim();
+
+    try {
+      // Trouver l'entretien par salarieCode
+      const snap = await db.collectionGroup("entretiens").where("salarieCode", "==", codeUpper).limit(1).get();
+      if (snap.empty) return res.status(404).json({ error: "Code invalide" }) as any;
+
+      const entretienDoc = snap.docs[0];
+      const pathParts = entretienDoc.ref.path.split("/");
+      if (pathParts.length < 2) return res.status(500).json({ error: "Erreur serveur" }) as any;
+      const coProId = pathParts[1];
+      const entretienData = entretienDoc.data();
+
+      // Récupérer le nom de la copro
+      const coProSnap = await db.collection("copros").doc(coProId).get();
+      const coProName = coProSnap.data()?.name ?? "";
+
+      // Récupérer les infos du salarié
+      let salaryDisplayName = decoded.name ?? decoded.email ?? "";
+      let salaryEmail = decoded.email ?? "";
+      try {
+        const userSnap = await db.collection("users").doc(decoded.uid).get();
+        if (userSnap.exists) {
+          salaryDisplayName = userSnap.data()?.displayName ?? salaryDisplayName;
+          salaryEmail = userSnap.data()?.email ?? salaryEmail;
+        }
+      } catch { /* continue */ }
+
+      // Ajouter comme membre prestataire de cette copro
+      const { FieldValue: FV } = await import("firebase-admin/firestore");
+      const batch = db.batch();
+      const memberRef = db.collection("copros").doc(coProId).collection("members").doc(decoded.uid);
+      batch.set(memberRef, {
+        uid: decoded.uid,
+        email: salaryEmail,
+        displayName: salaryDisplayName,
+        role: "prestataire",
+        joinedAt: new Date().toISOString(),
+        accountStatus: "active",
+        fromEntretienCode: true,
+      }, { merge: true });
+      batch.set(db.collection("users").doc(decoded.uid), {
+        managedCoproIds: FV.arrayUnion(coProId),
+        fromEntretienCode: true,
+      }, { merge: true });
+      await batch.commit();
+
+      return res.json({
+        ok: true,
+        coProId,
+        coProName,
+        entretienLabel: entretienData.label ?? "",
+      });
+    } catch (e: any) {
+      console.error("[entretien-salarie/link] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
   app.get("/rejoindre-salarie/:token", async (req: Request, res: Response) => {
     const token = String(req.params.token).toUpperCase().trim();
     const db = getAdminDb();
@@ -9492,6 +9868,127 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     res.send(html);
   });
 
+  // ── Rappel fin de période d'essai (J-5) ─────────────────────────────────────
+  app.post("/api/cron/trial-reminders", async (req: Request, res: Response) => {
+    const secret = process.env.CRON_SECRET;
+    const authHeader = req.headers["authorization"];
+    if (!secret || authHeader !== `Bearer ${secret}`) {
+      return res.status(401).json({ error: "Non autorisé" });
+    }
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré" });
+
+    const rc = await getUncachableResendClient().catch(() => null);
+    if (!rc) return res.status(503).json({ error: "Email non configuré" });
+
+    // Fenêtre : trial se terminant dans [4j12h, 5j12h]
+    const now = Date.now();
+    const from = new Date(now + 4.5 * 24 * 3600 * 1000).toISOString();
+    const to   = new Date(now + 5.5 * 24 * 3600 * 1000).toISOString();
+
+    let sent = 0;
+    const fromEmail = rc.fromEmail ?? "Maintena <onboarding@resend.dev>";
+
+    const buildHtml = (name: string, daysLeft: number, link: string) => `
+<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(11,22,40,0.10);">
+    <div style="background:#0B1628;padding:28px 32px 22px;">
+      <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-top:3px;">Gestion de copropriété</div>
+    </div>
+    <div style="padding:32px;">
+      <div style="background:#FEF3C7;color:#92400E;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;display:inline-block;margin-bottom:20px;text-transform:uppercase;letter-spacing:0.5px;">
+        ⏰ Essai bientôt terminé
+      </div>
+      <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 10px;line-height:1.3;">
+        ${escapeHtml(name)}, votre période d'essai se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.
+      </h1>
+      <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Pour continuer à utiliser Maintena sans interruption, choisissez un abonnement.
+        C'est simple, sans engagement, et vous pouvez annuler à tout moment.
+      </p>
+      <a href="${link}" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+        Continuer avec Maintena →
+      </a>
+      <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
+        Si vous avez des questions, répondez à cet email ou contactez-nous à contact@maintena-pro.fr.
+      </p>
+    </div>
+    <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
+      <p style="font-size:12px;color:#94A3B8;margin:0;">Maintena — Gestion professionnelle de copropriété</p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    // ── 1. Copros en trial finissant dans 5 jours ─────────────────────────────
+    try {
+      const coprosSnap = await db.collection("copros")
+        .where("trialEndsAt", ">=", from)
+        .where("trialEndsAt", "<=", to)
+        .get();
+
+      for (const coProDoc of coprosSnap.docs) {
+        const copro = coProDoc.data();
+        const adminEmail = copro.adminEmail as string | undefined;
+        if (!adminEmail) continue;
+
+        const daysLeft = Math.max(1, Math.ceil((new Date(copro.trialEndsAt).getTime() - now) / 86400000));
+
+        let adminName = "Admin";
+        try {
+          const adminDoc = await db.collection("users").doc(copro.adminId).get();
+          if (adminDoc.exists) adminName = adminDoc.data()?.displayName ?? adminName;
+        } catch { /* skip */ }
+
+        const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+        await rc.client.emails.send({
+          from: fromEmail,
+          to: adminEmail,
+          subject: `Votre essai Maintena se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+          html: buildHtml(adminName, daysLeft, `${baseUrl}/upgrade`),
+        });
+        sent++;
+      }
+    } catch (err) {
+      console.warn("[trial-reminders] copros error:", err);
+    }
+
+    // ── 2. Bailleurs en trial finissant dans 5 jours ──────────────────────────
+    try {
+      const usersSnap = await db.collection("users")
+        .where("rentalProfile.trialEndsAt", ">=", from)
+        .where("rentalProfile.trialEndsAt", "<=", to)
+        .get();
+
+      for (const userDoc of usersSnap.docs) {
+        const userData = userDoc.data();
+        const email = userData.email as string | undefined;
+        if (!email) continue;
+
+        const trialEndsAt = userData.rentalProfile?.trialEndsAt as string;
+        const daysLeft = Math.max(1, Math.ceil((new Date(trialEndsAt).getTime() - now) / 86400000));
+        const name = userData.displayName ?? "Bailleur";
+
+        const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
+        await rc.client.emails.send({
+          from: fromEmail,
+          to: email,
+          subject: `Votre essai Maintena se termine dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}`,
+          html: buildHtml(name, daysLeft, `${baseUrl}/rental-upgrade`),
+        });
+        sent++;
+      }
+    } catch (err) {
+      console.warn("[trial-reminders] bailleurs error:", err);
+    }
+
+    return res.json({ ok: true, sent });
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   app.get("/", (_req: Request, res: Response) => {
@@ -9501,6 +9998,50 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     const idx = path.resolve(process.cwd(), "static-build", "index.html");
     if (fs.existsSync(idx)) return res.sendFile(idx);
     return res.status(503).send("Service indisponible.");
+  });
+
+  // ── Maintenance (écriture via Admin SDK pour bypasser les règles Firestore) ──
+  app.post("/api/superadmin/set-maintenance", async (req: Request, res: Response) => {
+    try {
+      await verifySuperAdmin(req, db);
+      const { active, message, estimatedEnd } = req.body as { active: boolean; message?: string; estimatedEnd?: string };
+      await db.collection("appConfig").doc("maintenance").set({
+        active: !!active,
+        message: message ?? "",
+        estimatedEnd: estimatedEnd ?? "",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // ── Custom claim super admin ──────────────────────────────────────────────
+  // Appelé au login du super admin pour que Firestore rules reconnaisse le token
+  app.post("/api/auth/init-super-admin-claim", async (req: Request, res: Response) => {
+    try {
+      const authHeader = req.headers.authorization ?? "";
+      const idToken = authHeader.replace("Bearer ", "").trim();
+      if (!idToken) return res.status(401).json({ error: "Token manquant" });
+
+      const adminAuth = getAuth();
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      const superAdminEmail = (process.env.EXPO_PUBLIC_SUPER_ADMIN_EMAIL ?? "").toLowerCase();
+
+      if (!decoded.email || decoded.email.toLowerCase() !== superAdminEmail) {
+        return res.status(403).json({ error: "Accès refusé" });
+      }
+
+      // Évite d'écrire inutilement si le claim est déjà en place
+      if (decoded.superAdmin !== true) {
+        await adminAuth.setCustomUserClaims(decoded.uid, { superAdmin: true });
+      }
+
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // ── CGU ──────────────────────────────────────────────────────────────────
