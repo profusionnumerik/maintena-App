@@ -117,6 +117,27 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleRemoveSalarie = (sal: { uid: string; displayName: string }) => {
+    wConfirm(
+      `Retirer ${sal.displayName} ?`,
+      "Ce salarié n'aura plus accès à vos interventions.",
+      async () => {
+        if (!user) return;
+        try {
+          const idToken = await user.getIdToken();
+          const res = await fetch(new URL(`/api/salarie/${sal.uid}`, getApiUrl()).toString(), {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          const data = await res.json();
+          if (!data.ok) Alert.alert("Erreur", data.error ?? "Impossible de retirer ce salarié.");
+        } catch {
+          Alert.alert("Erreur", "Impossible de joindre le serveur.");
+        }
+      }
+    );
+  };
+
   const handleLinkEmployer = async () => {
     if (!linkCode.trim() || !user) return;
     setLinking(true);
@@ -527,6 +548,13 @@ export default function ProfileScreen() {
                         <Text style={s.rowValue}>{sal.displayName}</Text>
                         <Text style={s.rowLabel}>{sal.email}</Text>
                       </View>
+                      <Pressable
+                        onPress={() => handleRemoveSalarie(sal)}
+                        hitSlop={8}
+                        style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+                      >
+                        <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                      </Pressable>
                     </View>
                   </React.Fragment>
                 ))

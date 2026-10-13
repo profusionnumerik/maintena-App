@@ -9657,6 +9657,52 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     }
   });
 
+  // ─── Supprimer un salarié (lié par invitation) ───────────────────────────
+  app.delete("/api/salarie/:salaryUid", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ error: "Non autorisé" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
+
+    const { salaryUid } = req.params as { salaryUid: string };
+
+    try {
+      const salaryUserSnap = await db.collection("users").doc(salaryUid).get();
+      if (!salaryUserSnap.exists) return res.status(404).json({ error: "Salarié introuvable" }) as any;
+
+      const salaryData = salaryUserSnap.data()!;
+      if (salaryData.employerUid !== decoded.uid) {
+        return res.status(403).json({ error: "Vous n'êtes pas l'employeur de ce salarié" }) as any;
+      }
+
+      const { FieldValue: FV } = await import("firebase-admin/firestore");
+      const batch = db.batch();
+
+      // Retirer l'employerUid du salarié
+      batch.update(db.collection("users").doc(salaryUid), {
+        employerUid: FV.delete(),
+        employerName: FV.delete(),
+      });
+
+      // Retirer le salarié de tous les member docs où employerUid === decoded.uid
+      const membershipsSnap = await db.collectionGroup("members")
+        .where("uid", "==", salaryUid)
+        .where("employerUid", "==", decoded.uid)
+        .get();
+
+      for (const memberDoc of membershipsSnap.docs) {
+        batch.delete(memberDoc.ref);
+      }
+
+      await batch.commit();
+      return res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[salarie/delete] error:", e);
+      return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
   // ─── Code salarié entretien — génération ─────────────────────────────────
   app.post("/api/entretien/:coProId/:entretienId/salarie-code", async (req: Request, res: Response) => {
     const decoded = await extractAuthenticatedUser(req);
