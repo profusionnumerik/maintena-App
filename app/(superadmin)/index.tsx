@@ -3,17 +3,30 @@ import * as Clipboard from "expo-clipboard";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "expo-router";
 import {
-  ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView,
+  ActivityIndicator, Alert, FlatList, Modal, Platform, Pressable, ScrollView,
   RefreshControl, StyleSheet, Switch, Text, TextInput, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { arrayRemove, arrayUnion, doc, getDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
 import { CoPro, CoProStatus } from "@/shared/types";
+
+type Trial = {
+  id: string;
+  type: "copro" | "rental";
+  name: string;
+  email: string;
+  adminId: string;
+  trialEndsAt: string;
+  daysLeft: number;
+  status: "active" | "expired" | "converted";
+  createdAt: string;
+};
 
 type DemoUser = {
   id: string;
@@ -45,12 +58,66 @@ const STATUS_CONFIG: Record<CoProStatus, { label: string; bg: string; text: stri
 export default function SuperAdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, isSuperAdmin, isCollaborator, previewRole, setPreviewRole } = useAuth();
+  const { setPreviewCoproRole, setPreviewCoPro } = useCoPro();
   const [copros, setCopros] = useState<CoPro[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"copros" | "demo" | "activity" | "system">("copros");
+  const [activeTab, setActiveTab] = useState<"copros" | "demo" | "activity" | "system" | "trials">("copros");
+
+  // Invitations salarié state
+  const [inviteSearch, setInviteSearch] = useState("");
+  const [inviteResult, setInviteResult] = useState<{ token: string; status: string; targetEmail: string; employerName: string | null; createdAt: string; expiresAt: string } | null>(null);
+  const [inviteSearching, setInviteSearching] = useState(false);
+  const [inviteResetting, setInviteResetting] = useState(false);
+
+  const handleSearchInvite = async () => {
+    const tok = inviteSearch.trim().toUpperCase();
+    if (!tok) return;
+    setInviteSearching(true);
+    setInviteResult(null);
+    try {
+      const snap = await getDoc(doc(db, "salarie_invites", tok));
+      if (!snap.exists()) { Alert.alert("Introuvable", "Aucune invitation trouvée pour ce code."); return; }
+      const d = snap.data();
+      setInviteResult({ token: tok, status: d.status, targetEmail: d.targetEmail, employerName: d.employerName ?? d.inviterName ?? null, createdAt: d.createdAt, expiresAt: d.expiresAt });
+    } catch { Alert.alert("Erreur", "Impossible de rechercher."); }
+    finally { setInviteSearching(false); }
+  };
+
+  const handleResetInvite = async () => {
+    if (!inviteResult) return;
+    setInviteResetting(true);
+    try {
+      await setDoc(doc(db, "salarie_invites", inviteResult.token), { status: "pending" }, { merge: true });
+      setInviteResult((prev) => prev ? { ...prev, status: "pending" } : prev);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch { Alert.alert("Erreur", "Impossible de remettre en attente."); }
+    finally { setInviteResetting(false); }
+  };
+
+  // Trials state
+  const [trials, setTrials] = useState<Trial[]>([]);
+  const [trialsLoading, setTrialsLoading] = useState(false);
+  const [trialsFilter, setTrialsFilter] = useState<"all" | "active" | "expired" | "converted">("all");
+  const [extendingId, setExtendingId] = useState<string | null>(null);
+  const [discountModal, setDiscountModal] = useState<Trial | null>(null);
+  const [discountPercent, setDiscountPercent] = useState(20);
+  const [discountExtraDays, setDiscountExtraDays] = useState(0);
+  const [discountMessage, setDiscountMessage] = useState("");
+  const [discountSending, setDiscountSending] = useState(false);
+
+  // Collaborators state
+  const [collaboratorEmails, setCollaboratorEmails] = useState<string[]>([]);
+  const [newCollaboratorEmail, setNewCollaboratorEmail] = useState("");
+  const [collaboratorSaving, setCollaboratorSaving] = useState(false);
+
+  // Free access state
+  const [freeAccessModal, setFreeAccessModal] = useState<CoPro | null>(null);
+  const [freeAccessDays, setFreeAccessDays] = useState<number | null>(null); // null = à vie
+  const [freeAccessReason, setFreeAccessReason] = useState("");
+  const [freeAccessSaving, setFreeAccessSaving] = useState(false);
 
   // Maintenance state
   const [maintenanceActive, setMaintenanceActive] = useState(false);
@@ -297,9 +364,155 @@ export default function SuperAdminScreen() {
     }
   }, [user]);
 
+  const loadTrials = useCallback(async () => {
+    if (!user) return;
+    setTrialsLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/list-trials", getApiUrl()).toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      setTrials(data.trials ?? []);
+    } catch (e) {
+      console.error("load trials error:", e);
+    } finally {
+      setTrialsLoading(false);
+    }
+  }, [user]);
+
+  const handleExtendTrial = async (trial: Trial, extraDays: number) => {
+    if (!user) return;
+    setExtendingId(trial.id + extraDays);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/extend-trial", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: trial.type, id: trial.id, extraDays }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const newEnd = new Date(data.trialEndsAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+      Alert.alert(
+        "Essai prolongé ✓",
+        `+${extraDays} jours accordés à ${trial.email}.\nNouvelle fin : ${newEnd}\n\n📧 Un email de notification a été envoyé automatiquement.`
+      );
+      loadTrials();
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    } finally {
+      setExtendingId(null);
+    }
+  };
+
+  const handleSendDiscount = async () => {
+    if (!discountModal || !user) return;
+    setDiscountSending(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/send-discount-offer", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email: discountModal.email,
+          name: discountModal.name,
+          discountPercent: discountPercent > 0 ? discountPercent : undefined,
+          extraDays: discountExtraDays > 0 ? discountExtraDays : undefined,
+          message: discountMessage.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Email envoyé ✓", `Offre envoyée à ${discountModal.email}`);
+      setDiscountModal(null);
+      setDiscountMessage("");
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    } finally {
+      setDiscountSending(false);
+    }
+  };
+
+  const handleGrantFreeAccess = async () => {
+    if (!freeAccessModal || !user) return;
+    setFreeAccessSaving(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/grant-free-access", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          coProId: freeAccessModal.id,
+          durationDays: freeAccessDays,
+          reason: freeAccessReason.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const label = freeAccessDays
+        ? `${freeAccessDays} jours offerts à ${freeAccessModal.adminEmail}`
+        : `Accès à vie accordé à ${freeAccessModal.adminEmail}`;
+      Alert.alert("Accès offert ✓", label);
+      setFreeAccessModal(null);
+      setFreeAccessReason("");
+      loadCopros();
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    } finally {
+      setFreeAccessSaving(false);
+    }
+  };
+
+  // Collaborateurs — lecture en temps réel (seulement pour le super admin)
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    const unsub = onSnapshot(doc(db, "appConfig", "collaborators"), (snap) => {
+      setCollaboratorEmails(snap.exists() ? (snap.data()?.emails ?? []) : []);
+    });
+    return unsub;
+  }, [isSuperAdmin]);
+
+  const handleAddCollaborator = async () => {
+    const email = newCollaboratorEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) return;
+    setCollaboratorSaving(true);
+    try {
+      await setDoc(doc(db, "appConfig", "collaborators"), { emails: arrayUnion(email) }, { merge: true });
+      setNewCollaboratorEmail("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    } finally {
+      setCollaboratorSaving(false);
+    }
+  };
+
+  const handleRemoveCollaborator = (email: string) => {
+    Alert.alert("Retirer ce collaborateur ?", email, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Retirer", style: "destructive",
+        onPress: async () => {
+          try {
+            await setDoc(doc(db, "appConfig", "collaborators"), { emails: arrayRemove(email) }, { merge: true });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (e: any) {
+            Alert.alert("Erreur", e.message);
+          }
+        },
+      },
+    ]);
+  };
+
   useEffect(() => { loadCopros(); }, [loadCopros]);
   useEffect(() => { if (activeTab === "demo") loadDemoUsers(); }, [activeTab, loadDemoUsers]);
   useEffect(() => { if (activeTab === "activity") loadActivity(); }, [activeTab, loadActivity]);
+  useEffect(() => { if (activeTab === "trials") loadTrials(); }, [activeTab, loadTrials]);
   useEffect(() => { if (activeTab === "system" && !maintenanceLoaded) loadMaintenanceConfig(); }, [activeTab, maintenanceLoaded, loadMaintenanceConfig]);
 
   const sendActivationEmail = async (copro: CoPro): Promise<boolean> => {
@@ -424,7 +637,7 @@ export default function SuperAdminScreen() {
         <Ionicons name="arrow-back" size={20} color="#fff" />
       </Pressable>
       <View style={{ flex: 1 }}>
-        <Text style={styles.pageTitle}>Super Admin</Text>
+        <Text style={styles.pageTitle}>{isCollaborator && !isSuperAdmin ? "Admin · Collaborateur" : "Super Admin"}</Text>
         <Text style={styles.pageSubtitle}>{user?.email}</Text>
       </View>
       <Pressable style={styles.logoutBtn} onPress={logout}>
@@ -434,7 +647,11 @@ export default function SuperAdminScreen() {
   );
 
   const tabs = (
-    <View style={styles.tabRow}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}
+    >
       <Pressable style={[styles.tab, activeTab === "copros" && styles.tabActive]} onPress={() => setActiveTab("copros")}>
         <Text style={[styles.tabText, activeTab === "copros" && styles.tabTextActive]}>Copros</Text>
       </Pressable>
@@ -448,11 +665,18 @@ export default function SuperAdminScreen() {
           <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{demoUsers.length}</Text></View>
         )}
       </Pressable>
+      <Pressable style={[styles.tab, activeTab === "trials" && styles.tabActive]} onPress={() => setActiveTab("trials")}>
+        <Ionicons name="timer-outline" size={13} color={activeTab === "trials" ? "#fff" : COLORS.textMuted} />
+        <Text style={[styles.tabText, activeTab === "trials" && styles.tabTextActive]}>Essais</Text>
+        {trials.filter((t) => t.status === "expired").length > 0 && (
+          <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{trials.filter((t) => t.status === "expired").length}</Text></View>
+        )}
+      </Pressable>
       <Pressable style={[styles.tab, activeTab === "system" && styles.tabActive]} onPress={() => setActiveTab("system")}>
         <Ionicons name="settings-outline" size={13} color={activeTab === "system" ? "#fff" : COLORS.textMuted} />
         <Text style={[styles.tabText, activeTab === "system" && styles.tabTextActive]}>Système</Text>
       </Pressable>
-    </View>
+    </ScrollView>
   );
 
   // ── Vue Activité récente ─────────────────────────────────────────────────
@@ -505,6 +729,198 @@ export default function SuperAdminScreen() {
     );
   }
 
+  // ── Vue Essais ──────────────────────────────────────────────────────────
+  if (activeTab === "trials") {
+    const filteredTrials = trials.filter((t) => trialsFilter === "all" || t.status === trialsFilter);
+    const counts = {
+      all: trials.length,
+      active: trials.filter((t) => t.status === "active").length,
+      expired: trials.filter((t) => t.status === "expired").length,
+      converted: trials.filter((t) => t.status === "converted").length,
+    };
+
+    return (
+      <View style={styles.root}>
+        <ScrollView contentContainerStyle={{ paddingBottom: bottom + 24 }}>
+          {topBar}
+          {tabs}
+
+          {/* Stats */}
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
+              <Text style={styles.statVal}>{counts.all}</Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: "#D1FAE5" }]}>
+              <Text style={[styles.statVal, { color: "#059669" }]}>{counts.active}</Text>
+              <Text style={styles.statLabel}>Actifs</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: "#FEF2F2" }]}>
+              <Text style={[styles.statVal, { color: COLORS.danger }]}>{counts.expired}</Text>
+              <Text style={styles.statLabel}>Expirés</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: "#EDE9FE" }]}>
+              <Text style={[styles.statVal, { color: COLORS.primary }]}>{counts.converted}</Text>
+              <Text style={styles.statLabel}>Convertis</Text>
+            </View>
+          </View>
+
+          {/* Filtres */}
+          <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 8, marginBottom: 12 }}>
+            {(["all", "active", "expired", "converted"] as const).map((f) => (
+              <Pressable
+                key={f}
+                style={[styles.filterChip, trialsFilter === f && styles.filterChipActive]}
+                onPress={() => setTrialsFilter(f)}
+              >
+                <Text style={[styles.filterChipText, trialsFilter === f && styles.filterChipTextActive]}>
+                  {f === "all" ? "Tous" : f === "active" ? "Actifs" : f === "expired" ? "Expirés" : "Convertis"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {trialsLoading && <ActivityIndicator style={{ marginVertical: 30 }} color={COLORS.primary} />}
+
+          {!trialsLoading && filteredTrials.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons name="timer-outline" size={32} color={COLORS.border} />
+              <Text style={styles.emptyText}>Aucun essai dans cette catégorie</Text>
+            </View>
+          )}
+
+          <View style={{ paddingHorizontal: 16, gap: 10 }}>
+            {filteredTrials.map((t) => {
+              const isExpired = t.status === "expired";
+              const isConverted = t.status === "converted";
+              const endDate = new Date(t.trialEndsAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+              return (
+                <View key={t.id} style={[styles.trialCard, isExpired && styles.trialCardExpired, isConverted && styles.trialCardConverted]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <View style={[styles.trialTypeIcon, t.type === "copro" ? { backgroundColor: "#EDE9FE" } : { backgroundColor: "#D1FAE5" }]}>
+                      <Ionicons name={t.type === "copro" ? "business-outline" : "key-outline"} size={16} color={t.type === "copro" ? COLORS.primary : "#059669"} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.trialName} numberOfLines={1}>{t.name}</Text>
+                      <Text style={styles.trialEmail} numberOfLines={1}>{t.email}</Text>
+                    </View>
+                    <View style={[
+                      styles.trialStatusBadge,
+                      isExpired ? { backgroundColor: "#FEE2E2" } : isConverted ? { backgroundColor: "#EDE9FE" } : { backgroundColor: "#D1FAE5" }
+                    ]}>
+                      <Text style={[
+                        styles.trialStatusText,
+                        isExpired ? { color: "#991B1B" } : isConverted ? { color: COLORS.primary } : { color: "#065F46" }
+                      ]}>
+                        {isExpired ? `expiré il y a ${Math.abs(t.daysLeft)}j` : isConverted ? "Converti ✓" : `${t.daysLeft}j restants`}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.trialDate}>
+                    {t.type === "copro" ? "Copropriété" : "Bailleur"} · Fin le {endDate}
+                  </Text>
+
+                  {!isConverted && (
+                    <View style={styles.trialActions}>
+                      {([
+                        { label: "+7j", days: 7 },
+                        { label: "+30j", days: 30 },
+                        { label: "+3 mois", days: 90 },
+                        { label: "+1 an", days: 365 },
+                      ]).map(({ label, days }) => (
+                        <Pressable
+                          key={days}
+                          style={[styles.extendBtn, extendingId === t.id + days && { opacity: 0.5 }]}
+                          onPress={() => handleExtendTrial(t, days)}
+                          disabled={!!extendingId}
+                        >
+                          {extendingId === t.id + days
+                            ? <ActivityIndicator size="small" color={COLORS.primary} />
+                            : <Text style={styles.extendBtnText}>{label}</Text>
+                          }
+                        </Pressable>
+                      ))}
+                      <Pressable
+                        style={styles.discountBtn}
+                        onPress={() => { setDiscountModal(t); setDiscountPercent(20); setDiscountExtraDays(0); setDiscountMessage(""); }}
+                      >
+                        <Ionicons name="gift-outline" size={14} color="#D97706" />
+                        <Text style={styles.discountBtnText}>Offre</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
+
+        {/* Modal offre remise */}
+        <Modal visible={!!discountModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setDiscountModal(null)}>
+          <View style={{ flex: 1, backgroundColor: COLORS.background, padding: 24, paddingTop: 32 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+              <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text }}>Envoyer une offre</Text>
+              <Pressable onPress={() => setDiscountModal(null)} hitSlop={12}>
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </Pressable>
+            </View>
+
+            {discountModal && (
+              <View style={{ backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border }}>
+                <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text }}>{discountModal.name}</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>{discountModal.email}</Text>
+              </View>
+            )}
+
+            <Text style={styles.demoLabel}>Réduction (%, 0 = aucune)</Text>
+            <View style={styles.stepper}>
+              <Pressable style={styles.stepBtn} onPress={() => setDiscountPercent(Math.max(0, discountPercent - 5))}>
+                <Text style={styles.stepBtnText}>−</Text>
+              </Pressable>
+              <Text style={styles.stepVal}>{discountPercent > 0 ? `${discountPercent}%` : "—"}</Text>
+              <Pressable style={styles.stepBtn} onPress={() => setDiscountPercent(Math.min(100, discountPercent + 5))}>
+                <Text style={styles.stepBtnText}>+</Text>
+              </Pressable>
+            </View>
+
+            <Text style={[styles.demoLabel, { marginTop: 12 }]}>Jours supplémentaires (0 = aucun)</Text>
+            <View style={styles.stepper}>
+              <Pressable style={styles.stepBtn} onPress={() => setDiscountExtraDays(Math.max(0, discountExtraDays - 7))}>
+                <Text style={styles.stepBtnText}>−</Text>
+              </Pressable>
+              <Text style={styles.stepVal}>{discountExtraDays > 0 ? `+${discountExtraDays}j` : "—"}</Text>
+              <Pressable style={styles.stepBtn} onPress={() => setDiscountExtraDays(discountExtraDays + 7)}>
+                <Text style={styles.stepBtnText}>+</Text>
+              </Pressable>
+            </View>
+
+            <Text style={[styles.demoLabel, { marginTop: 12 }]}>Message personnalisé (optionnel)</Text>
+            <TextInput
+              style={[styles.demoInput, { height: 90, textAlignVertical: "top", paddingTop: 10, marginTop: 4 }]}
+              placeholder="Ex : Nous avons remarqué que vous avez essayé Maintena. Voici une offre spéciale pour vous..."
+              placeholderTextColor={COLORS.textMuted}
+              value={discountMessage}
+              onChangeText={setDiscountMessage}
+              multiline
+            />
+
+            <Pressable
+              style={[styles.demoGrantBtn, { marginTop: 20 }, discountSending && { opacity: 0.5 }]}
+              onPress={handleSendDiscount}
+              disabled={discountSending}
+            >
+              {discountSending
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <><Ionicons name="mail-outline" size={16} color="#fff" /><Text style={styles.demoGrantBtnText}>Envoyer l'offre</Text></>
+              }
+            </Pressable>
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
   // ── Vue Système ─────────────────────────────────────────────────────────
   if (activeTab === "system") {
     return (
@@ -513,8 +929,70 @@ export default function SuperAdminScreen() {
           {topBar}
           {tabs}
 
-          {/* Card maintenance */}
+          {/* Card prévisualisation */}
           <View style={[styles.demoCard, { marginTop: 16 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#EFF6FF", alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="eye-outline" size={18} color={COLORS.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.demoTitle}>Prévisualiser un rôle</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>
+                  Naviguer comme un utilisateur sans se déconnecter
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              {([
+                { nav: "copro", coproRole: "admin",        label: "🏢 Admin",       color: "#1E40AF", bg: "#EFF6FF" },
+                { nav: "copro", coproRole: "prestataire",  label: "👷 Prestataire", color: "#7C3AED", bg: "#F5F3FF" },
+                { nav: "copro", coproRole: "propriétaire", label: "🏠 Propriétaire",color: "#B45309", bg: "#FFFBEB" },
+                { nav: "copro", coproRole: "conseil",      label: "🗣 Conseil",     color: "#0F766E", bg: "#F0FDF9" },
+                { nav: "rental", coproRole: null,          label: "🔑 Bailleur",    color: "#059669", bg: "#ECFDF5" },
+                { nav: "tenant", coproRole: null,          label: "👤 Locataire",   color: "#475569", bg: "#F1F5F9" },
+              ] as const).map(({ nav, coproRole, label, color, bg }) => {
+                const isActive = previewRole === nav && (nav !== "copro" || (nav === "copro" && previewRole === "copro"));
+                return (
+                  <Pressable
+                    key={`${nav}-${coproRole}`}
+                    style={{ backgroundColor: isActive ? color : bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
+                    onPress={() => {
+                      if (nav === "copro") {
+                        if (copros.length === 0) {
+                          Alert.alert("Aucune copropriété", "Créez d'abord une copropriété dans l'onglet Copros pour pouvoir prévisualiser.");
+                          return;
+                        }
+                        setPreviewCoPro(copros[0]);
+                        setPreviewCoproRole(coproRole as any);
+                        setPreviewRole("copro");
+                        router.replace("/(app)");
+                      } else {
+                        setPreviewCoPro(null);
+                        setPreviewCoproRole(null);
+                        setPreviewRole(nav);
+                        router.replace(nav === "rental" ? "/(rental-onboarding)" : "/(tenant)");
+                      }
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: isActive ? "#fff" : color }}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {previewRole && (
+              <View style={{ marginTop: 10, backgroundColor: "#FEF2F2", borderRadius: 8, padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="eye" size={14} color={COLORS.danger} />
+                <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.danger, flex: 1 }}>
+                  Mode prévisualisation actif — une barre violette est visible en bas de l'écran
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Card maintenance */}
+          <View style={[styles.demoCard, { marginTop: 12 }]}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
               <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: maintenanceActive ? "#FEF2F2" : "#F1F5F9", alignItems: "center", justifyContent: "center" }}>
                 <Ionicons name="settings" size={18} color={maintenanceActive ? COLORS.danger : COLORS.textMuted} />
@@ -586,7 +1064,7 @@ export default function SuperAdminScreen() {
           </View>
 
           {/* Info */}
-          <View style={{ marginHorizontal: 16, padding: 14, backgroundColor: "#EFF6FF", borderRadius: 12, borderWidth: 1, borderColor: "#BFDBFE" }}>
+          <View style={{ marginHorizontal: 16, padding: 14, backgroundColor: "#EFF6FF", borderRadius: 12, borderWidth: 1, borderColor: "#BFDBFE", marginBottom: 16 }}>
             <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.primary, marginBottom: 4 }}>
               ℹ️ Comportement
             </Text>
@@ -596,6 +1074,150 @@ export default function SuperAdminScreen() {
               • Dès que tu désactives la maintenance, l'accès est restauré instantanément.
             </Text>
           </View>
+
+          {/* Collaborateurs — visible uniquement pour le super admin */}
+          {isSuperAdmin && (
+            <View style={[styles.demoCard, { marginTop: 0 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#EDE9FE", alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="people-outline" size={18} color={COLORS.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.demoTitle}>Collaborateurs admin</Text>
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>
+                    Accès complet au panneau, sans pouvoir supprimer votre compte
+                  </Text>
+                </View>
+              </View>
+
+              {/* Liste des collaborateurs */}
+              {collaboratorEmails.length === 0 ? (
+                <View style={{ backgroundColor: "#F8FAFC", borderRadius: 10, padding: 12, alignItems: "center" }}>
+                  <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>Aucun collaborateur pour le moment</Text>
+                </View>
+              ) : (
+                <View style={{ gap: 6 }}>
+                  {collaboratorEmails.map((email) => (
+                    <View key={email} style={{ flexDirection: "row", alignItems: "center", backgroundColor: "#F8FAFC", borderRadius: 10, padding: 10, borderWidth: 1, borderColor: COLORS.border }}>
+                      <Ionicons name="person-circle-outline" size={18} color={COLORS.primary} style={{ marginRight: 8 }} />
+                      <Text style={{ flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text }} numberOfLines={1}>{email}</Text>
+                      <Pressable
+                        style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: "#FEF2F2", alignItems: "center", justifyContent: "center" }}
+                        onPress={() => handleRemoveCollaborator(email)}
+                      >
+                        <Ionicons name="trash-outline" size={14} color={COLORS.danger} />
+                      </Pressable>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {/* Ajouter un collaborateur */}
+              <Text style={[styles.demoLabel, { marginTop: 8 }]}>Ajouter un collaborateur</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+                <TextInput
+                  style={[styles.demoInput, { flex: 1 }]}
+                  placeholder="email@exemple.com"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={newCollaboratorEmail}
+                  onChangeText={setNewCollaboratorEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+                <Pressable
+                  style={[styles.demoGrantBtn, { paddingHorizontal: 16, marginTop: 0 }, (!newCollaboratorEmail.trim() || collaboratorSaving) && { opacity: 0.5 }]}
+                  onPress={handleAddCollaborator}
+                  disabled={!newCollaboratorEmail.trim() || collaboratorSaving}
+                >
+                  {collaboratorSaving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="add" size={20} color="#fff" />
+                  }
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {/* Badge collaborateur */}
+          {isCollaborator && !isSuperAdmin && (
+            <View style={{ marginHorizontal: 16, padding: 14, backgroundColor: "#EDE9FE", borderRadius: 12, borderWidth: 1, borderColor: "#DDD6FE" }}>
+              <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.primary, marginBottom: 4 }}>
+                👤 Mode collaborateur
+              </Text>
+              <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: "#5B21B6", lineHeight: 18 }}>
+                Vous avez accès à toutes les fonctionnalités d'administration sauf la gestion des collaborateurs et la suppression du compte super admin.
+              </Text>
+            </View>
+          )}
+
+          {/* ── Invitations salarié ── */}
+          <View style={[styles.demoCard, { marginTop: 12 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center" }}>
+                <Ionicons name="key-outline" size={18} color="#16A34A" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.demoTitle}>Invitations salarié</Text>
+                <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>
+                  Rechercher et remettre en attente un code d'invitation
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <View style={[styles.searchWrap, { flex: 1, marginHorizontal: 0 }]}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Code invitation (ex: A3F9B2)"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={inviteSearch}
+                  onChangeText={(t) => setInviteSearch(t.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+              </View>
+              <Pressable
+                style={({ pressed }) => ({ backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 14, justifyContent: "center", opacity: pressed ? 0.8 : 1 })}
+                onPress={handleSearchInvite}
+                disabled={inviteSearching}
+              >
+                {inviteSearching ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="search" size={18} color="#fff" />}
+              </Pressable>
+            </View>
+
+            {inviteResult && (
+              <View style={{ marginTop: 12, backgroundColor: "#F8FAFC", borderRadius: 10, padding: 12, gap: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <Text style={{ fontFamily: "Inter_700Bold", fontSize: 16, letterSpacing: 2 }}>{inviteResult.token}</Text>
+                  <View style={{ backgroundColor: inviteResult.status === "pending" ? "#D1FAE5" : inviteResult.status === "accepted" ? "#DBEAFE" : "#FEF2F2", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Text style={{ fontSize: 11, fontFamily: "Inter_600SemiBold", color: inviteResult.status === "pending" ? "#065F46" : inviteResult.status === "accepted" ? "#1E40AF" : "#991B1B" }}>
+                      {inviteResult.status === "pending" ? "En attente" : inviteResult.status === "accepted" ? "Utilisé" : inviteResult.status}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 13, color: COLORS.textMuted }}>Email : {inviteResult.targetEmail}</Text>
+                {inviteResult.employerName && <Text style={{ fontSize: 13, color: COLORS.textMuted }}>Employeur : {inviteResult.employerName}</Text>}
+                <Text style={{ fontSize: 12, color: COLORS.textMuted }}>Expire : {new Date(inviteResult.expiresAt).toLocaleDateString("fr-FR")}</Text>
+                {inviteResult.status !== "pending" && (
+                  <Pressable
+                    style={({ pressed }) => ({ marginTop: 8, backgroundColor: "#16A34A", borderRadius: 10, padding: 10, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
+                    onPress={handleResetInvite}
+                    disabled={inviteResetting}
+                  >
+                    {inviteResetting
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={{ color: "#fff", fontFamily: "Inter_600SemiBold", fontSize: 14 }}>Remettre en attente</Text>
+                    }
+                  </Pressable>
+                )}
+                {inviteResult.status === "pending" && (
+                  <Text style={{ fontSize: 13, color: "#16A34A", fontFamily: "Inter_600SemiBold", textAlign: "center", marginTop: 4 }}>
+                    ✓ Déjà en attente — le salarié peut utiliser ce code
+                  </Text>
+                )}
+              </View>
+            )}
+          </View>
+
         </ScrollView>
       </View>
     );
@@ -917,6 +1539,14 @@ export default function SuperAdminScreen() {
                     <Text style={styles.actionEmailText}>Renvoyer email</Text>
                   </Pressable>
                 )}
+                <Pressable
+                  style={[styles.actionBtn, { backgroundColor: "#FFFBEB", borderWidth: 1, borderColor: "#FDE68A" }]}
+                  onPress={() => { setFreeAccessModal(item); setFreeAccessDays(null); setFreeAccessReason(""); }}
+                  disabled={isUpdating}
+                >
+                  <Ionicons name="gift-outline" size={15} color="#D97706" />
+                  <Text style={[styles.actionActivateText, { color: "#D97706" }]}>Offert</Text>
+                </Pressable>
                 {item.status !== "pending" && (
                   <Pressable
                     style={[styles.actionBtn, styles.actionPending]}
@@ -950,6 +1580,96 @@ export default function SuperAdminScreen() {
           ) : null
         }
       />
+
+      {/* Modal accès offert */}
+      <Modal visible={!!freeAccessModal} animationType="slide" presentationStyle="formSheet" onRequestClose={() => setFreeAccessModal(null)}>
+        <View style={{ flex: 1, backgroundColor: COLORS.background, padding: 24, paddingTop: 32 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <Text style={{ fontSize: 18, fontFamily: "Inter_700Bold", color: COLORS.text }}>🎁 Accès offert</Text>
+            <Pressable onPress={() => setFreeAccessModal(null)} hitSlop={12}>
+              <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+            </Pressable>
+          </View>
+
+          {freeAccessModal && (
+            <View style={{ backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, marginBottom: 20, borderWidth: 1, borderColor: COLORS.border }}>
+              <Text style={{ fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text }}>{freeAccessModal.name}</Text>
+              <Text style={{ fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted }}>{freeAccessModal.adminEmail}</Text>
+            </View>
+          )}
+
+          <Text style={styles.demoLabel}>Durée</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 20, marginTop: 6 }}>
+            {([
+              { label: "3 mois", days: 90 },
+              { label: "6 mois", days: 180 },
+              { label: "1 an", days: 365 },
+              { label: "2 ans", days: 730 },
+              { label: "5 ans", days: 1825 },
+              { label: "10 ans", days: 3650 },
+              { label: "À vie", days: null },
+            ] as { label: string; days: number | null }[]).map(({ label, days }) => (
+              <Pressable
+                key={label}
+                style={[
+                  styles.filterChip,
+                  freeAccessDays === days && { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+                  days === null && freeAccessDays === null && { backgroundColor: "#D97706", borderColor: "#D97706" },
+                ]}
+                onPress={() => setFreeAccessDays(days)}
+              >
+                <Text style={[
+                  styles.filterChipText,
+                  freeAccessDays === days && { color: "#fff" },
+                  days === null && freeAccessDays === null && { color: "#fff" },
+                ]}>
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {freeAccessDays === null && (
+            <View style={{ backgroundColor: "#FFFBEB", borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: "#FDE68A" }}>
+              <Text style={{ fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#92400E" }}>
+                ⚠️ Accès à vie — aucune date d'expiration. L'abonnement restera actif indéfiniment.
+              </Text>
+            </View>
+          )}
+
+          <Text style={styles.demoLabel}>Raison (optionnel)</Text>
+          <TextInput
+            style={[styles.demoInput, { marginTop: 4 }]}
+            placeholder="Ex : Ma résidence, offert à vie"
+            placeholderTextColor={COLORS.textMuted}
+            value={freeAccessReason}
+            onChangeText={setFreeAccessReason}
+          />
+
+          <Pressable
+            style={[
+              styles.demoGrantBtn,
+              { marginTop: 24 },
+              freeAccessDays === null
+                ? { backgroundColor: "#D97706" }
+                : { backgroundColor: COLORS.primary },
+              (freeAccessSaving || freeAccessDays === undefined) && { opacity: 0.5 },
+            ]}
+            onPress={handleGrantFreeAccess}
+            disabled={freeAccessSaving || freeAccessDays === undefined}
+          >
+            {freeAccessSaving
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <>
+                  <Ionicons name="gift-outline" size={16} color="#fff" />
+                  <Text style={styles.demoGrantBtnText}>
+                    {freeAccessDays === null ? "Accorder l'accès à vie" : `Accorder ${freeAccessDays} jours`}
+                  </Text>
+                </>
+            }
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1015,7 +1735,7 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 15, fontFamily: "Inter_500Medium", color: COLORS.textSecondary },
 
   // Tabs
-  tabRow: { flexDirection: "row", marginHorizontal: 16, marginBottom: 4, marginTop: 12, gap: 8 },
+  tabRow: { flexDirection: "row", gap: 8 },
   tab: {
     flexDirection: "row", alignItems: "center", gap: 6,
     paddingHorizontal: 16, paddingVertical: 9,
@@ -1073,4 +1793,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   reminderBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#1D4ED8" },
+
+  // Trials
+  filterChip: {
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+  },
+  filterChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  filterChipText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted },
+  filterChipTextActive: { color: "#fff" },
+
+  trialCard: {
+    backgroundColor: COLORS.surface, borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: COLORS.border, gap: 4,
+  },
+  trialCardExpired: { borderColor: "#FECACA", backgroundColor: "#FFFAFA" },
+  trialCardConverted: { borderColor: "#DDD6FE", backgroundColor: "#FAF5FF" },
+  trialTypeIcon: {
+    width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center",
+  },
+  trialName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  trialEmail: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  trialStatusBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  trialStatusText: { fontSize: 11, fontFamily: "Inter_700Bold" },
+  trialDate: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  trialActions: { flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" },
+  extendBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "#EFF6FF", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: "#BFDBFE",
+  },
+  extendBtnText: { fontSize: 12, fontFamily: "Inter_700Bold", color: COLORS.primary },
+  discountBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "#FFFBEB", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: "#FDE68A",
+  },
+  discountBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#D97706" },
 });
