@@ -320,7 +320,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
                 if (memberSnap.exists()) {
                   roles[id] = memberSnap.data().role as MemberRole;
-                } else {
+                } else if (snap.data()?.adminId === user.uid) {
+                  // Uniquement pour le créateur réel de la copro : recréer le doc membre admin
                   roles[id] = "admin";
                   try {
                     await setDoc(memberRef, {
@@ -333,6 +334,14 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
                       role: "admin",
                       joinedAt: new Date().toISOString(),
                       accountStatus: "active",
+                    });
+                  } catch (_) {}
+                } else {
+                  // Doc membre supprimé (ex : prestataire/salarié retiré) — nettoyer managedCoproIds
+                  delete coProMap[id];
+                  try {
+                    await updateDoc(doc(db, "users", user.uid), {
+                      managedCoproIds: arrayRemove(id),
                     });
                   } catch (_) {}
                 }
@@ -481,29 +490,41 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         await selectDefault(list, user.uid);
         setLoadError(null);
       } else {
-        // Firestore vide ou inaccessible — tenter le cache local
-        try {
-          const cachedJson  = await AsyncStorage.getItem(COPROS_CACHE_KEY(user.uid));
-          const rolesJson   = await AsyncStorage.getItem(ROLES_CACHE_KEY(user.uid));
-          const cachedList: CoPro[]                = cachedJson  ? JSON.parse(cachedJson)  : [];
-          const cachedRoles: Record<string, MemberRole> = rolesJson ? JSON.parse(rolesJson) : {};
+        if (s1Succeeded) {
+          // Firestore accessible et confirme l'absence de copro — vider le cache obsolète
+          try {
+            await AsyncStorage.removeItem(COPROS_CACHE_KEY(user.uid));
+            await AsyncStorage.removeItem(ROLES_CACHE_KEY(user.uid));
+          } catch (_) {}
+          setCopros([]);
+          setRoleMap({});
+          setCurrentCoproId(null);
+          // Si l'utilisateur avait des copros déclarées → erreur réseau probable
+          if (hadManagedIds) {
+            setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
+          }
+          // Si !hadManagedIds → pas encore de copro (onboarding)
+        } else {
+          // Firestore inaccessible — tenter le cache local (mode hors-ligne)
+          try {
+            const cachedJson  = await AsyncStorage.getItem(COPROS_CACHE_KEY(user.uid));
+            const rolesJson   = await AsyncStorage.getItem(ROLES_CACHE_KEY(user.uid));
+            const cachedList: CoPro[]                = cachedJson  ? JSON.parse(cachedJson)  : [];
+            const cachedRoles: Record<string, MemberRole> = rolesJson ? JSON.parse(rolesJson) : {};
 
-          if (cachedList.length > 0) {
-            setRoleMap(cachedRoles);
-            setCopros(cachedList);
-            await selectDefault(cachedList, user.uid);
-            // Pas d'erreur bloquante — données en cache disponibles
-          } else {
-            // Pas de cache : erreur si Firestore a totalement échoué OU si l'utilisateur
-            // avait des copros déclarées mais qu'on n'a pas pu les charger
-            if (!s1Succeeded || hadManagedIds) {
+            if (cachedList.length > 0) {
+              setRoleMap(cachedRoles);
+              setCopros(cachedList);
+              await selectDefault(cachedList, user.uid);
+            } else {
+              if (hadManagedIds) {
+                setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
+              }
+            }
+          } catch (_) {
+            if (hadManagedIds) {
               setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
             }
-            // Si s1Succeeded && !hadManagedIds → l'utilisateur n'a vraiment aucune copro → onboarding
-          }
-        } catch (_) {
-          if (!s1Succeeded || hadManagedIds) {
-            setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
           }
         }
       }

@@ -9820,9 +9820,9 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
           batch.delete(salDoc.ref);
           // Retirer cette copro des managedCoproIds du salarié
           const salarieUid: string = salDoc.data().uid ?? salDoc.id;
-          batch.set(db.collection("users").doc(salarieUid), {
+          batch.update(db.collection("users").doc(salarieUid), {
             managedCoproIds: FieldValue.arrayRemove(coProId),
-          }, { merge: true });
+          });
         }
       }
 
