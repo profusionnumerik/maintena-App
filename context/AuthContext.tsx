@@ -91,6 +91,8 @@ interface AuthContextValue {
   employerName: string | null;
   /** Vrai si l'utilisateur a rejoint via un code d'entretien (pas via salarie_invites) */
   fromEntretienCode: boolean;
+  /** Vrai si l'accès locataire est bloqué (bailleur désabonné ou parti) */
+  rentalAccessBlocked: boolean;
   // ────────────────────────────────────────────────
   error: string | null;
   clearError: () => void;
@@ -162,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [employerUid, setEmployerUid] = useState<string | null>(null);
   const [employerName, setEmployerName] = useState<string | null>(null);
   const [fromEntretienCode, setFromEntretienCode] = useState(false);
+  const [rentalAccessBlocked, setRentalAccessBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeMode, setActiveModeState] = useState<"copro" | "rental">("copro");
   const [isCollaborator, setIsCollaborator] = useState(false);
@@ -184,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRentalProfile(null);
         setEmployerUid(null);
         setEmployerName(null);
+        setRentalAccessBlocked(false);
         setUserDataLoading(false);
       }
       if (u?.uid) registerPushToken(u.uid).catch(() => {});
@@ -245,6 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setEmployerUid(data.employerUid ?? null);
           setEmployerName(data.employerName ?? null);
           setFromEntretienCode(data.fromEntretienCode === true);
+          setRentalAccessBlocked(data.rentalAccessBlocked === true);
         }
         setUserDataLoading(false);
       },
@@ -511,6 +516,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       employerUid,
       employerName,
       fromEntretienCode,
+      rentalAccessBlocked,
       activeMode,
       setActiveMode,
       activateRentalModule,
@@ -533,7 +539,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOnTrial, isTrialExpired, trialDaysLeft,
       activeMode, setActiveMode, activateRentalModule,
       previewRole, setPreviewRole,
-      employerUid, employerName, fromEntretienCode,
+      employerUid, employerName, fromEntretienCode, rentalAccessBlocked,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]

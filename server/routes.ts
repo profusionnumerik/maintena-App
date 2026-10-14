@@ -369,6 +369,19 @@ async function deleteUserData(uid: string) {
   }
   await batch1.commit();
 
+  // ── 3a. Bloquer les locataires avant de supprimer les données bailleur ──
+  try {
+    const tenantsSnap = await db.collection("users")
+      .where("rentalInfo.landlordId", "==", uid).get();
+    if (!tenantsSnap.empty) {
+      const b = db.batch();
+      tenantsSnap.docs.forEach((tDoc) =>
+        b.set(tDoc.ref, { rentalAccessBlocked: true, rentalInfo: null }, { merge: true })
+      );
+      await b.commit();
+    }
+  } catch { /* continue */ }
+
   // ── 3. Propriétés dont l'utilisateur est bailleur ────────────────────────
   const propertiesSnap = await db.collection("properties")
     .where("landlordId", "==", uid).get();
@@ -1727,6 +1740,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
               { merge: true }
             );
             console.log(`[rental-webhook] Plan "${plan}" activé pour landlord ${landlordId}`);
+
+            // Débloquer les locataires liés à ce bailleur
+            try {
+              const tenantsSnap = await db.collection("users")
+                .where("rentalInfo.landlordId", "==", landlordId).get();
+              if (!tenantsSnap.empty) {
+                const b = db.batch();
+                tenantsSnap.docs.forEach((tDoc) =>
+                  b.set(tDoc.ref, { rentalAccessBlocked: false }, { merge: true })
+                );
+                await b.commit();
+                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) débloqué(s) pour bailleur ${landlordId}`);
+              }
+            } catch (tenantErr) {
+              console.warn("[rental-webhook] erreur déblocage locataires:", tenantErr);
+            }
           }
           return res.json({ received: true });
         }
@@ -1876,6 +1905,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
             { merge: true }
           );
           console.log(`[rental-webhook] Plan annulé → "free" pour ${doc.id}`);
+
+          // Bloquer les locataires liés à ce bailleur
+          try {
+            const tenantsSnap = await db.collection("users")
+              .where("rentalInfo.landlordId", "==", doc.id).get();
+            if (!tenantsSnap.empty) {
+              const b = db.batch();
+              tenantsSnap.docs.forEach((tDoc) =>
+                b.set(tDoc.ref, { rentalAccessBlocked: true }, { merge: true })
+              );
+              await b.commit();
+              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) bloqué(s) pour bailleur ${doc.id}`);
+            }
+          } catch (tenantErr) {
+            console.warn("[rental-webhook] erreur blocage locataires:", tenantErr);
+          }
         }
 
         const usersSnap = await db
@@ -9731,6 +9776,55 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     } catch (e: any) {
       console.error("[salarie/delete] error:", e);
       return res.status(500).json({ error: "Erreur serveur" }) as any;
+    }
+  });
+
+  // ─── Suppression membre copro avec cascade salariés ──────────────────────
+  app.delete("/api/copro/:coProId/member/:uid", async (req: Request, res: Response) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ ok: false, error: "Non authentifié" }) as any;
+
+    const db = getAdminDb();
+    if (!db) return res.status(500).json({ ok: false, error: "Firebase Admin indisponible" }) as any;
+
+    const { coProId, uid } = req.params as { coProId: string; uid: string };
+
+    try {
+      // Vérifier que le caller est admin ou co-admin de cette copro
+      const callerSnap = await db.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      if (!callerSnap.exists) return res.status(403).json({ ok: false, error: "Non autorisé" }) as any;
+      const callerRole = callerSnap.data()?.role as string | undefined;
+      if (!callerRole || !["admin", "co-admin"].includes(callerRole)) {
+        return res.status(403).json({ ok: false, error: "Droits insuffisants" }) as any;
+      }
+
+      const memberRef = db.collection("copros").doc(coProId).collection("members").doc(uid);
+      const memberDoc = await memberRef.get();
+      if (!memberDoc.exists) return res.status(404).json({ ok: false, error: "Membre introuvable" }) as any;
+
+      const memberRole = memberDoc.data()?.role as string | undefined;
+      const batch = db.batch();
+      batch.delete(memberRef);
+
+      // Cascade : si prestataire → supprimer ses salariés dans cette copro
+      if (memberRole === "prestataire") {
+        const salariesSnap = await db.collection("copros").doc(coProId).collection("members")
+          .where("employerUid", "==", uid).get();
+        for (const salDoc of salariesSnap.docs) {
+          batch.delete(salDoc.ref);
+          // Retirer cette copro des managedCoproIds du salarié
+          const salarieUid: string = salDoc.data().uid ?? salDoc.id;
+          batch.set(db.collection("users").doc(salarieUid), {
+            managedCoproIds: FieldValue.arrayRemove(coProId),
+          }, { merge: true });
+        }
+      }
+
+      await batch.commit();
+      return res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[copro/member/delete] error:", e);
+      return res.status(500).json({ ok: false, error: "Erreur serveur" }) as any;
     }
   });
 

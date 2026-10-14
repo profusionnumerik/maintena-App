@@ -1176,16 +1176,24 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const removeMember = useCallback(
     async (uid: string) => {
-      if (!currentCopro) return;
+      if (!currentCopro || !user) return;
 
       const member = members.find((m) => m.uid === uid);
       if (!member || member.role === "admin" || member.role === "co-admin") {
         throw new Error("Les administrateurs ne peuvent pas être supprimés.");
       }
 
-      await deleteDoc(doc(db, "copros", currentCopro.id, "members", uid));
+      // Utiliser l'endpoint serveur pour supprimer avec cascade salariés
+      const idToken = await user.getIdToken();
+      const { getApiUrl } = await import("@/lib/query-client");
+      const res = await fetch(
+        new URL(`/api/copro/${currentCopro.id}/member/${uid}`, getApiUrl()).toString(),
+        { method: "DELETE", headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Impossible de supprimer ce membre.");
     },
-    [currentCopro, members]
+    [currentCopro, members, user]
   );
 
   const changeMemberRole = useCallback(

@@ -569,7 +569,7 @@ const ec = StyleSheet.create({
 export default function TenantHome() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout, deleteAccount, rentalInfo } = useAuth();
+  const { user, logout, deleteAccount, rentalInfo, rentalAccessBlocked } = useAuth();
 
   const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
@@ -651,6 +651,31 @@ export default function TenantHome() {
             tenantName={user.displayName ?? undefined}
           />
         )}
+      </LinearGradient>
+    );
+  }
+
+  // ── Accès bloqué (bailleur désabonné ou compte supprimé) ──────────────────
+  if (rentalAccessBlocked) {
+    return (
+      <LinearGradient colors={[COLORS.dark, COLORS.darkMid, "#0D2047"]} style={{ flex: 1 }}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, paddingTop }}>
+          <Ionicons name="lock-closed" size={56} color="rgba(255,255,255,0.4)" />
+          <Text style={{ fontSize: 20, fontFamily: "Inter_700Bold", color: "#fff", textAlign: "center", marginTop: 20 }}>
+            Accès suspendu
+          </Text>
+          <Text style={{ fontSize: 15, color: "rgba(255,255,255,0.6)", textAlign: "center", marginTop: 12, lineHeight: 22 }}>
+            L'abonnement de votre bailleur est arrivé à expiration ou le compte a été supprimé.{"\n\n"}
+            Votre accès à cette application a été temporairement désactivé. Contactez votre bailleur pour plus d'informations.
+          </Text>
+          <Pressable
+            onPress={logout}
+            style={{ marginTop: 32, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
+          >
+            <Text style={{ color: "#fff", fontSize: 15, fontFamily: "Inter_600SemiBold" }}>Se déconnecter</Text>
+          </Pressable>
+        </View>
       </LinearGradient>
     );
   }

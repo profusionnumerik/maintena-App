@@ -39063,6 +39063,17 @@ async function deleteUserData(uid) {
     members.docs.forEach((d) => batch1.delete(d.ref));
   }
   await batch1.commit();
+  try {
+    const tenantsSnap = await db.collection("users").where("rentalInfo.landlordId", "==", uid).get();
+    if (!tenantsSnap.empty) {
+      const b = db.batch();
+      tenantsSnap.docs.forEach(
+        (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: true, rentalInfo: null }, { merge: true })
+      );
+      await b.commit();
+    }
+  } catch {
+  }
   const propertiesSnap = await db.collection("properties").where("landlordId", "==", uid).get();
   for (const propDoc of propertiesSnap.docs) {
     const ref = propDoc.ref;
@@ -40164,6 +40175,19 @@ async function registerRoutes(app) {
               { merge: true }
             );
             console.log(`[rental-webhook] Plan "${plan}" activ\xE9 pour landlord ${landlordId}`);
+            try {
+              const tenantsSnap = await db2.collection("users").where("rentalInfo.landlordId", "==", landlordId).get();
+              if (!tenantsSnap.empty) {
+                const b = db2.batch();
+                tenantsSnap.docs.forEach(
+                  (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: false }, { merge: true })
+                );
+                await b.commit();
+                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) d\xE9bloqu\xE9(s) pour bailleur ${landlordId}`);
+              }
+            } catch (tenantErr) {
+              console.warn("[rental-webhook] erreur d\xE9blocage locataires:", tenantErr);
+            }
           }
           return res.json({ received: true });
         }
@@ -40284,6 +40308,19 @@ async function registerRoutes(app) {
             { merge: true }
           );
           console.log(`[rental-webhook] Plan annul\xE9 \u2192 "free" pour ${doc.id}`);
+          try {
+            const tenantsSnap = await db2.collection("users").where("rentalInfo.landlordId", "==", doc.id).get();
+            if (!tenantsSnap.empty) {
+              const b = db2.batch();
+              tenantsSnap.docs.forEach(
+                (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: true }, { merge: true })
+              );
+              await b.commit();
+              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) bloqu\xE9(s) pour bailleur ${doc.id}`);
+            }
+          } catch (tenantErr) {
+            console.warn("[rental-webhook] erreur blocage locataires:", tenantErr);
+          }
         }
         const usersSnap = await db2.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
         const coprosSnap = await db2.collection("copros").where("stripeSubscriptionId", "==", subscriptionId).get();
@@ -47042,6 +47079,42 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     } catch (e) {
       console.error("[salarie/delete] error:", e);
       return res.status(500).json({ error: "Erreur serveur" });
+    }
+  });
+  app.delete("/api/copro/:coProId/member/:uid", async (req, res) => {
+    const decoded = await extractAuthenticatedUser(req);
+    if (!decoded) return res.status(401).json({ ok: false, error: "Non authentifi\xE9" });
+    const db2 = getAdminDb();
+    if (!db2) return res.status(500).json({ ok: false, error: "Firebase Admin indisponible" });
+    const { coProId, uid } = req.params;
+    try {
+      const callerSnap = await db2.collection("copros").doc(coProId).collection("members").doc(decoded.uid).get();
+      if (!callerSnap.exists) return res.status(403).json({ ok: false, error: "Non autoris\xE9" });
+      const callerRole = callerSnap.data()?.role;
+      if (!callerRole || !["admin", "co-admin"].includes(callerRole)) {
+        return res.status(403).json({ ok: false, error: "Droits insuffisants" });
+      }
+      const memberRef = db2.collection("copros").doc(coProId).collection("members").doc(uid);
+      const memberDoc = await memberRef.get();
+      if (!memberDoc.exists) return res.status(404).json({ ok: false, error: "Membre introuvable" });
+      const memberRole = memberDoc.data()?.role;
+      const batch = db2.batch();
+      batch.delete(memberRef);
+      if (memberRole === "prestataire") {
+        const salariesSnap = await db2.collection("copros").doc(coProId).collection("members").where("employerUid", "==", uid).get();
+        for (const salDoc of salariesSnap.docs) {
+          batch.delete(salDoc.ref);
+          const salarieUid = salDoc.data().uid ?? salDoc.id;
+          batch.set(db2.collection("users").doc(salarieUid), {
+            managedCoproIds: import_firestore.FieldValue.arrayRemove(coProId)
+          }, { merge: true });
+        }
+      }
+      await batch.commit();
+      return res.json({ ok: true });
+    } catch (e) {
+      console.error("[copro/member/delete] error:", e);
+      return res.status(500).json({ ok: false, error: "Erreur serveur" });
     }
   });
   app.post("/api/entretien/:coProId/:entretienId/salarie-code", async (req, res) => {
