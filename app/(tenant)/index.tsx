@@ -362,12 +362,14 @@ function SigListView({
   archived,
   onBack,
   onNew,
+  gracePeriod,
 }: {
   reports: MyReport[];
   propertyId: string;
   archived: boolean;
   onBack: () => void;
   onNew?: () => void;
+  gracePeriod?: boolean;
 }) {
   return (
     <View style={{ flex: 1 }}>
@@ -378,7 +380,7 @@ function SigListView({
         </Pressable>
         <Text style={lv.title}>{archived ? "Signalements archivés" : "Mes signalements"}</Text>
         {!archived && onNew && (
-          <Pressable style={lv.addBtn} onPress={onNew}>
+          <Pressable style={[lv.addBtn, gracePeriod && { opacity: 0.35 }]} onPress={gracePeriod ? undefined : onNew} disabled={gracePeriod}>
             <Ionicons name="add" size={18} color="#fff" />
           </Pressable>
         )}
@@ -641,6 +643,7 @@ export default function TenantHome() {
           archived={sigView === "archived"}
           onBack={() => setSigView("home")}
           onNew={() => setShowModal(true)}
+          gracePeriod={isInRentalGracePeriod}
         />
         {rentalInfo?.propertyId && user?.uid && (
           <ReportModal
@@ -807,13 +810,16 @@ export default function TenantHome() {
 
             {/* Ligne 2 : Nouveau signalement — bouton CTA pleine largeur */}
             <Pressable
-              style={({ pressed }) => [p.sigCta, pressed && { opacity: 0.86 }]}
-              onPress={() => setShowModal(true)}
+              style={[p.sigCta, isInRentalGracePeriod && { opacity: 0.38 }]}
+              onPress={isInRentalGracePeriod ? undefined : () => setShowModal(true)}
+              disabled={isInRentalGracePeriod}
             >
               <View style={[p.sigCtaIcon, { backgroundColor: "rgba(139,92,246,0.25)" }]}>
-                <Ionicons name="add-circle" size={20} color="#A78BFA" />
+                <Ionicons name={isInRentalGracePeriod ? "lock-closed-outline" : "add-circle"} size={20} color="#A78BFA" />
               </View>
-              <Text style={p.sigCtaText}>Nouveau signalement</Text>
+              <Text style={p.sigCtaText}>
+                {isInRentalGracePeriod ? "Signalement suspendu" : "Nouveau signalement"}
+              </Text>
               <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
             </Pressable>
           </View>

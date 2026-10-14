@@ -261,7 +261,7 @@ const mc = StyleSheet.create({
 export default function TenantMessages() {
   const insets   = useSafeAreaInsets();
   const router   = useRouter();
-  const { user, rentalInfo } = useAuth();
+  const { user, rentalInfo, isInRentalGracePeriod } = useAuth();
   const flatRef  = useRef<FlatList>(null);
 
   const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
@@ -400,38 +400,47 @@ export default function TenantMessages() {
           />
         )}
 
-        {/* ── Barre d'envoi ── */}
-        <View style={[s.bar, { paddingBottom: paddingBot }]}>
-          <TextInput
-            style={s.input}
-            placeholder="Écrivez un message…"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            value={text}
-            onChangeText={setText}
-            multiline
-            maxLength={2000}
-            returnKeyType="default"
-            blurOnSubmit={false}
-          />
+        {/* ── Barre d'envoi (bloquée en période de grâce) ── */}
+        {isInRentalGracePeriod ? (
+          <View style={[s.bar, { paddingBottom: paddingBot, justifyContent: "center" }]}>
+            <View style={s.graceMsgBox}>
+              <Ionicons name="lock-closed-outline" size={14} color="rgba(252,211,77,0.8)" />
+              <Text style={s.graceMsgText}>Messagerie suspendue · accès en lecture seule</Text>
+            </View>
+          </View>
+        ) : (
+          <View style={[s.bar, { paddingBottom: paddingBot }]}>
+            <TextInput
+              style={s.input}
+              placeholder="Écrivez un message…"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={text}
+              onChangeText={setText}
+              multiline
+              maxLength={2000}
+              returnKeyType="default"
+              blurOnSubmit={false}
+            />
 
-          {/* Micro visible seulement sans texte */}
-          {!hasText && (
-            <MicButton onAudioReady={sendAudio} disabled={sending} />
-          )}
+            {/* Micro visible seulement sans texte */}
+            {!hasText && (
+              <MicButton onAudioReady={sendAudio} disabled={sending} />
+            )}
 
-          {/* Envoyer visible seulement avec texte */}
-          {hasText && (
-            <Pressable
-              style={[s.sendBtn, sending && s.sendBtnDim]}
-              onPress={sendText}
-            >
-              {sending
-                ? <ActivityIndicator size="small" color="#fff" />
-                : <Ionicons name="send" size={16} color="#fff" />
-              }
-            </Pressable>
-          )}
-        </View>
+            {/* Envoyer visible seulement avec texte */}
+            {hasText && (
+              <Pressable
+                style={[s.sendBtn, sending && s.sendBtnDim]}
+                onPress={sendText}
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="send" size={16} color="#fff" />
+                }
+              </Pressable>
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </LinearGradient>
   );
@@ -479,4 +488,6 @@ const s = StyleSheet.create({
   },
   sendBtn:    { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.teal, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   sendBtnDim: { opacity: 0.4 },
+  graceMsgBox: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "rgba(252,211,77,0.25)" },
+  graceMsgText: { fontSize: 12, fontFamily: "Inter_500Medium", color: "rgba(252,211,77,0.85)", flex: 1 },
 });
