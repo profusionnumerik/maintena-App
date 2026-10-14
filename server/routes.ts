@@ -374,11 +374,14 @@ async function deleteUserData(uid: string) {
     const tenantsSnap = await db.collection("users")
       .where("rentalInfo.landlordId", "==", uid).get();
     if (!tenantsSnap.empty) {
+      const now3a = new Date().toISOString();
       const b = db.batch();
       tenantsSnap.docs.forEach((tDoc) =>
+        // Blocage immédiat si le bailleur supprime son compte (pas de grâce)
         b.set(tDoc.ref, { rentalAccessBlocked: true, rentalInfo: null }, { merge: true })
       );
       await b.commit();
+      void now3a;
     }
   } catch { /* continue */ }
 
@@ -1741,20 +1744,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
             );
             console.log(`[rental-webhook] Plan "${plan}" activé pour landlord ${landlordId}`);
 
-            // Débloquer les locataires liés à ce bailleur
+            // Annuler la période de grâce des locataires (réabonnement bailleur)
             try {
               const tenantsSnap = await db.collection("users")
                 .where("rentalInfo.landlordId", "==", landlordId).get();
               if (!tenantsSnap.empty) {
                 const b = db.batch();
                 tenantsSnap.docs.forEach((tDoc) =>
-                  b.set(tDoc.ref, { rentalAccessBlocked: false }, { merge: true })
+                  b.set(tDoc.ref, {
+                    rentalBlockedAt: FieldValue.delete(),
+                    rentalAccessBlocked: FieldValue.delete(),
+                  }, { merge: true })
                 );
                 await b.commit();
-                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) débloqué(s) pour bailleur ${landlordId}`);
+                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) réactivé(s) pour bailleur ${landlordId}`);
               }
             } catch (tenantErr) {
-              console.warn("[rental-webhook] erreur déblocage locataires:", tenantErr);
+              console.warn("[rental-webhook] erreur réactivation locataires:", tenantErr);
             }
           }
           return res.json({ received: true });
@@ -1906,20 +1912,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
           console.log(`[rental-webhook] Plan annulé → "free" pour ${doc.id}`);
 
-          // Bloquer les locataires liés à ce bailleur
+          // Notifier les locataires liés à ce bailleur (période de grâce 30j)
           try {
             const tenantsSnap = await db.collection("users")
               .where("rentalInfo.landlordId", "==", doc.id).get();
             if (!tenantsSnap.empty) {
               const b = db.batch();
               tenantsSnap.docs.forEach((tDoc) =>
-                b.set(tDoc.ref, { rentalAccessBlocked: true }, { merge: true })
+                b.set(tDoc.ref, { rentalBlockedAt: now }, { merge: true })
               );
               await b.commit();
-              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) bloqué(s) pour bailleur ${doc.id}`);
+              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) en période de grâce (30j) pour bailleur ${doc.id}`);
             }
           } catch (tenantErr) {
-            console.warn("[rental-webhook] erreur blocage locataires:", tenantErr);
+            console.warn("[rental-webhook] erreur période de grâce locataires:", tenantErr);
           }
         }
 

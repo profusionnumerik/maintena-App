@@ -569,7 +569,7 @@ const ec = StyleSheet.create({
 export default function TenantHome() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout, deleteAccount, rentalInfo, rentalAccessBlocked } = useAuth();
+  const { user, logout, deleteAccount, rentalInfo, rentalAccessBlocked, isInRentalGracePeriod, rentalGraceDaysLeft } = useAuth();
 
   const paddingTop = Platform.OS === "web" ? 12 : insets.top + 12;
 
@@ -708,6 +708,28 @@ export default function TenantHome() {
         contentContainerStyle={[p.content, { paddingBottom: insets.bottom + 50 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Bannière période de grâce */}
+        {isInRentalGracePeriod && (
+          <View style={graceBanner.container}>
+            <View style={graceBanner.iconRow}>
+              <Ionicons name="warning" size={20} color="#FCD34D" />
+              <Text style={graceBanner.title}>Abonnement bailleur résilié</Text>
+            </View>
+            <Text style={graceBanner.body}>
+              Votre bailleur a mis fin à son abonnement Maintena. Vous avez encore{" "}
+              <Text style={graceBanner.days}>{rentalGraceDaysLeft} jour{rentalGraceDaysLeft > 1 ? "s" : ""}</Text>{" "}
+              pour télécharger vos documents importants (états des lieux, quittances de loyer).{"\n"}
+              Passé ce délai, votre accès sera désactivé.
+            </Text>
+            <View style={graceBanner.links}>
+              <Pressable style={graceBanner.linkBtn} onPress={() => router.push("/tenant/documents" as any)}>
+                <Ionicons name="document-text-outline" size={14} color="#FCD34D" />
+                <Text style={graceBanner.linkText}>Mes documents</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* Carte de bienvenue */}
         <View style={p.welcomeCard}>
           <LinearGradient
@@ -1013,4 +1035,25 @@ const p = StyleSheet.create({
   loadingBox: { backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 14, padding: 24, alignItems: "center" },
   emptyCard:  { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
   emptyText:  { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.4)", lineHeight: 18, flex: 1 },
+});
+
+const graceBanner = StyleSheet.create({
+  container: {
+    backgroundColor: "rgba(245,158,11,0.15)",
+    borderRadius: 14, padding: 14, gap: 8,
+    borderWidth: 1, borderColor: "rgba(252,211,77,0.35)",
+    marginBottom: -10,
+  },
+  iconRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#FCD34D" },
+  body: { fontSize: 13, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.8)", lineHeight: 20 },
+  days: { fontFamily: "Inter_700Bold", color: "#FCD34D" },
+  links: { flexDirection: "row", gap: 10, marginTop: 4 },
+  linkBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(252,211,77,0.1)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: "rgba(252,211,77,0.3)",
+  },
+  linkText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FCD34D" },
 });

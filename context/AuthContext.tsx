@@ -91,8 +91,12 @@ interface AuthContextValue {
   employerName: string | null;
   /** Vrai si l'utilisateur a rejoint via un code d'entretien (pas via salarie_invites) */
   fromEntretienCode: boolean;
-  /** Vrai si l'accès locataire est bloqué (bailleur désabonné ou parti) */
+  /** Vrai si l'accès locataire est bloqué (bailleur parti ou période de grâce expirée) */
   rentalAccessBlocked: boolean;
+  /** Vrai si le locataire est en période de grâce (bailleur désabonné, < 30 jours) */
+  isInRentalGracePeriod: boolean;
+  /** Jours restants dans la période de grâce (0 si aucune ou expirée) */
+  rentalGraceDaysLeft: number;
   // ────────────────────────────────────────────────
   error: string | null;
   clearError: () => void;
@@ -165,6 +169,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [employerName, setEmployerName] = useState<string | null>(null);
   const [fromEntretienCode, setFromEntretienCode] = useState(false);
   const [rentalAccessBlocked, setRentalAccessBlocked] = useState(false);
+  const [rentalBlockedAt, setRentalBlockedAt] = useState<string | null>(null);
+
+  const GRACE_DAYS = 30;
+  const isInRentalGracePeriod = (() => {
+    if (!rentalBlockedAt) return false;
+    const blockedMs = new Date(rentalBlockedAt).getTime();
+    const graceEndMs = blockedMs + GRACE_DAYS * 24 * 3600 * 1000;
+    return Date.now() < graceEndMs;
+  })();
+  const rentalGraceDaysLeft = (() => {
+    if (!rentalBlockedAt) return 0;
+    const blockedMs = new Date(rentalBlockedAt).getTime();
+    const graceEndMs = blockedMs + GRACE_DAYS * 24 * 3600 * 1000;
+    const msLeft = graceEndMs - Date.now();
+    return msLeft > 0 ? Math.ceil(msLeft / (24 * 3600 * 1000)) : 0;
+  })();
+  // Accès bloqué = blocage explicite OU période de grâce expirée
+  const isRentalActuallyBlocked = rentalAccessBlocked || (!!rentalBlockedAt && !isInRentalGracePeriod);
   const [error, setError] = useState<string | null>(null);
   const [activeMode, setActiveModeState] = useState<"copro" | "rental">("copro");
   const [isCollaborator, setIsCollaborator] = useState(false);
@@ -188,6 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setEmployerUid(null);
         setEmployerName(null);
         setRentalAccessBlocked(false);
+        setRentalBlockedAt(null);
         setUserDataLoading(false);
       }
       if (u?.uid) registerPushToken(u.uid).catch(() => {});
@@ -250,6 +273,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setEmployerName(data.employerName ?? null);
           setFromEntretienCode(data.fromEntretienCode === true);
           setRentalAccessBlocked(data.rentalAccessBlocked === true);
+          setRentalBlockedAt(data.rentalBlockedAt ?? null);
         }
         setUserDataLoading(false);
       },
@@ -516,7 +540,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       employerUid,
       employerName,
       fromEntretienCode,
-      rentalAccessBlocked,
+      rentalAccessBlocked: isRentalActuallyBlocked,
+      isInRentalGracePeriod,
+      rentalGraceDaysLeft,
       activeMode,
       setActiveMode,
       activateRentalModule,
@@ -539,7 +565,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isOnTrial, isTrialExpired, trialDaysLeft,
       activeMode, setActiveMode, activateRentalModule,
       previewRole, setPreviewRole,
-      employerUid, employerName, fromEntretienCode, rentalAccessBlocked,
+      employerUid, employerName, fromEntretienCode,
+      rentalAccessBlocked, rentalBlockedAt, isRentalActuallyBlocked, isInRentalGracePeriod, rentalGraceDaysLeft,
       error, clearError, login, register, logout, deleteAccount, resetPassword,
       setUserType, resetUserType, markRentalSetup,
     ]

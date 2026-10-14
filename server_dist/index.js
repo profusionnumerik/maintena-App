@@ -39066,11 +39066,16 @@ async function deleteUserData(uid) {
   try {
     const tenantsSnap = await db.collection("users").where("rentalInfo.landlordId", "==", uid).get();
     if (!tenantsSnap.empty) {
+      const now3a = (/* @__PURE__ */ new Date()).toISOString();
       const b = db.batch();
       tenantsSnap.docs.forEach(
-        (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: true, rentalInfo: null }, { merge: true })
+        (tDoc) => (
+          // Blocage immédiat si le bailleur supprime son compte (pas de grâce)
+          b.set(tDoc.ref, { rentalAccessBlocked: true, rentalInfo: null }, { merge: true })
+        )
       );
       await b.commit();
+      void now3a;
     }
   } catch {
   }
@@ -40180,13 +40185,16 @@ async function registerRoutes(app) {
               if (!tenantsSnap.empty) {
                 const b = db2.batch();
                 tenantsSnap.docs.forEach(
-                  (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: false }, { merge: true })
+                  (tDoc) => b.set(tDoc.ref, {
+                    rentalBlockedAt: import_firestore.FieldValue.delete(),
+                    rentalAccessBlocked: import_firestore.FieldValue.delete()
+                  }, { merge: true })
                 );
                 await b.commit();
-                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) d\xE9bloqu\xE9(s) pour bailleur ${landlordId}`);
+                console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) r\xE9activ\xE9(s) pour bailleur ${landlordId}`);
               }
             } catch (tenantErr) {
-              console.warn("[rental-webhook] erreur d\xE9blocage locataires:", tenantErr);
+              console.warn("[rental-webhook] erreur r\xE9activation locataires:", tenantErr);
             }
           }
           return res.json({ received: true });
@@ -40313,13 +40321,13 @@ async function registerRoutes(app) {
             if (!tenantsSnap.empty) {
               const b = db2.batch();
               tenantsSnap.docs.forEach(
-                (tDoc) => b.set(tDoc.ref, { rentalAccessBlocked: true }, { merge: true })
+                (tDoc) => b.set(tDoc.ref, { rentalBlockedAt: now }, { merge: true })
               );
               await b.commit();
-              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) bloqu\xE9(s) pour bailleur ${doc.id}`);
+              console.log(`[rental-webhook] ${tenantsSnap.size} locataire(s) en p\xE9riode de gr\xE2ce (30j) pour bailleur ${doc.id}`);
             }
           } catch (tenantErr) {
-            console.warn("[rental-webhook] erreur blocage locataires:", tenantErr);
+            console.warn("[rental-webhook] erreur p\xE9riode de gr\xE2ce locataires:", tenantErr);
           }
         }
         const usersSnap = await db2.collection("users").where("stripeSubscriptionId", "==", subscriptionId).get();
