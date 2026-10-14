@@ -66,7 +66,7 @@ export default function ProfileScreen() {
   // ── Salariés / équipe ─────────────────────────────────────────────────────
   const isPrestataire = currentRole === "prestataire";
   const isAdminRole   = currentRole === "admin" || currentRole === "co-admin";
-  const canInviteTeam = isPrestataire || isAdminRole;
+  const canInviteTeam = (isPrestataire && !employerUid) || isAdminRole;
   const [salaries, setSalaries] = useState<{ uid: string; displayName: string; email: string }[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
   const [showInviteModal, setShowInviteModal] = useState(false);
