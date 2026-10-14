@@ -65,13 +65,21 @@ export default function AdminScreen() {
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
 
-  // ── Salariés ──
+  // ── Salariés (prestataire) ──
   const [salaries, setSalaries] = useState<Array<{ uid: string; displayName: string | null; email: string | null }>>([]);
   const [showSalarieInviteModal, setShowSalarieInviteModal] = useState(false);
   const [salarieInviteEmail, setSalarieInviteEmail] = useState("");
   const [salarieInviting, setSalarieInviting] = useState(false);
   const [salarieInviteToken, setSalarieInviteToken] = useState<string | null>(null);
   const [showSalarieTokenModal, setShowSalarieTokenModal] = useState(false);
+
+  // ── Salariés (admin invite au nom d'un prestataire) ──
+  const [adminSalarieTarget, setAdminSalarieTarget] = useState<{ uid: string; name: string } | null>(null);
+  const [adminSalarieEmail, setAdminSalarieEmail] = useState("");
+  const [adminSalarieInviting, setAdminSalarieInviting] = useState(false);
+  const [adminSalarieToken, setAdminSalarieToken] = useState<string | null>(null);
+  const [showAdminSalarieTokenModal, setShowAdminSalarieTokenModal] = useState(false);
+  const [copiedAdminSalarieToken, setCopiedAdminSalarieToken] = useState(false);
 
   // ── Signature modèle ──
   const [signatureModelUrl, setSignatureModelUrl] = useState<string | null>(null);
@@ -227,6 +235,35 @@ export default function AdminScreen() {
       wa("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
     } finally {
       setSalarieInviting(false);
+    }
+  };
+
+  const handleAdminInviteSalarie = async () => {
+    if (!user || !currentCopro || !adminSalarieTarget || !adminSalarieEmail.trim()) return;
+    setAdminSalarieInviting(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(new URL("/api/invite-salarie", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          targetEmail: adminSalarieEmail.trim(),
+          coProId: currentCopro.id,
+          coProName: currentCopro.name,
+          onBehalfOfUid: adminSalarieTarget.uid,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Erreur lors de l'envoi");
+      setAdminSalarieToken(data.token ?? null);
+      setAdminSalarieTarget(null);
+      setAdminSalarieEmail("");
+      setShowAdminSalarieTokenModal(true);
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
+    } finally {
+      setAdminSalarieInviting(false);
     }
   };
 
@@ -965,13 +1002,6 @@ export default function AdminScreen() {
         <View style={styles.section}>
           <View style={styles.sectionRow}>
             <Text style={styles.sectionTitle}>Mes salariés</Text>
-            <Pressable
-              style={styles.salarieInviteBtn}
-              onPress={() => setShowSalarieInviteModal(true)}
-            >
-              <Ionicons name="person-add-outline" size={14} color={COLORS.primary} />
-              <Text style={styles.salarieInviteBtnText}>Inviter</Text>
-            </Pressable>
           </View>
           {salaries.length === 0 ? (
             <Text style={styles.sectionDesc}>
@@ -1615,6 +1645,66 @@ export default function AdminScreen() {
         </>
       )}
 
+      {isAdmin && currentCopro && adminTab === "membres" && (() => {
+        const prestataires = members.filter((m) => m.role === "prestataire");
+        if (prestataires.length === 0) return null;
+        return (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Salariés prestataires</Text>
+            <Text style={styles.sectionDesc}>
+              Invitez des salariés pour le compte d'un prestataire. Le salarié recevra un code à saisir dans l'application.
+            </Text>
+            {prestataires.map((prest) => {
+              const prestSalaries = members.filter((m) => (m as any).employerUid === prest.uid);
+              return (
+                <View key={prest.uid} style={styles.prestSalarieBlock}>
+                  <View style={styles.prestSalarieHeader}>
+                    <View style={styles.memberAvatar}>
+                      <Text style={styles.memberAvatarText}>
+                        {(prest.displayName || prest.email || "?")[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.memberName}>{prest.displayName || prest.email}</Text>
+                      <Text style={styles.memberEmail}>{prest.email}</Text>
+                    </View>
+                    <Pressable
+                      style={styles.addSalarieBtn}
+                      onPress={() => {
+                        setAdminSalarieTarget({ uid: prest.uid, name: prest.displayName || prest.email || prest.uid });
+                        setAdminSalarieEmail("");
+                      }}
+                    >
+                      <Ionicons name="person-add-outline" size={14} color={COLORS.primary} />
+                      <Text style={styles.addSalarieBtnText}>Inviter un salarié</Text>
+                    </Pressable>
+                  </View>
+                  {prestSalaries.length > 0 && (
+                    <View style={styles.prestSalarieList}>
+                      {prestSalaries.map((sal) => (
+                        <View key={sal.uid} style={styles.prestSalarieRow}>
+                          <Ionicons name="person-outline" size={13} color={COLORS.textMuted} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.prestSalarieName}>{sal.displayName || sal.email || "—"}</Text>
+                            <Text style={styles.prestSalarieEmail}>{sal.email}</Text>
+                          </View>
+                          <View style={[styles.memberRoleBadge, { backgroundColor: "#FEF3C7" }]}>
+                            <Text style={[styles.memberRoleText, { color: "#92400E" }]}>Salarié</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {prestSalaries.length === 0 && (
+                    <Text style={[styles.sectionDesc, { marginTop: 4, marginLeft: 40 }]}>Aucun salarié</Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        );
+      })()}
+
       {isAdmin && currentCopro && adminTab === "membres" && (
         <>
           <View style={styles.section}>
@@ -2052,6 +2142,108 @@ export default function AdminScreen() {
       </View>
       )}
     </ScrollView>
+
+    {/* ── Modal admin : inviter salarié au nom d'un prestataire ── */}
+    <Modal
+      visible={!!adminSalarieTarget}
+      animationType="slide"
+      transparent
+      onRequestClose={() => setAdminSalarieTarget(null)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Inviter un salarié</Text>
+            <Pressable onPress={() => setAdminSalarieTarget(null)} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={22} color={COLORS.text} />
+            </Pressable>
+          </View>
+          {adminSalarieTarget && (
+            <View style={[styles.inviteCodePreview, { marginBottom: 12 }]}>
+              <Text style={[styles.inviteCodePreviewLabel, { color: COLORS.textSecondary }]}>
+                Prestataire : <Text style={{ fontWeight: "600", color: COLORS.text }}>{adminSalarieTarget.name}</Text>
+              </Text>
+            </View>
+          )}
+          <Text style={styles.modalSectionLabel}>Email du salarié</Text>
+          <TextInput
+            style={styles.inviteEmailInput}
+            placeholder="email@example.com"
+            placeholderTextColor={COLORS.textMuted}
+            value={adminSalarieEmail}
+            onChangeText={setAdminSalarieEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
+          />
+          <Text style={[styles.sectionDesc, { marginBottom: 16 }]}>
+            Un code de validation sera généré. Communiquez-le au salarié pour qu'il puisse l'entrer dans l'application.
+          </Text>
+          <Pressable
+            style={[styles.inviteSendBtn, (!adminSalarieEmail.trim() || adminSalarieInviting) && { opacity: 0.5 }]}
+            onPress={handleAdminInviteSalarie}
+            disabled={!adminSalarieEmail.trim() || adminSalarieInviting}
+          >
+            {adminSalarieInviting
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Ionicons name="person-add-outline" size={16} color="#fff" />
+            }
+            <Text style={styles.inviteSendBtnText}>Générer le code</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+
+    {/* ── Modal admin : code salarié généré ── */}
+    <Modal
+      visible={showAdminSalarieTokenModal}
+      animationType="slide"
+      transparent
+      onRequestClose={() => setShowAdminSalarieTokenModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Code d'accès salarié</Text>
+            <Pressable onPress={() => setShowAdminSalarieTokenModal(false)} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={22} color={COLORS.text} />
+            </Pressable>
+          </View>
+          <Text style={styles.sectionDesc}>
+            Communiquez ce code au salarié. Il devra le saisir dans l'application après avoir créé son compte.
+          </Text>
+          {adminSalarieToken && (
+            <View style={styles.tokenDisplayBox}>
+              <Text style={styles.tokenDisplayValue}>{adminSalarieToken}</Text>
+              <Pressable
+                style={[styles.catCodeBtn, copiedAdminSalarieToken && { backgroundColor: COLORS.success }]}
+                onPress={async () => {
+                  await Clipboard.setStringAsync(adminSalarieToken);
+                  setCopiedAdminSalarieToken(true);
+                  if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  setTimeout(() => setCopiedAdminSalarieToken(false), 2000);
+                }}
+              >
+                <Ionicons name={copiedAdminSalarieToken ? "checkmark" : "copy-outline"} size={16} color={copiedAdminSalarieToken ? "#fff" : COLORS.primary} />
+              </Pressable>
+            </View>
+          )}
+          <Pressable
+            style={[styles.inviteSendBtn, { marginTop: 12 }]}
+            onPress={async () => {
+              if (!adminSalarieToken) return;
+              const msg = `🔑 Code d'accès Maintena\n\nTéléchargez l'application Maintena, créez votre compte, puis entrez ce code dans "Rejoindre" :\n\n${adminSalarieToken}`;
+              await crossShare(msg);
+            }}
+          >
+            <Ionicons name="share-outline" size={16} color="#fff" />
+            <Text style={styles.inviteSendBtnText}>Partager le code</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
 
     {/* ── Modal signature modèle ── */}
     <Modal visible={signPadVisible} animationType="slide" presentationStyle="fullScreen">
@@ -3023,5 +3215,53 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: "#000", borderRadius: 12, padding: 14, marginTop: 14,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  },
+  // ── Salariés prestataires (admin tab membres) ──
+  prestSalarieBlock: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 12,
+    backgroundColor: COLORS.surface, marginBottom: 10, overflow: "hidden",
+  },
+  prestSalarieHeader: {
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 12,
+  },
+  addSalarieBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "#EFF6FF", borderRadius: 10,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: "#BFDBFE",
+  },
+  addSalarieBtnText: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: COLORS.primary },
+  prestSalarieList: {
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    paddingHorizontal: 12, paddingVertical: 6,
+    gap: 6,
+  },
+  prestSalarieRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingVertical: 4,
+  },
+  prestSalarieName: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text },
+  prestSalarieEmail: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  // ── Modal admin invite salarié ──
+  inviteEmailInput: {
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, fontFamily: "Inter_400Regular", color: COLORS.text,
+    backgroundColor: COLORS.surface, marginBottom: 10,
+  },
+  inviteSendBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: COLORS.primary, borderRadius: 14, height: 50,
+  },
+  inviteSendBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  tokenDisplayBox: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#EFF6FF", borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1, borderColor: "#BFDBFE", marginVertical: 12,
+  },
+  tokenDisplayValue: {
+    flex: 1, fontSize: 20, fontFamily: "Inter_700Bold",
+    color: COLORS.primary, letterSpacing: 4,
   },
 });

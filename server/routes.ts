@@ -9394,8 +9394,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     const db = getAdminDb();
     if (!db) return res.status(500).json({ error: "Firebase Admin indisponible" }) as any;
 
-    const { targetEmail, coProId, coProName } = req.body as {
-      targetEmail?: string; coProId?: string; coProName?: string;
+    const { targetEmail, coProId, coProName, onBehalfOfUid } = req.body as {
+      targetEmail?: string; coProId?: string; coProName?: string; onBehalfOfUid?: string;
     };
     if (!targetEmail) return res.status(400).json({ error: "targetEmail requis" }) as any;
 
@@ -9418,6 +9418,22 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
     const isAdminInvite = inviterRole === "admin" || inviterRole === "co-admin";
 
+    // onBehalfOfUid : admin invite un salarié pour le compte d'un prestataire
+    if (isAdminInvite && !onBehalfOfUid) {
+      return res.status(400).json({ ok: false, error: "onBehalfOfUid requis pour un admin" });
+    }
+    let effectiveEmployerUid: string | null = null;
+    let effectiveEmployerName: string | null = null;
+    if (isAdminInvite && onBehalfOfUid) {
+      effectiveEmployerUid = onBehalfOfUid;
+      try {
+        const empSnap = await db.collection("users").doc(onBehalfOfUid).get();
+        if (empSnap.exists) effectiveEmployerName = empSnap.data()?.displayName ?? empSnap.data()?.email ?? null;
+      } catch { /* continue */ }
+    } else if (!isAdminInvite) {
+      effectiveEmployerUid = decoded.uid;
+    }
+
     // Générer un token lisible (6 chars alphanum)
     const token = randomBytes(4).toString("hex").toUpperCase().slice(0, 6);
     const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
@@ -9431,8 +9447,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
 
     await db.collection("salarie_invites").doc(token).set({
       token,
-      employerUid: isAdminInvite ? null : decoded.uid,
-      employerName: isAdminInvite ? null : inviterName,
+      employerUid: effectiveEmployerUid,
+      employerName: effectiveEmployerName ?? (isAdminInvite ? null : inviterName),
       inviterUid: decoded.uid,
       inviterName,
       inviterRole: inviterRole ?? "prestataire",

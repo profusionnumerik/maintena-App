@@ -282,6 +282,7 @@ export interface Member {
   categoryFilter?: Category;
   categoryFilters?: Category[];
   receiveAnnouncementEmails?: boolean; // undefined = true (opt-out model)
+  employerUid?: string;
 }
 
 export type EntryType = "programmation" | "intervention";

@@ -46761,7 +46761,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     if (!decoded) return res.status(401).json({ error: "Non autoris\xE9" });
     const db2 = getAdminDb();
     if (!db2) return res.status(500).json({ error: "Firebase Admin indisponible" });
-    const { targetEmail, coProId, coProName } = req.body;
+    const { targetEmail, coProId, coProName, onBehalfOfUid } = req.body;
     if (!targetEmail) return res.status(400).json({ error: "targetEmail requis" });
     let inviterRole = null;
     if (coProId) {
@@ -46780,6 +46780,21 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
       }
     }
     const isAdminInvite = inviterRole === "admin" || inviterRole === "co-admin";
+    if (isAdminInvite && !onBehalfOfUid) {
+      return res.status(400).json({ ok: false, error: "onBehalfOfUid requis pour un admin" });
+    }
+    let effectiveEmployerUid = null;
+    let effectiveEmployerName = null;
+    if (isAdminInvite && onBehalfOfUid) {
+      effectiveEmployerUid = onBehalfOfUid;
+      try {
+        const empSnap = await db2.collection("users").doc(onBehalfOfUid).get();
+        if (empSnap.exists) effectiveEmployerName = empSnap.data()?.displayName ?? empSnap.data()?.email ?? null;
+      } catch {
+      }
+    } else if (!isAdminInvite) {
+      effectiveEmployerUid = decoded.uid;
+    }
     const token = (0, import_node_crypto.randomBytes)(4).toString("hex").toUpperCase().slice(0, 6);
     const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1e3).toISOString();
     let inviterName = decoded.name ?? decoded.email ?? "Votre responsable";
@@ -46790,8 +46805,8 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     }
     await db2.collection("salarie_invites").doc(token).set({
       token,
-      employerUid: isAdminInvite ? null : decoded.uid,
-      employerName: isAdminInvite ? null : inviterName,
+      employerUid: effectiveEmployerUid,
+      employerName: effectiveEmployerName ?? (isAdminInvite ? null : inviterName),
       inviterUid: decoded.uid,
       inviterName,
       inviterRole: inviterRole ?? "prestataire",
