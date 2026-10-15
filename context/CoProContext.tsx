@@ -492,6 +492,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       } else {
         if (s1Succeeded) {
           // Firestore accessible et confirme l'absence de copro — vider le cache obsolète
+          // Ne pas montrer d'erreur : le router gère la redirection vers l'onboarding
           try {
             await AsyncStorage.removeItem(COPROS_CACHE_KEY(user.uid));
             await AsyncStorage.removeItem(ROLES_CACHE_KEY(user.uid));
@@ -499,11 +500,6 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           setCopros([]);
           setRoleMap({});
           setCurrentCoproId(null);
-          // Si l'utilisateur avait des copros déclarées → erreur réseau probable
-          if (hadManagedIds) {
-            setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
-          }
-          // Si !hadManagedIds → pas encore de copro (onboarding)
         } else {
           // Firestore inaccessible — tenter le cache local (mode hors-ligne)
           try {
@@ -517,14 +513,10 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
               setCopros(cachedList);
               await selectDefault(cachedList, user.uid);
             } else {
-              if (hadManagedIds) {
-                setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
-              }
-            }
-          } catch (_) {
-            if (hadManagedIds) {
               setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
             }
+          } catch (_) {
+            setLoadError("Impossible de charger les copropriétés. Vérifiez votre connexion.");
           }
         }
       }
