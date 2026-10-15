@@ -20,8 +20,9 @@ import {
   Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS,
   Poll, PollTarget, POLL_TARGET_LABELS, Signalement,
   Category, CATEGORY_LABELS, ALL_CATEGORIES, CATEGORY_ICONS,
-  ProviderContact, DemandeDevis,
+  ProviderContact, DemandeDevis, Intervention,
 } from "@/shared/types";
+import { useInterventions } from "@/context/InterventionsContext";
 import { addDoc, collection, deleteDoc, getDocs, doc, updateDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
@@ -488,6 +489,7 @@ function CreateAnnouncementModal({
 export default function AlertsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { interventions } = useInterventions();
   const {
     currentCopro, currentRole, members, signalements, announcements, polls,
     acknowledgeSignalement, deleteSignalement, markSignalementRead,
@@ -568,7 +570,7 @@ export default function AlertsScreen() {
   const [showSendReminderModal, setShowSendReminderModal] = useState(false);
   const [sendReminderPrest, setSendReminderPrest] = useState<string>("");
   const [sendReminderCategory, setSendReminderCategory] = useState<Category>("divers");
-  const [sendReminderDate, setSendReminderDate] = useState("");
+  const [sendReminderIntervention, setSendReminderIntervention] = useState<Intervention | null>(null);
   const [sendReminderEmail, setSendReminderEmail] = useState("");
   const [sendReminderLoading, setSendReminderLoading] = useState(false);
 
@@ -648,38 +650,64 @@ export default function AlertsScreen() {
   const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
   const prestataireMembers = members.filter((m) => m.role === "prestataire");
 
-  const formatReminderDate = (text: string) => {
-    const digits = text.replace(/\D/g, "").slice(0, 8);
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+  const filteredPrestataireMembers = prestataireMembers.filter((m) => {
+    if (!m.categoryFilters?.length && !m.categoryFilter) return true; // pas de filtre = afficher partout
+    if (m.categoryFilters?.includes(sendReminderCategory)) return true;
+    if (m.categoryFilter === sendReminderCategory) return true;
+    return false;
+  });
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const filteredInterventions = useMemo(() =>
+    interventions
+      .filter((iv) => iv.category === sendReminderCategory && iv.status !== "termine")
+      .sort((a, b) => {
+        const da = new Date(a.date ?? a.scheduledDate ?? "").getTime();
+        const db2 = new Date(b.date ?? b.scheduledDate ?? "").getTime();
+        return da - db2;
+      }),
+    [interventions, sendReminderCategory]
+  );
+
+  const toIsoDate = (french: string) => {
+    const parts = french.split("/");
+    if (parts.length === 3 && parts[2].length === 4) {
+      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
+    return french; // déjà en ISO ou incomplet
   };
 
   const handleSendReminder = async () => {
-    if (!currentCopro || !sendReminderEmail || !sendReminderDate) return;
+    if (!currentCopro || !sendReminderEmail || !sendReminderIntervention) return;
     setSendReminderLoading(true);
     const selectedPrest = prestataireMembers.find((m) => m.uid === sendReminderPrest);
-    const dateFr = new Date(sendReminderDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const isoDate = sendReminderIntervention.date ?? sendReminderIntervention.scheduledDate ?? "";
+    const ivDate = new Date(isoDate); ivDate.setHours(0, 0, 0, 0);
+    const isPast = ivDate < today;
+    const dateFr = ivDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
     const title = `${CATEGORY_LABELS[sendReminderCategory]} · ${dateFr}`;
     try {
       const idToken = await user?.getIdToken().catch(() => null);
       const baseUrl = getApiUrl();
+      const payload = {
+        coProId: currentCopro.id,
+        providerEmail: sendReminderEmail,
+        providerName: selectedPrest?.displayName ?? "",
+        adminName: user?.displayName ?? "",
+        adminEmail: user?.email ?? "",
+        coProName: (currentCopro as any).name ?? (currentCopro as any).coProName ?? currentCopro.id,
+        title,
+        interventionDate: isoDate,
+        interventionId: sendReminderIntervention.id,
+        isPast,
+      };
       const res = await fetch(`${baseUrl}api/remind-intervention`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
         },
-        body: JSON.stringify({
-          coProId: currentCopro.id,
-          providerEmail: sendReminderEmail,
-          providerName: selectedPrest?.displayName ?? "",
-          adminName: user?.displayName ?? "",
-          adminEmail: user?.email ?? "",
-          coProName: currentCopro.name,
-          title,
-          interventionDate: sendReminderDate,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -689,7 +717,7 @@ export default function AlertsScreen() {
       setShowSendReminderModal(false);
       setSendReminderPrest("");
       setSendReminderCategory("divers");
-      setSendReminderDate("");
+      setSendReminderIntervention(null);
       setSendReminderEmail("");
     } catch (e: any) {
       wa("Erreur", e.message ?? "Impossible d'envoyer le rappel.");
@@ -1311,12 +1339,42 @@ export default function AlertsScreen() {
         </View>
       </View>
 
+      <Text style={styles.signalFieldLabel}>Type d'intervention</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
+          {ALL_CATEGORIES.map((cat) => {
+            const sel = sendReminderCategory === cat;
+            const icon = CATEGORY_ICONS[cat];
+            return (
+              <Pressable
+                key={cat}
+                onPress={() => {
+                  setSendReminderCategory(cat);
+                  setSendReminderPrest("");
+                  setSendReminderEmail("");
+                }}
+                style={[styles.typeChip, sel ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary } : { borderColor: COLORS.border }]}
+              >
+                {icon ? <Ionicons name={icon as any} size={13} color={sel ? "#fff" : COLORS.textMuted} /> : null}
+                <Text style={[styles.typeChipText, { color: sel ? "#fff" : COLORS.textSecondary }]}>
+                  {CATEGORY_LABELS[cat]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
       <Text style={styles.signalFieldLabel}>Prestataire</Text>
       <ScrollView style={{ maxHeight: 160, marginBottom: 12 }} showsVerticalScrollIndicator={false}>
-        {prestataireMembers.length === 0 ? (
-          <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 8 }}>Aucun prestataire enregistré</Text>
+        {filteredPrestataireMembers.length === 0 ? (
+          <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 8 }}>
+            {prestataireMembers.length === 0
+              ? "Aucun prestataire enregistré"
+              : "Aucun prestataire assigné à cette catégorie"}
+          </Text>
         ) : (
-          prestataireMembers.map((m) => {
+          filteredPrestataireMembers.map((m) => {
             const sel = sendReminderPrest === m.uid;
             return (
               <Pressable
@@ -1338,39 +1396,68 @@ export default function AlertsScreen() {
         )}
       </ScrollView>
 
-      <Text style={styles.signalFieldLabel}>Type d'intervention</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
-        <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
-          {ALL_CATEGORIES.map((cat) => {
-            const sel = sendReminderCategory === cat;
-            const icon = CATEGORY_ICONS[cat];
+      <Text style={styles.signalFieldLabel}>Intervention programmée</Text>
+      <ScrollView style={{ maxHeight: 180, marginBottom: 12 }} showsVerticalScrollIndicator={false}>
+        {filteredInterventions.length === 0 ? (
+          <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 8 }}>
+            Aucune intervention programmée dans cette catégorie
+          </Text>
+        ) : (
+          filteredInterventions.map((iv) => {
+            const sel = sendReminderIntervention?.id === iv.id;
+            const ivDate = new Date(iv.date ?? iv.scheduledDate ?? "");
+            ivDate.setHours(0, 0, 0, 0);
+            const isPast = ivDate < today;
+            const dateFr = ivDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
             return (
               <Pressable
-                key={cat}
-                onPress={() => setSendReminderCategory(cat)}
-                style={[styles.typeChip, sel ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary } : { borderColor: COLORS.border }]}
+                key={iv.id}
+                onPress={() => {
+                  setSendReminderIntervention(iv);
+                  if (iv.assignedToUid) {
+                    const m = filteredPrestataireMembers.find((p) => p.uid === iv.assignedToUid)
+                      ?? prestataireMembers.find((p) => p.uid === iv.assignedToUid);
+                    if (m) { setSendReminderPrest(m.uid); setSendReminderEmail(m.email ?? ""); }
+                  }
+                }}
+                style={[styles.reminderPrestRow, sel && styles.reminderPrestRowSelected]}
               >
-                {icon ? <Ionicons name={icon as any} size={13} color={sel ? "#fff" : COLORS.textMuted} /> : null}
-                <Text style={[styles.typeChipText, { color: sel ? "#fff" : COLORS.textSecondary }]}>
-                  {CATEGORY_LABELS[cat]}
-                </Text>
+                <View style={[styles.reminderPrestAvatar, sel && { backgroundColor: COLORS.primary + "20" },
+                  !sel && isPast && { backgroundColor: "#FEF2F2" }]}>
+                  <Ionicons
+                    name={isPast ? "time-outline" : "calendar-outline"}
+                    size={14}
+                    color={sel ? COLORS.primary : isPast ? "#DC2626" : COLORS.textMuted}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.reminderPrestName, sel && { color: COLORS.primary }]} numberOfLines={1}>
+                    {iv.title}
+                  </Text>
+                  <Text style={[styles.reminderPrestEmail, isPast && !sel && { color: "#DC2626" }]}>
+                    {dateFr}{isPast ? " · En retard" : " · À venir"}
+                  </Text>
+                </View>
+                {sel && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
               </Pressable>
             );
-          })}
-        </View>
+          })
+        )}
       </ScrollView>
 
-      <Text style={styles.signalFieldLabel}>Date de l'intervention</Text>
-      <TextInput
-        style={[styles.signalInputSmall, { marginBottom: 12 }]}
-        value={sendReminderDate}
-        onChangeText={(t) => setSendReminderDate(formatReminderDate(t))}
-        placeholder="2026-04-18"
-        placeholderTextColor={COLORS.textMuted}
-        keyboardType="numeric"
-        maxLength={10}
-        {...(Platform.OS === "web" ? { type: "date" } as any : {})}
-      />
+      {sendReminderIntervention && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12,
+          backgroundColor: COLORS.primary + "10", borderRadius: 10, padding: 10 }}>
+          <Ionicons name="calendar" size={14} color={COLORS.primary} />
+          <Text style={{ fontSize: 13, color: COLORS.primary, flex: 1 }}>
+            {new Date(sendReminderIntervention.date ?? sendReminderIntervention.scheduledDate ?? "")
+              .toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}
+          </Text>
+          <Pressable onPress={() => { setSendReminderIntervention(null); setSendReminderPrest(""); setSendReminderEmail(""); }}>
+            <Ionicons name="close-circle" size={18} color={COLORS.primary} />
+          </Pressable>
+        </View>
+      )}
 
       <Text style={styles.signalFieldLabel}>E-mail du destinataire</Text>
       <TextInput
@@ -1386,11 +1473,11 @@ export default function AlertsScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.signalSendBtn,
-          (!sendReminderEmail || !sendReminderDate || sendReminderLoading) && styles.signalSendBtnDisabled,
+          (!sendReminderEmail || !sendReminderIntervention || sendReminderLoading) && styles.signalSendBtnDisabled,
           pressed && { opacity: 0.85 },
         ]}
         onPress={handleSendReminder}
-        disabled={!sendReminderEmail || !sendReminderDate || sendReminderLoading}
+        disabled={!sendReminderEmail || !sendReminderIntervention || sendReminderLoading}
       >
         {sendReminderLoading
           ? <ActivityIndicator color="#fff" size="small" />

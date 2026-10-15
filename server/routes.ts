@@ -4710,16 +4710,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/remind-intervention", async (req: Request, res: Response) => {
     const {
       coProId, interventionId, providerEmail, providerName,
-      adminEmail, adminName, coProName, title, interventionDate,
+      adminEmail, adminName, coProName, title, interventionDate, isPast,
     } = req.body as {
       coProId?: string; interventionId?: string;
       providerEmail?: string; providerName?: string;
       adminEmail?: string; adminName?: string;
       coProName?: string; title?: string; interventionDate?: string;
+      isPast?: boolean;
     };
 
     if (!providerEmail || !coProName || !title || !coProId) {
-      return res.status(400).json({ error: "Paramètres manquants." });
+      const missing = [!providerEmail && "providerEmail", !coProName && "coProName", !title && "title", !coProId && "coProId"].filter(Boolean);
+      console.error("[remind-intervention] manquants:", missing, "body:", JSON.stringify(req.body).slice(0, 300));
+      return res.status(400).json({ error: "Paramètres manquants.", missing });
     }
 
     const db = getAdminDb();
@@ -4752,6 +4755,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const from = resendClient.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
     // ── Email prestataire ────────────────────────────────────────────────────
+    const badgeHtml = isPast
+      ? `<div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">⚠️ Intervention en retard</div>`
+      : `<div style="display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">📅 Intervention à venir</div>`;
+    const bodyText = isPast
+      ? `Nous vous contactons car l'intervention <strong style="color:#0F172A;">${escapeHtml(title)}</strong> pour la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong> n'a pas encore été réalisée.`
+      : `Nous vous rappelons que vous avez une intervention programmée : <strong style="color:#0F172A;">${escapeHtml(title)}</strong> pour la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.`;
+    const footerText = isPast
+      ? `Merci de nous contacter rapidement pour confirmer la date de réalisation ou signaler un empêchement.`
+      : `Merci de bien préparer cette intervention et de confirmer votre disponibilité à l'administrateur de la résidence.`;
+    const dateBgColor = isPast ? "#FEF2F2" : "#EFF6FF";
+    const dateBorderColor = isPast ? "#EF4444" : "#3B82F6";
+    const dateLabelColor = isPast ? "#991B1B" : "#1E40AF";
+    const dateValueColor = isPast ? "#DC2626" : "#1D4ED8";
+
     const htmlPrestataire = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"/></head>
 <body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
@@ -4761,24 +4778,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropriété</div>
     </div>
     <div style="padding:32px;">
-      <div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
-        ⚠️ Intervention en retard
-      </div>
+      ${badgeHtml}
       <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">Bonjour ${escapeHtml(providerName ?? "")},</h1>
-      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
-        Nous vous contactons car l'intervention
-        <strong style="color:#0F172A;">${escapeHtml(title)}</strong>
-        pour la résidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>
-        n'a pas encore été réalisée.
-      </p>
-      <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
-        <div style="font-size:12px;color:#991B1B;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention prévue</div>
-        <div style="font-size:20px;font-weight:800;color:#DC2626;">${escapeHtml(dateLabel)}</div>
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">${bodyText}</p>
+      <div style="background:${dateBgColor};border:2px solid ${dateBorderColor};border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
+        <div style="font-size:12px;color:${dateLabelColor};font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention prévue</div>
+        <div style="font-size:20px;font-weight:800;color:${dateValueColor};">${escapeHtml(dateLabel)}</div>
       </div>
-      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">
-        Merci de nous contacter rapidement pour confirmer la date de réalisation ou signaler un empêchement.
-        En cas de litige ou d'impossibilité, veuillez contacter directement l'administrateur de la résidence.
-      </p>
+      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">${footerText}</p>
       <p style="font-size:13px;color:#94A3B8;margin-top:20px;">
         Ce message a été envoyé par le gestionnaire de la copropriété ${escapeHtml(coProName)}.
       </p>

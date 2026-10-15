@@ -242800,10 +242800,13 @@ async function registerRoutes(app) {
       adminName,
       coProName,
       title,
-      interventionDate
+      interventionDate,
+      isPast
     } = req.body;
     if (!providerEmail || !coProName || !title || !coProId) {
-      return res.status(400).json({ error: "Param\xE8tres manquants." });
+      const missing = [!providerEmail && "providerEmail", !coProName && "coProName", !title && "title", !coProId && "coProId"].filter(Boolean);
+      console.error("[remind-intervention] manquants:", missing, "body:", JSON.stringify(req.body).slice(0, 300));
+      return res.status(400).json({ error: "Param\xE8tres manquants.", missing });
     }
     const db2 = getAdminDb();
     const sentAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -242833,6 +242836,13 @@ async function registerRoutes(app) {
       return res.json({ sent: false, reason: "resend_unavailable", reminderId });
     }
     const from = resendClient.fromEmail ?? "Maintena \u2014 Profusion Num\xE9rik <onboarding@resend.dev>";
+    const badgeHtml = isPast ? `<div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">\u26A0\uFE0F Intervention en retard</div>` : `<div style="display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">\u{1F4C5} Intervention \xE0 venir</div>`;
+    const bodyText = isPast ? `Nous vous contactons car l'intervention <strong style="color:#0F172A;">${escapeHtml(title)}</strong> pour la r\xE9sidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong> n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.` : `Nous vous rappelons que vous avez une intervention programm\xE9e : <strong style="color:#0F172A;">${escapeHtml(title)}</strong> pour la r\xE9sidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>.`;
+    const footerText = isPast ? `Merci de nous contacter rapidement pour confirmer la date de r\xE9alisation ou signaler un emp\xEAchement.` : `Merci de bien pr\xE9parer cette intervention et de confirmer votre disponibilit\xE9 \xE0 l'administrateur de la r\xE9sidence.`;
+    const dateBgColor = isPast ? "#FEF2F2" : "#EFF6FF";
+    const dateBorderColor = isPast ? "#EF4444" : "#3B82F6";
+    const dateLabelColor = isPast ? "#991B1B" : "#1E40AF";
+    const dateValueColor = isPast ? "#DC2626" : "#1D4ED8";
     const htmlPrestataire = `<!DOCTYPE html>
 <html lang="fr"><head><meta charset="UTF-8"/></head>
 <body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
@@ -242842,24 +242852,14 @@ async function registerRoutes(app) {
       <div style="font-size:13px;color:rgba(255,255,255,0.45);margin-top:4px;">Gestion de copropri\xE9t\xE9</div>
     </div>
     <div style="padding:32px;">
-      <div style="display:inline-block;background:#FEE2E2;color:#DC2626;font-size:12px;font-weight:700;padding:6px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.05em;">
-        \u26A0\uFE0F Intervention en retard
-      </div>
+      ${badgeHtml}
       <h1 style="font-size:22px;color:#0F172A;margin:0 0 14px;">Bonjour ${escapeHtml(providerName ?? "")},</h1>
-      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">
-        Nous vous contactons car l'intervention
-        <strong style="color:#0F172A;">${escapeHtml(title)}</strong>
-        pour la r\xE9sidence <strong style="color:#0F172A;">${escapeHtml(coProName)}</strong>
-        n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.
-      </p>
-      <div style="background:#FEF2F2;border:2px solid #EF4444;border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
-        <div style="font-size:12px;color:#991B1B;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention pr\xE9vue</div>
-        <div style="font-size:20px;font-weight:800;color:#DC2626;">${escapeHtml(dateLabel)}</div>
+      <p style="font-size:15px;color:#475569;line-height:1.7;margin:0 0 20px;">${bodyText}</p>
+      <div style="background:${dateBgColor};border:2px solid ${dateBorderColor};border-radius:14px;padding:18px 24px;margin-bottom:24px;text-align:center;">
+        <div style="font-size:12px;color:${dateLabelColor};font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Date d'intervention pr\xE9vue</div>
+        <div style="font-size:20px;font-weight:800;color:${dateValueColor};">${escapeHtml(dateLabel)}</div>
       </div>
-      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">
-        Merci de nous contacter rapidement pour confirmer la date de r\xE9alisation ou signaler un emp\xEAchement.
-        En cas de litige ou d'impossibilit\xE9, veuillez contacter directement l'administrateur de la r\xE9sidence.
-      </p>
+      <p style="font-size:14px;color:#475569;line-height:1.7;margin:0 0 24px;">${footerText}</p>
       <p style="font-size:13px;color:#94A3B8;margin-top:20px;">
         Ce message a \xE9t\xE9 envoy\xE9 par le gestionnaire de la copropri\xE9t\xE9 ${escapeHtml(coProName)}.
       </p>
