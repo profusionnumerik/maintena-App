@@ -9386,34 +9386,23 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     let sent = 0, skipped = 0;
 
     try {
-      // Tous les liens équipe avec des emails et une date d'intervention = demain
-      const snap = await db.collection("teamInterventionLinks")
-        .where("employeeEmail", "!=", null)
-        .get();
-
       const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://maintena-pro.fr";
       const rc = await getUncachableResendClient();
       const from = rc.fromEmail ?? "Maintena — Profusion Numérik <onboarding@resend.dev>";
 
-      for (const doc of snap.docs) {
-        const link = doc.data();
-        const emails: string[] = link.employeeEmails ?? (link.employeeEmail ? [link.employeeEmail] : []);
-        if (emails.length === 0 || !link.interventionDate) { skipped++; continue; }
-        const ivDate = String(link.interventionDate).split("T")[0];
-        if (ivDate !== tomorrowStr) { skipped++; continue; }
-
-        const linkUrl = `${baseUrl}/team-intervention/${link.token}`;
+      const sendReminderEmail = async (emails: string[], token: string, title: string, coProName: string) => {
+        const linkUrl = `${baseUrl}/team-intervention/${token}`;
         await rc.client.emails.send({
           from,
           to: emails,
-          subject: `📋 Rappel intervention demain — ${link.interventionTitle ?? "Intervention"}`,
+          subject: `📋 Rappel intervention demain — ${title ?? "Intervention"}`,
           html: `
             <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px;">
               <h2 style="color:#0B1628;">Rappel d'intervention</h2>
               <p style="color:#475569;">
                 Bonjour,<br><br>
                 Vous avez une intervention prévue <strong>demain</strong> :
-                <strong>${link.interventionTitle ?? ""}</strong> — ${link.coProName ?? ""}.<br><br>
+                <strong>${title ?? ""}</strong> — ${coProName ?? ""}.<br><br>
                 Déclarez votre passage une fois votre travail effectué :
               </p>
               <a href="${linkUrl}" style="display:inline-block;background:#0B1628;color:#fff;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:600;">
@@ -9425,6 +9414,73 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
             </div>
           `,
         }).catch((e: any) => console.warn(`[team-links-cron] email error ${emails.join(",")}:`, e));
+      };
+
+      // ── Source 1 : teamInterventionLinks (emails configurés manuellement par intervention) ──
+      const linksSnap = await db.collection("teamInterventionLinks")
+        .where("employeeEmail", "!=", null).get();
+
+      const handledInterventionIds = new Set<string>();
+
+      for (const doc of linksSnap.docs) {
+        const link = doc.data();
+        const emails: string[] = link.employeeEmails ?? (link.employeeEmail ? [link.employeeEmail] : []);
+        if (emails.length === 0 || !link.interventionDate) { skipped++; continue; }
+        const ivDate = String(link.interventionDate).split("T")[0];
+        if (ivDate !== tomorrowStr) { skipped++; continue; }
+        await sendReminderEmail(emails, link.token, link.interventionTitle ?? "", link.coProName ?? "");
+        handledInterventionIds.add(link.interventionId);
+        sent++;
+      }
+
+      // ── Source 2 : reminderEmails du membre prestataire (configurés par l'admin) ──
+      const interventionsSnap = await db.collectionGroup("interventions")
+        .where("status", "==", "planifie").get();
+
+      for (const ivDoc of interventionsSnap.docs) {
+        const data = ivDoc.data();
+        const dateNorm = (String(data.date ?? "")).split("T")[0];
+        if (dateNorm !== tomorrowStr) continue;
+        if (handledInterventionIds.has(ivDoc.id)) continue; // déjà envoyé via source 1
+
+        const assignedToUid: string | undefined = data.assignedToUid;
+        if (!assignedToUid) continue;
+        const coProId = ivDoc.ref.parent.parent?.id;
+        if (!coProId) continue;
+
+        const memberSnap = await db.collection("copros").doc(coProId)
+          .collection("members").doc(assignedToUid).get();
+        if (!memberSnap.exists) continue;
+
+        const reminderEmails: string[] = memberSnap.data()?.reminderEmails ?? [];
+        if (reminderEmails.length === 0) { skipped++; continue; }
+
+        // Créer le teamInterventionLink si inexistant (pour donner accès à la fiche)
+        const existingLink = await db.collection("teamInterventionLinks")
+          .where("interventionId", "==", ivDoc.id)
+          .where("coProId", "==", coProId)
+          .limit(1).get();
+
+        let token: string;
+        if (existingLink.empty) {
+          token = generateGuestToken();
+          await db.collection("teamInterventionLinks").add({
+            token,
+            coProId,
+            coProName: data.coProName ?? "",
+            interventionId: ivDoc.id,
+            interventionTitle: data.title ?? "",
+            companyName: data.assignedToName ?? "Prestataire",
+            employeeEmails: reminderEmails,
+            employeeEmail: reminderEmails[0],
+            interventionDate: data.date,
+            createdAt: new Date().toISOString(),
+          });
+        } else {
+          token = existingLink.docs[0].data().token as string;
+        }
+
+        await sendReminderEmail(reminderEmails, token, data.title ?? "", data.coProName ?? "");
         sent++;
       }
 
