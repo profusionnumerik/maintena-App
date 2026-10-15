@@ -1104,7 +1104,7 @@ export default function AlertsScreen() {
         </Pressable>
       )}
       {isAdmin && activeTab === "rappels" && (
-        <Pressable style={[styles.addBtn, { backgroundColor: "#EF4444" }]} onPress={() => setShowSendReminderModal(true)}>
+        <Pressable style={styles.addBtn} onPress={() => setShowSendReminderModal(true)}>
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
@@ -1151,7 +1151,7 @@ export default function AlertsScreen() {
               : "Les rappels envoyés aux prestataires apparaîtront ici avec la date et l'heure d'envoi."}
           </Text>
           {isAdmin && !showArchivedRappels && (
-            <Pressable style={[styles.signalBtn, { marginTop: 16, backgroundColor: "#EF4444" }]} onPress={() => setShowSendReminderModal(true)}>
+            <Pressable style={[styles.signalBtn, { marginTop: 16 }]} onPress={() => setShowSendReminderModal(true)}>
               <Ionicons name="notifications-outline" size={18} color="#fff" />
               <Text style={styles.signalBtnText}>Envoyer un rappel</Text>
             </Pressable>
@@ -1166,7 +1166,7 @@ export default function AlertsScreen() {
                 onPress={() => r.interventionId && router.push(`/intervention/${r.interventionId}` as any)}
               >
                 <View style={styles.reminderLogIcon}>
-                  <Ionicons name="warning-outline" size={18} color={r.archived ? COLORS.textMuted : "#EF4444"} />
+                  <Ionicons name="notifications-outline" size={18} color={r.archived ? COLORS.textMuted : COLORS.primary} />
                 </View>
                 <View style={{ flex: 1, gap: 3 }}>
                   <Text style={[styles.reminderLogTitle, r.archived && { color: COLORS.textMuted }]} numberOfLines={1}>
@@ -1276,7 +1276,7 @@ export default function AlertsScreen() {
               onPress={() => r.interventionId && router.push(`/intervention/${r.interventionId}` as any)}
             >
               <View style={styles.reminderLogIcon}>
-                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+                <Ionicons name="notifications-outline" size={18} color={COLORS.primary} />
               </View>
               <View style={{ flex: 1, gap: 3 }}>
                 <Text style={styles.reminderLogTitle} numberOfLines={1}>{r.title}</Text>
@@ -1302,8 +1302,8 @@ export default function AlertsScreen() {
     <BottomSheet visible={showSendReminderModal} onClose={() => setShowSendReminderModal(false)} insetBottom={bottom}>
       <View style={styles.modalHandle} />
       <View style={styles.signalHeader}>
-        <View style={[styles.signalIconWrap, { backgroundColor: "rgba(239,68,68,0.1)" }]}>
-          <Ionicons name="notifications-outline" size={20} color="#EF4444" />
+        <View style={[styles.signalIconWrap, { backgroundColor: COLORS.primary + "18" }]}>
+          <Ionicons name="notifications-outline" size={20} color={COLORS.primary} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.modalTitle}>Envoyer un rappel</Text>
@@ -1324,14 +1324,14 @@ export default function AlertsScreen() {
                 onPress={() => { setSendReminderPrest(m.uid); setSendReminderEmail(m.email ?? ""); }}
                 style={[styles.reminderPrestRow, sel && styles.reminderPrestRowSelected]}
               >
-                <View style={[styles.reminderPrestAvatar, sel && { backgroundColor: "#EF444420" }]}>
-                  <Ionicons name="person" size={14} color={sel ? "#EF4444" : COLORS.textMuted} />
+                <View style={[styles.reminderPrestAvatar, sel && { backgroundColor: COLORS.primary + "20" }]}>
+                  <Ionicons name="person" size={14} color={sel ? COLORS.primary : COLORS.textMuted} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.reminderPrestName, sel && { color: "#EF4444" }]}>{m.displayName}</Text>
+                  <Text style={[styles.reminderPrestName, sel && { color: COLORS.primary }]}>{m.displayName}</Text>
                   <Text style={styles.reminderPrestEmail}>{m.email}</Text>
                 </View>
-                {sel && <Ionicons name="checkmark-circle" size={18} color="#EF4444" />}
+                {sel && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
               </Pressable>
             );
           })
@@ -1348,7 +1348,7 @@ export default function AlertsScreen() {
               <Pressable
                 key={cat}
                 onPress={() => setSendReminderCategory(cat)}
-                style={[styles.typeChip, sel ? { backgroundColor: "#EF4444", borderColor: "#EF4444" } : { borderColor: COLORS.border }]}
+                style={[styles.typeChip, sel ? { backgroundColor: COLORS.primary, borderColor: COLORS.primary } : { borderColor: COLORS.border }]}
               >
                 {icon ? <Ionicons name={icon as any} size={13} color={sel ? "#fff" : COLORS.textMuted} /> : null}
                 <Text style={[styles.typeChipText, { color: sel ? "#fff" : COLORS.textSecondary }]}>
@@ -1385,7 +1385,7 @@ export default function AlertsScreen() {
 
       <Pressable
         style={({ pressed }) => [
-          styles.signalSendBtn, { backgroundColor: "#EF4444" },
+          styles.signalSendBtn,
           (!sendReminderEmail || !sendReminderDate || sendReminderLoading) && styles.signalSendBtnDisabled,
           pressed && { opacity: 0.85 },
         ]}
@@ -1860,7 +1860,7 @@ const styles = StyleSheet.create({
   },
   reminderLogIcon: {
     width: 34, height: 34, borderRadius: 10,
-    backgroundColor: "rgba(239,68,68,0.08)",
+    backgroundColor: COLORS.primary + "12",
     alignItems: "center", justifyContent: "center",
   },
   reminderLogTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
@@ -1877,7 +1877,7 @@ const styles = StyleSheet.create({
     marginBottom: 6, backgroundColor: COLORS.surface,
   },
   reminderPrestRowSelected: {
-    borderColor: "#EF4444", backgroundColor: "rgba(239,68,68,0.04)",
+    borderColor: COLORS.primary, backgroundColor: COLORS.primary + "08",
   },
   reminderPrestAvatar: {
     width: 30, height: 30, borderRadius: 10,
