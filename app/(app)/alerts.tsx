@@ -648,6 +648,13 @@ export default function AlertsScreen() {
   const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
   const prestataireMembers = members.filter((m) => m.role === "prestataire");
 
+  const formatReminderDate = (text: string) => {
+    const digits = text.replace(/\D/g, "").slice(0, 8);
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+  };
+
   const handleSendReminder = async () => {
     if (!currentCopro || !sendReminderEmail || !sendReminderDate) return;
     setSendReminderLoading(true);
@@ -655,16 +662,29 @@ export default function AlertsScreen() {
     const dateFr = new Date(sendReminderDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
     const title = `${CATEGORY_LABELS[sendReminderCategory]} · ${dateFr}`;
     try {
-      await apiRequest("POST", "/api/remind-intervention", {
-        coProId: currentCopro.id,
-        providerEmail: sendReminderEmail,
-        providerName: selectedPrest?.displayName ?? "",
-        adminName: user?.displayName ?? "",
-        adminEmail: user?.email ?? "",
-        coProName: currentCopro.name,
-        title,
-        interventionDate: sendReminderDate,
+      const idToken = await user?.getIdToken().catch(() => null);
+      const baseUrl = getApiUrl();
+      const res = await fetch(`${baseUrl}api/remind-intervention`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+        },
+        body: JSON.stringify({
+          coProId: currentCopro.id,
+          providerEmail: sendReminderEmail,
+          providerName: selectedPrest?.displayName ?? "",
+          adminName: user?.displayName ?? "",
+          adminEmail: user?.email ?? "",
+          coProName: currentCopro.name,
+          title,
+          interventionDate: sendReminderDate,
+        }),
       });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text}`);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowSendReminderModal(false);
       setSendReminderPrest("");
@@ -1330,7 +1350,7 @@ export default function AlertsScreen() {
                 onPress={() => setSendReminderCategory(cat)}
                 style={[styles.typeChip, sel ? { backgroundColor: "#EF4444", borderColor: "#EF4444" } : { borderColor: COLORS.border }]}
               >
-                {icon ? <Text style={{ fontSize: 13 }}>{icon}</Text> : null}
+                {icon ? <Ionicons name={icon as any} size={13} color={sel ? "#fff" : COLORS.textMuted} /> : null}
                 <Text style={[styles.typeChipText, { color: sel ? "#fff" : COLORS.textSecondary }]}>
                   {CATEGORY_LABELS[cat]}
                 </Text>
@@ -1344,9 +1364,11 @@ export default function AlertsScreen() {
       <TextInput
         style={[styles.signalInputSmall, { marginBottom: 12 }]}
         value={sendReminderDate}
-        onChangeText={setSendReminderDate}
-        placeholder="AAAA-MM-JJ"
+        onChangeText={(t) => setSendReminderDate(formatReminderDate(t))}
+        placeholder="2026-04-18"
         placeholderTextColor={COLORS.textMuted}
+        keyboardType="numeric"
+        maxLength={10}
         {...(Platform.OS === "web" ? { type: "date" } as any : {})}
       />
 
