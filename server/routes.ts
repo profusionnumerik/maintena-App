@@ -4718,7 +4718,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       coProName?: string; title?: string; interventionDate?: string;
     };
 
-    if (!providerEmail || !coProName || !title || !coProId || !interventionId) {
+    if (!providerEmail || !coProName || !title || !coProId) {
       return res.status(400).json({ error: "Paramètres manquants." });
     }
 

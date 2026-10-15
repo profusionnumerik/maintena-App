@@ -18,12 +18,12 @@ import { useCoPro } from "@/context/CoProContext";
 import {
   Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS,
   Poll, PollTarget, POLL_TARGET_LABELS, Signalement,
-  Category, CATEGORY_LABELS, ALL_CATEGORIES,
+  Category, CATEGORY_LABELS, ALL_CATEGORIES, CATEGORY_ICONS,
   ProviderContact, DemandeDevis,
 } from "@/shared/types";
 import { addDoc, collection, deleteDoc, getDocs, doc, updateDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, apiRequest } from "@/lib/query-client";
 
 const MAX_SIGNAL_PHOTOS = 3;
 const FlatListAny = FlatList as any;
@@ -550,6 +550,13 @@ export default function AlertsScreen() {
   const [togglingEmail, setTogglingEmail] = useState(false);
   const [togglingAnnoEmail, setTogglingAnnoEmail] = useState(false);
 
+  const [showSendReminderModal, setShowSendReminderModal] = useState(false);
+  const [sendReminderPrest, setSendReminderPrest] = useState<string>("");
+  const [sendReminderCategory, setSendReminderCategory] = useState<Category>("divers");
+  const [sendReminderDate, setSendReminderDate] = useState("");
+  const [sendReminderEmail, setSendReminderEmail] = useState("");
+  const [sendReminderLoading, setSendReminderLoading] = useState(false);
+
   // Sondages
   const defaultExpiresAt = () => {
     const d = new Date(); d.setDate(d.getDate() + 7);
@@ -624,6 +631,37 @@ export default function AlertsScreen() {
 
   const myMember = members.find((m) => m.uid === user?.uid);
   const receiveAnnounceEmails = myMember?.receiveAnnouncementEmails ?? true;
+  const prestataireMembers = members.filter((m) => m.role === "prestataire");
+
+  const handleSendReminder = async () => {
+    if (!currentCopro || !sendReminderEmail || !sendReminderDate) return;
+    setSendReminderLoading(true);
+    const selectedPrest = prestataireMembers.find((m) => m.uid === sendReminderPrest);
+    const dateFr = new Date(sendReminderDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+    const title = `${CATEGORY_LABELS[sendReminderCategory]} · ${dateFr}`;
+    try {
+      await apiRequest("POST", "/api/remind-intervention", {
+        coProId: currentCopro.id,
+        providerEmail: sendReminderEmail,
+        providerName: selectedPrest?.displayName ?? "",
+        adminName: user?.displayName ?? "",
+        adminEmail: user?.email ?? "",
+        coProName: currentCopro.name,
+        title,
+        interventionDate: sendReminderDate,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowSendReminderModal(false);
+      setSendReminderPrest("");
+      setSendReminderCategory("divers");
+      setSendReminderDate("");
+      setSendReminderEmail("");
+    } catch (e: any) {
+      wa("Erreur", e.message ?? "Impossible d'envoyer le rappel.");
+    } finally {
+      setSendReminderLoading(false);
+    }
+  };
 
   const top    = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
@@ -1030,6 +1068,11 @@ export default function AlertsScreen() {
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
+      {isAdmin && activeTab === "rappels" && (
+        <Pressable style={[styles.addBtn, { backgroundColor: "#EF4444" }]} onPress={() => setShowSendReminderModal(true)}>
+          <Ionicons name="add" size={22} color="#fff" />
+        </Pressable>
+      )}
     </View>
   );
 
@@ -1361,6 +1404,106 @@ export default function AlertsScreen() {
     );
   }
 
+  const sendReminderModal = (
+    <BottomSheet visible={showSendReminderModal} onClose={() => setShowSendReminderModal(false)} insetBottom={bottom}>
+      <View style={styles.modalHandle} />
+      <View style={styles.signalHeader}>
+        <View style={[styles.signalIconWrap, { backgroundColor: "rgba(239,68,68,0.1)" }]}>
+          <Ionicons name="notifications-outline" size={20} color="#EF4444" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.modalTitle}>Envoyer un rappel</Text>
+          <Text style={styles.signalSub}>Le prestataire recevra un e-mail de rappel</Text>
+        </View>
+      </View>
+
+      <Text style={styles.signalFieldLabel}>Prestataire</Text>
+      <ScrollView style={{ maxHeight: 160, marginBottom: 12 }} showsVerticalScrollIndicator={false}>
+        {prestataireMembers.length === 0 ? (
+          <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 8 }}>Aucun prestataire enregistré</Text>
+        ) : (
+          prestataireMembers.map((m) => {
+            const sel = sendReminderPrest === m.uid;
+            return (
+              <Pressable
+                key={m.uid}
+                onPress={() => { setSendReminderPrest(m.uid); setSendReminderEmail(m.email ?? ""); }}
+                style={[styles.reminderPrestRow, sel && styles.reminderPrestRowSelected]}
+              >
+                <View style={[styles.reminderPrestAvatar, sel && { backgroundColor: "#EF444420" }]}>
+                  <Ionicons name="person" size={14} color={sel ? "#EF4444" : COLORS.textMuted} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.reminderPrestName, sel && { color: "#EF4444" }]}>{m.displayName}</Text>
+                  <Text style={styles.reminderPrestEmail}>{m.email}</Text>
+                </View>
+                {sel && <Ionicons name="checkmark-circle" size={18} color="#EF4444" />}
+              </Pressable>
+            );
+          })
+        )}
+      </ScrollView>
+
+      <Text style={styles.signalFieldLabel}>Type d'intervention</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
+          {ALL_CATEGORIES.map((cat) => {
+            const sel = sendReminderCategory === cat;
+            const icon = CATEGORY_ICONS[cat];
+            return (
+              <Pressable
+                key={cat}
+                onPress={() => setSendReminderCategory(cat)}
+                style={[styles.typeChip, sel ? { backgroundColor: "#EF4444", borderColor: "#EF4444" } : { borderColor: COLORS.border }]}
+              >
+                {icon ? <Text style={{ fontSize: 13 }}>{icon}</Text> : null}
+                <Text style={[styles.typeChipText, { color: sel ? "#fff" : COLORS.textSecondary }]}>
+                  {CATEGORY_LABELS[cat]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </ScrollView>
+
+      <Text style={styles.signalFieldLabel}>Date de l'intervention</Text>
+      <TextInput
+        style={[styles.signalInputSmall, { marginBottom: 12 }]}
+        value={sendReminderDate}
+        onChangeText={setSendReminderDate}
+        placeholder="AAAA-MM-JJ"
+        placeholderTextColor={COLORS.textMuted}
+        {...(Platform.OS === "web" ? { type: "date" } as any : {})}
+      />
+
+      <Text style={styles.signalFieldLabel}>E-mail du destinataire</Text>
+      <TextInput
+        style={[styles.signalInputSmall, { marginBottom: 16 }]}
+        value={sendReminderEmail}
+        onChangeText={setSendReminderEmail}
+        placeholder="email@exemple.com"
+        placeholderTextColor={COLORS.textMuted}
+        keyboardType="email-address"
+        autoCapitalize="none"
+      />
+
+      <Pressable
+        style={({ pressed }) => [
+          styles.signalSendBtn, { backgroundColor: "#EF4444" },
+          (!sendReminderEmail || !sendReminderDate || sendReminderLoading) && styles.signalSendBtnDisabled,
+          pressed && { opacity: 0.85 },
+        ]}
+        onPress={handleSendReminder}
+        disabled={!sendReminderEmail || !sendReminderDate || sendReminderLoading}
+      >
+        {sendReminderLoading
+          ? <ActivityIndicator color="#fff" size="small" />
+          : <><Ionicons name="notifications" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Envoyer le rappel</Text></>
+        }
+      </Pressable>
+    </BottomSheet>
+  );
+
   return (
     <View style={styles.root}>
       {topBar}
@@ -1414,6 +1557,7 @@ export default function AlertsScreen() {
         insetBottom={bottom}
       />
       {pollModal}
+      {sendReminderModal}
     </View>
   );
 }
@@ -1681,4 +1825,21 @@ const styles = StyleSheet.create({
   reminderLogBy: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
   reminderLogActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   reminderLogActionBtn: { padding: 6, borderRadius: 8 },
+
+  reminderPrestRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingVertical: 9, paddingHorizontal: 10, borderRadius: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+    marginBottom: 6, backgroundColor: COLORS.surface,
+  },
+  reminderPrestRowSelected: {
+    borderColor: "#EF4444", backgroundColor: "rgba(239,68,68,0.04)",
+  },
+  reminderPrestAvatar: {
+    width: 30, height: 30, borderRadius: 10,
+    backgroundColor: COLORS.background,
+    alignItems: "center", justifyContent: "center",
+  },
+  reminderPrestName: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  reminderPrestEmail: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 });

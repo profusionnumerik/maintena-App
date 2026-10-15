@@ -242802,7 +242802,7 @@ async function registerRoutes(app) {
       title,
       interventionDate
     } = req.body;
-    if (!providerEmail || !coProName || !title || !coProId || !interventionId) {
+    if (!providerEmail || !coProName || !title || !coProId) {
       return res.status(400).json({ error: "Param\xE8tres manquants." });
     }
     const db2 = getAdminDb();
