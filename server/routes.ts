@@ -4829,7 +4829,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await resendClient.client.emails.send({
         from,
         to: providerEmail,
-        subject: `⚠️ Intervention en retard — ${escapeHtml(title)} · ${coProName}`,
+        subject: isPast
+          ? `⚠️ Intervention en retard — ${escapeHtml(title)} · ${coProName}`
+          : `📅 Intervention à venir — ${escapeHtml(title)} · ${coProName}`,
         html: htmlPrestataire,
       });
     } catch (e: any) {
@@ -4840,9 +4842,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Push au prestataire
     sendPushByEmail(
       providerEmail,
-      `⚠️ Intervention en retard — ${coProName}`,
-      `L'intervention "${title}" n'a pas encore été réalisée.`,
-      { type: "reminder_overdue" }
+      isPast ? `⚠️ Intervention en retard — ${coProName}` : `📅 Intervention à venir — ${coProName}`,
+      isPast
+        ? `L'intervention "${title}" n'a pas encore été réalisée.`
+        : `Vous avez une intervention programmée : "${title}".`,
+      { type: isPast ? "reminder_overdue" : "reminder_upcoming" }
     ).catch(() => {});
 
     if (adminEmail) {

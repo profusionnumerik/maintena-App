@@ -242903,7 +242903,7 @@ async function registerRoutes(app) {
       await resendClient.client.emails.send({
         from,
         to: providerEmail,
-        subject: `\u26A0\uFE0F Intervention en retard \u2014 ${escapeHtml(title)} \xB7 ${coProName}`,
+        subject: isPast ? `\u26A0\uFE0F Intervention en retard \u2014 ${escapeHtml(title)} \xB7 ${coProName}` : `\u{1F4C5} Intervention \xE0 venir \u2014 ${escapeHtml(title)} \xB7 ${coProName}`,
         html: htmlPrestataire
       });
     } catch (e3) {
@@ -242912,9 +242912,9 @@ async function registerRoutes(app) {
     }
     sendPushByEmail(
       providerEmail,
-      `\u26A0\uFE0F Intervention en retard \u2014 ${coProName}`,
-      `L'intervention "${title}" n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.`,
-      { type: "reminder_overdue" }
+      isPast ? `\u26A0\uFE0F Intervention en retard \u2014 ${coProName}` : `\u{1F4C5} Intervention \xE0 venir \u2014 ${coProName}`,
+      isPast ? `L'intervention "${title}" n'a pas encore \xE9t\xE9 r\xE9alis\xE9e.` : `Vous avez une intervention programm\xE9e : "${title}".`,
+      { type: isPast ? "reminder_overdue" : "reminder_upcoming" }
     ).catch(() => {
     });
     if (adminEmail) {
