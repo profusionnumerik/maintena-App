@@ -6,6 +6,7 @@ import {
   ActivityIndicator, FlatList, Image, Keyboard, KeyboardEvent,
   Modal, Platform, Pressable,
   ScrollView, StyleSheet, Switch, Text, TextInput, View,
+  useWindowDimensions,
 } from "react-native";
 import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -31,6 +32,7 @@ const FlatListAny = FlatList as any;
 function BottomSheet({ visible, onClose, insetBottom, children }: {
   visible: boolean; onClose: () => void; insetBottom: number; children: React.ReactNode;
 }) {
+  const { height: winHeight } = useWindowDimensions();
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
@@ -59,12 +61,25 @@ function BottomSheet({ visible, onClose, insetBottom, children }: {
           alignItems: "center",
         }}>
           <ScrollView
-            style={{ flex: 0, width: "100%", maxWidth: Platform.OS === "web" ? 560 : undefined }}
+            style={{ flex: 0, width: "100%", maxWidth: Platform.OS === "web" ? 560 : undefined, maxHeight: winHeight * 0.82 }}
             contentContainerStyle={[styles.signalSheetScroll, { paddingBottom: insetBottom + 16 }]}
             keyboardShouldPersistTaps="handled"
           >
             {children}
           </ScrollView>
+          {/* Bouton fermer toujours accessible */}
+          <Pressable
+            onPress={onClose}
+            hitSlop={12}
+            style={{
+              position: "absolute", top: 10, right: 16,
+              padding: 6, borderRadius: 20,
+              backgroundColor: COLORS.background,
+              borderWidth: 1, borderColor: COLORS.border,
+            }}
+          >
+            <Ionicons name="close" size={18} color={COLORS.textMuted} />
+          </Pressable>
         </View>
       </View>
     </Modal>
@@ -1115,6 +1130,12 @@ export default function AlertsScreen() {
               ? "Les rappels archivés apparaîtront ici."
               : "Les rappels envoyés aux prestataires apparaîtront ici avec la date et l'heure d'envoi."}
           </Text>
+          {isAdmin && !showArchivedRappels && (
+            <Pressable style={[styles.signalBtn, { marginTop: 16, backgroundColor: "#EF4444" }]} onPress={() => setShowSendReminderModal(true)}>
+              <Ionicons name="notifications-outline" size={18} color="#fff" />
+              <Text style={styles.signalBtnText}>Envoyer un rappel</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
@@ -1257,153 +1278,6 @@ export default function AlertsScreen() {
     </ScrollView>
   );
 
-  if (isPrestataire) {
-    return (
-      <View style={styles.root}>
-        {topBar}
-        {tabSwitcher}
-        {activeTab === "rappels" ? prestataireRappelsContent : activeTab === "alertes" ? (
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Pressable
-              style={({ pressed }) => [styles.signalBtn, { margin: 20 }, pressed && { opacity: 0.85 }]}
-              onPress={() => setSignalModalVisible(true)}
-            >
-              <Ionicons name="warning-outline" size={20} color="#fff" />
-              <Text style={styles.signalBtnText}>Signaler un problème</Text>
-            </Pressable>
-            <Text style={styles.prestataireSub}>
-              Vos signalements seront transmis à l'admin de cette copropriété.
-            </Text>
-          </ScrollView>
-        ) : announcementsContent}
-        <SignalementModal
-          visible={signalModalVisible}
-          onClose={() => setSignalModalVisible(false)}
-          onSend={handleSend}
-          insetBottom={bottom}
-        />
-      </View>
-    );
-  }
-
-  if (isAdmin) {
-    return (
-      <View style={styles.root}>
-        {topBar}
-        {tabSwitcher}
-        {activeTab === "alertes" ? (
-          <FlatListAny
-            data={signalements}
-            keyExtractor={(s: Signalement) => s.id}
-            renderItem={({ item }: { item: Signalement }) => (
-              <AlertCard
-                item={item}
-                onAcknowledge={() => handleAcknowledge(item.id)}
-                onDelete={() => handleDeleteSignal(item.id)}
-                onRead={() => handleRead(item.id)}
-                onRequestDevis={canManageDevis ? handleOpenDevisModal : undefined}
-              />
-            )}
-            ListHeaderComponent={unacknowledged > 0 ? (
-              <View style={styles.summaryBanner}>
-                <Ionicons name="warning" size={13} color="#D97706" />
-                <Text style={styles.summaryText}>
-                  {unacknowledged} alerte{unacknowledged > 1 ? "s" : ""} non traitée{unacknowledged > 1 ? "s" : ""}
-                </Text>
-              </View>
-            ) : undefined}
-            ListEmptyComponent={(
-              <View style={styles.emptyWrap}>
-                <Ionicons name="checkmark-circle-outline" size={42} color={COLORS.success} />
-                <Text style={styles.emptyTitle}>Aucune alerte</Text>
-                <Text style={styles.emptyDesc}>Tout est tranquille pour cette copropriété</Text>
-              </View>
-            )}
-            contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
-            showsVerticalScrollIndicator={false}
-          />
-        ) : activeTab === "rappels" ? rappelsContent : activeTab === "annonces" ? announcementsContent : pollsContent}
-        <CreateAnnouncementModal
-          visible={annoModalVisible}
-          onClose={() => setAnnoModalVisible(false)}
-          onSave={addAnnouncement}
-          insetBottom={bottom}
-        />
-        {pollModal}
-        <BottomSheet visible={devisModalVisible} onClose={() => setDevisModalVisible(false)} insetBottom={bottom}>
-          <View style={styles.modalHandle} />
-          <View style={styles.signalHeader}>
-            <View style={[styles.signalIconWrap, { backgroundColor: "rgba(124,58,237,0.1)" }]}>
-              <Ionicons name="send-outline" size={20} color="#7C3AED" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.modalTitle}>Demander des devis</Text>
-              <Text style={styles.signalSub}>
-                {devisSignalement ? `${devisSignalement.senderName} · ${devisSignalement.message.slice(0, 60)}${devisSignalement.message.length > 60 ? "…" : ""}` : ""}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.signalFieldLabel}>
-            Prestataires à contacter (max 3)
-          </Text>
-          {devisContacts.length === 0 ? (
-            <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 16 }}>
-              Aucun prestataire dans l'annuaire. Ajoutez-en depuis le menu → Annuaire prestataires.
-            </Text>
-          ) : (
-            <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
-              {devisContacts.map((c) => {
-                const selected = devisSelected.includes(c.id);
-                return (
-                  <Pressable
-                    key={c.id}
-                    style={[styles.devisContactRow, selected && styles.devisContactRowSelected]}
-                    onPress={() => {
-                      if (selected) {
-                        setDevisSelected(prev => prev.filter(id => id !== c.id));
-                      } else if (devisSelected.length < 3) {
-                        setDevisSelected(prev => [...prev, c.id]);
-                      }
-                    }}
-                  >
-                    <View style={[styles.devisCheckbox, selected && styles.devisCheckboxSelected]}>
-                      {selected && <Ionicons name="checkmark" size={12} color="#fff" />}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.devisContactName}>{c.firstName} {c.lastName}</Text>
-                      <Text style={styles.devisContactMeta}>
-                        {[c.specialty || c.company, c.email].filter(Boolean).join(" · ")}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-          <Pressable
-            style={({ pressed }) => [
-              styles.signalSendBtn,
-              { backgroundColor: "#7C3AED", marginTop: 16 },
-              (devisSelected.length === 0 || devisSending) && styles.signalSendBtnDisabled,
-              pressed && { opacity: 0.85 },
-            ]}
-            onPress={handleSendDevis}
-            disabled={devisSelected.length === 0 || devisSending}
-          >
-            {devisSending
-              ? <ActivityIndicator color="#fff" size="small" />
-              : <><Ionicons name="send" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Envoyer la demande ({devisSelected.length})</Text></>
-            }
-          </Pressable>
-        </BottomSheet>
-      </View>
-    );
-  }
-
   const sendReminderModal = (
     <BottomSheet visible={showSendReminderModal} onClose={() => setShowSendReminderModal(false)} insetBottom={bottom}>
       <View style={styles.modalHandle} />
@@ -1503,6 +1377,154 @@ export default function AlertsScreen() {
       </Pressable>
     </BottomSheet>
   );
+
+  if (isPrestataire) {
+    return (
+      <View style={styles.root}>
+        {topBar}
+        {tabSwitcher}
+        {activeTab === "rappels" ? prestataireRappelsContent : activeTab === "alertes" ? (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Pressable
+              style={({ pressed }) => [styles.signalBtn, { margin: 20 }, pressed && { opacity: 0.85 }]}
+              onPress={() => setSignalModalVisible(true)}
+            >
+              <Ionicons name="warning-outline" size={20} color="#fff" />
+              <Text style={styles.signalBtnText}>Signaler un problème</Text>
+            </Pressable>
+            <Text style={styles.prestataireSub}>
+              Vos signalements seront transmis à l'admin de cette copropriété.
+            </Text>
+          </ScrollView>
+        ) : announcementsContent}
+        <SignalementModal
+          visible={signalModalVisible}
+          onClose={() => setSignalModalVisible(false)}
+          onSend={handleSend}
+          insetBottom={bottom}
+        />
+      </View>
+    );
+  }
+
+  if (isAdmin) {
+    return (
+      <View style={styles.root}>
+        {topBar}
+        {tabSwitcher}
+        {activeTab === "alertes" ? (
+          <FlatListAny
+            data={signalements}
+            keyExtractor={(s: Signalement) => s.id}
+            renderItem={({ item }: { item: Signalement }) => (
+              <AlertCard
+                item={item}
+                onAcknowledge={() => handleAcknowledge(item.id)}
+                onDelete={() => handleDeleteSignal(item.id)}
+                onRead={() => handleRead(item.id)}
+                onRequestDevis={canManageDevis ? handleOpenDevisModal : undefined}
+              />
+            )}
+            ListHeaderComponent={unacknowledged > 0 ? (
+              <View style={styles.summaryBanner}>
+                <Ionicons name="warning" size={13} color="#D97706" />
+                <Text style={styles.summaryText}>
+                  {unacknowledged} alerte{unacknowledged > 1 ? "s" : ""} non traitée{unacknowledged > 1 ? "s" : ""}
+                </Text>
+              </View>
+            ) : undefined}
+            ListEmptyComponent={(
+              <View style={styles.emptyWrap}>
+                <Ionicons name="checkmark-circle-outline" size={42} color={COLORS.success} />
+                <Text style={styles.emptyTitle}>Aucune alerte</Text>
+                <Text style={styles.emptyDesc}>Tout est tranquille pour cette copropriété</Text>
+              </View>
+            )}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
+            showsVerticalScrollIndicator={false}
+          />
+        ) : activeTab === "rappels" ? rappelsContent : activeTab === "annonces" ? announcementsContent : pollsContent}
+        <CreateAnnouncementModal
+          visible={annoModalVisible}
+          onClose={() => setAnnoModalVisible(false)}
+          onSave={addAnnouncement}
+          insetBottom={bottom}
+        />
+        {pollModal}
+        {sendReminderModal}
+        <BottomSheet visible={devisModalVisible} onClose={() => setDevisModalVisible(false)} insetBottom={bottom}>
+          <View style={styles.modalHandle} />
+          <View style={styles.signalHeader}>
+            <View style={[styles.signalIconWrap, { backgroundColor: "rgba(124,58,237,0.1)" }]}>
+              <Ionicons name="send-outline" size={20} color="#7C3AED" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>Demander des devis</Text>
+              <Text style={styles.signalSub}>
+                {devisSignalement ? `${devisSignalement.senderName} · ${devisSignalement.message.slice(0, 60)}${devisSignalement.message.length > 60 ? "…" : ""}` : ""}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.signalFieldLabel}>
+            Prestataires à contacter (max 3)
+          </Text>
+          {devisContacts.length === 0 ? (
+            <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 16 }}>
+              Aucun prestataire dans l'annuaire. Ajoutez-en depuis le menu → Annuaire prestataires.
+            </Text>
+          ) : (
+            <ScrollView style={{ maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+              {devisContacts.map((c) => {
+                const selected = devisSelected.includes(c.id);
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.devisContactRow, selected && styles.devisContactRowSelected]}
+                    onPress={() => {
+                      if (selected) {
+                        setDevisSelected(prev => prev.filter(id => id !== c.id));
+                      } else if (devisSelected.length < 3) {
+                        setDevisSelected(prev => [...prev, c.id]);
+                      }
+                    }}
+                  >
+                    <View style={[styles.devisCheckbox, selected && styles.devisCheckboxSelected]}>
+                      {selected && <Ionicons name="checkmark" size={12} color="#fff" />}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.devisContactName}>{c.firstName} {c.lastName}</Text>
+                      <Text style={styles.devisContactMeta}>
+                        {[c.specialty || c.company, c.email].filter(Boolean).join(" · ")}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+          <Pressable
+            style={({ pressed }) => [
+              styles.signalSendBtn,
+              { backgroundColor: "#7C3AED", marginTop: 16 },
+              (devisSelected.length === 0 || devisSending) && styles.signalSendBtnDisabled,
+              pressed && { opacity: 0.85 },
+            ]}
+            onPress={handleSendDevis}
+            disabled={devisSelected.length === 0 || devisSending}
+          >
+            {devisSending
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <><Ionicons name="send" size={16} color="#fff" /><Text style={styles.signalSendBtnText}>Envoyer la demande ({devisSelected.length})</Text></>
+            }
+          </Pressable>
+        </BottomSheet>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
