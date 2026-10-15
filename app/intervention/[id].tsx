@@ -278,11 +278,6 @@ export default function InterventionDetailScreen() {
   const [isSharingGuestInvite, setIsSharingGuestInvite] = useState(false);
   const [isGeneratingTeamLink, setIsGeneratingTeamLink] = useState(false);
   const [isRespondingProvider, setIsRespondingProvider] = useState(false);
-  const [teamEmailsLocal, setTeamEmailsLocal] = useState<string[]>(
-    (intervention as any)?.teamEmails ?? [""]
-  );
-  const [isSavingTeamEmails, setIsSavingTeamEmails] = useState(false);
-
   const BYPASS_QUOTA = 4;
   const currentYear = new Date().getFullYear();
   const [bypassCount, setBypassCount] = useState<number | null>(null);
@@ -723,22 +718,37 @@ export default function InterventionDetailScreen() {
       }
     } catch { /* GPS non disponible — on continue quand même */ }
 
-    // Step 2 — Camera
-    const camPerm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!camPerm.granted) {
-      wa("Permission refusée", "L'accès à la caméra est nécessaire pour les photos de preuve sur site.");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"] as any,
-      allowsEditing: false,
-      quality: 0.85,
-      exif: false,
-    });
-
-    if (!result.canceled && result.assets?.[0]?.uri) {
-      setLocalCompletionPhotos((prev) => [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos));
+    // Step 2 — Camera (avec fallback galerie si caméra indisponible)
+    try {
+      const camPerm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!camPerm.granted) {
+        wa("Permission refusée", "L'accès à la caméra est nécessaire pour les photos de preuve sur site.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"] as any,
+        allowsEditing: false,
+        quality: 0.85,
+        exif: false,
+      });
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setLocalCompletionPhotos((prev) => [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos));
+      }
+    } catch {
+      // Caméra non disponible (simulateur) → galerie
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync().catch(() => ({ granted: false }));
+      if (!perm.granted) {
+        wa("Caméra indisponible", "La caméra n'est pas disponible sur cet appareil. Autorisez l'accès aux photos pour sélectionner une image depuis la galerie.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"] as any,
+        allowsMultipleSelection: false,
+        quality: 0.85,
+      }).catch(() => ({ canceled: true, assets: [] as any[] }));
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setLocalCompletionPhotos((prev) => [...prev, result.assets[0].uri].slice(0, maxCompletionPhotos));
+      }
     }
   };
 
@@ -1002,39 +1012,6 @@ export default function InterventionDetailScreen() {
     }
   };
 
-  const handleSaveTeamEmails = async (_unused?: boolean) => {
-    if (!currentCopro?.id || !intervention) return;
-    const valid = teamEmailsLocal.map((e) => e.trim()).filter(Boolean);
-    setIsSavingTeamEmails(true);
-    try {
-      // Sauvegarde sur l'intervention
-      await updateIntervention(intervention.id, { teamEmails: valid } as any);
-      // Inscrit les emails dans teamInterventionLinks pour que le cron les envoie la veille
-      if (valid.length > 0) {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
-        try {
-          await apiRequest("POST", "/api/team-link", {
-            coProId: currentCopro.id,
-            coProName: currentCopro.name,
-            interventionId: intervention.id,
-            interventionTitle: intervention.title,
-            interventionDate: intervention.date,
-            companyName: (intervention as any).assignedToName ?? user?.displayName ?? "Prestataire",
-            employeeEmails: valid,
-          });
-        } finally {
-          clearTimeout(timeout);
-        }
-      }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (e: any) {
-      const msg = e?.name === "AbortError" ? "Délai dépassé. Vérifiez votre connexion." : (e.message || "Impossible d'enregistrer les emails.");
-      wa("Erreur", msg);
-    } finally {
-      setIsSavingTeamEmails(false);
-    }
-  };
 
   const [teamLinkModalVisible, setTeamLinkModalVisible] = useState(false);
   const [teamLinkEmails, setTeamLinkEmails] = useState<string[]>([""]);
@@ -1303,7 +1280,7 @@ export default function InterventionDetailScreen() {
             </ScrollView>
           )}
 
-          {isPrestataire && intervention.status !== "termine" && remainingSlots > 0 && (
+          {isPrestataire && remainingSlots > 0 && (
             <View style={styles.completionActions}>
               <Pressable
                 style={({ pressed }) => [styles.completionBtn, { flex: 1 }, pressed && { opacity: 0.8 }]}
@@ -1580,74 +1557,6 @@ export default function InterventionDetailScreen() {
           </View>
         )}
 
-        {/* Rappel avant intervention — emails des salariés alertés la veille */}
-        {isPrestataire && intervention.status !== "termine" && (
-          <View style={styles.teamCard}>
-            <View style={styles.teamCardHeader}>
-              <View style={styles.teamCardIcon}>
-                <Ionicons name="notifications-outline" size={18} color={COLORS.primary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.teamCardTitle}>Rappel avant intervention</Text>
-                <Text style={styles.teamCardHint}>
-                  Ces adresses recevront automatiquement un rappel la veille de l'intervention.
-                </Text>
-              </View>
-            </View>
-
-            {teamEmailsLocal.map((email, idx) => (
-              <View key={idx} style={styles.teamLinkEmailRow}>
-                <TextInput
-                  style={[styles.teamLinkInput, { flex: 1, marginBottom: 0 }]}
-                  value={email}
-                  onChangeText={(val) => {
-                    const updated = [...teamEmailsLocal];
-                    updated[idx] = val;
-                    setTeamEmailsLocal(updated);
-                  }}
-                  placeholder="salarié@societe.fr"
-                  placeholderTextColor={COLORS.textMuted}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                {teamEmailsLocal.length > 1 && (
-                  <Pressable
-                    style={styles.teamLinkRemoveBtn}
-                    onPress={() => setTeamEmailsLocal((prev) => prev.filter((_, i) => i !== idx))}
-                  >
-                    <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
-                  </Pressable>
-                )}
-              </View>
-            ))}
-
-            {teamEmailsLocal.length < 10 && (
-              <Pressable
-                style={styles.teamLinkAddBtn}
-                onPress={() => setTeamEmailsLocal((prev) => [...prev, ""])}
-              >
-                <Ionicons name="add-circle-outline" size={16} color={COLORS.primary} />
-                <Text style={styles.teamLinkAddBtnText}>Ajouter un email</Text>
-              </Pressable>
-            )}
-
-            <Pressable
-              style={[styles.teamSendBtn, isSavingTeamEmails && { opacity: 0.6 }, { marginTop: 4 }]}
-              onPress={() => handleSaveTeamEmails(false)}
-              disabled={isSavingTeamEmails}
-            >
-              {isSavingTeamEmails ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle-outline" size={15} color="#fff" />
-                  <Text style={styles.teamSendBtnText}>Enregistrer</Text>
-                </>
-              )}
-            </Pressable>
-          </View>
-        )}
 
         {canSubmitReport && (
           <View style={styles.reportCard}>

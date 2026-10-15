@@ -81,6 +81,10 @@ export default function AdminScreen() {
   const [showAdminSalarieTokenModal, setShowAdminSalarieTokenModal] = useState(false);
   const [copiedAdminSalarieToken, setCopiedAdminSalarieToken] = useState(false);
 
+  // ── Rappel avant intervention (emails par prestataire) ──
+  const [prestReminderEmails, setPrestReminderEmails] = useState<Record<string, string[]>>({});
+  const [savingReminderFor, setSavingReminderFor] = useState<string | null>(null);
+
   // ── Signature modèle ──
   const [signatureModelUrl, setSignatureModelUrl] = useState<string | null>(null);
   const [signatureModelSvg, setSignatureModelSvg] = useState<string | null>(null);
@@ -264,6 +268,22 @@ export default function AdminScreen() {
       wa("Erreur", e.message ?? "Impossible d'envoyer l'invitation.");
     } finally {
       setAdminSalarieInviting(false);
+    }
+  };
+
+  const handleSavePrestReminderEmails = async (prestUid: string) => {
+    if (!currentCopro) return;
+    const emails = (prestReminderEmails[prestUid] ?? []).map((e) => e.trim()).filter(Boolean);
+    setSavingReminderFor(prestUid);
+    try {
+      await updateDoc(doc(db, "copros", currentCopro.id, "members", prestUid), {
+        reminderEmails: emails,
+      });
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      wa("Erreur", e.message ?? "Impossible de sauvegarder.");
+    } finally {
+      setSavingReminderFor(null);
     }
   };
 
@@ -1698,6 +1718,81 @@ export default function AdminScreen() {
                   {prestSalaries.length === 0 && (
                     <Text style={[styles.sectionDesc, { marginTop: 4, marginLeft: 40 }]}>Aucun salarié</Text>
                   )}
+
+                  {/* Rappel avant intervention — emails alertés la veille */}
+                  {(() => {
+                    const currentEmails: string[] = prestReminderEmails[prest.uid]
+                      ?? (prest as any).reminderEmails
+                      ?? [];
+                    const emails = currentEmails.length > 0 ? currentEmails : [""];
+                    if (prestReminderEmails[prest.uid] === undefined && (prest as any).reminderEmails) {
+                      setPrestReminderEmails((prev) => ({ ...prev, [prest.uid]: (prest as any).reminderEmails }));
+                    }
+                    return (
+                      <View style={styles.reminderBlock}>
+                        <View style={styles.reminderHeader}>
+                          <Ionicons name="notifications-outline" size={15} color={COLORS.primary} />
+                          <Text style={styles.reminderTitle}>Rappel avant intervention</Text>
+                        </View>
+                        <Text style={styles.reminderHint}>
+                          Ces adresses recevront un rappel la veille de chaque intervention de ce prestataire.
+                        </Text>
+                        {emails.map((email, idx) => (
+                          <View key={idx} style={styles.reminderEmailRow}>
+                            <TextInput
+                              style={[styles.inviteEmailInput, { flex: 1, marginBottom: 0 }]}
+                              value={email}
+                              onChangeText={(val) => {
+                                const updated = [...emails];
+                                updated[idx] = val;
+                                setPrestReminderEmails((prev) => ({ ...prev, [prest.uid]: updated }));
+                              }}
+                              placeholder="salarié@societe.fr"
+                              placeholderTextColor={COLORS.textMuted}
+                              keyboardType="email-address"
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                            />
+                            {emails.length > 1 && (
+                              <Pressable
+                                onPress={() => {
+                                  const updated = emails.filter((_, i) => i !== idx);
+                                  setPrestReminderEmails((prev) => ({ ...prev, [prest.uid]: updated }));
+                                }}
+                              >
+                                <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                        {emails.length < 10 && (
+                          <Pressable
+                            style={styles.reminderAddBtn}
+                            onPress={() => setPrestReminderEmails((prev) => ({
+                              ...prev,
+                              [prest.uid]: [...emails, ""],
+                            }))}
+                          >
+                            <Ionicons name="add-circle-outline" size={14} color={COLORS.primary} />
+                            <Text style={styles.reminderAddBtnText}>Ajouter un email</Text>
+                          </Pressable>
+                        )}
+                        <Pressable
+                          style={[styles.inviteSendBtn, savingReminderFor === prest.uid && { opacity: 0.6 }]}
+                          onPress={() => handleSavePrestReminderEmails(prest.uid)}
+                          disabled={savingReminderFor === prest.uid}
+                        >
+                          {savingReminderFor === prest.uid
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <>
+                                <Ionicons name="checkmark-circle-outline" size={14} color="#fff" />
+                                <Text style={styles.inviteSendBtnText}>Enregistrer</Text>
+                              </>
+                          }
+                        </Pressable>
+                      </View>
+                    );
+                  })()}
                 </View>
               );
             })}
@@ -3242,6 +3337,17 @@ const styles = StyleSheet.create({
   },
   prestSalarieName: { fontSize: 13, fontFamily: "Inter_500Medium", color: COLORS.text },
   prestSalarieEmail: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
+  // ── Rappel avant intervention (par prestataire) ──
+  reminderBlock: {
+    borderTopWidth: 1, borderTopColor: COLORS.border,
+    paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12, gap: 8,
+  },
+  reminderHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  reminderTitle: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text },
+  reminderHint: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, lineHeight: 16 },
+  reminderEmailRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  reminderAddBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 2 },
+  reminderAddBtnText: { fontSize: 12, fontFamily: "Inter_500Medium", color: COLORS.primary },
   // ── Modal admin invite salarié ──
   inviteEmailInput: {
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 12,
