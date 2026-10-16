@@ -45,6 +45,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: ANDROID_PACKAGE,
+    googleServicesFile: './google-services.json',
     enableProguardInReleaseBuilds: true,
     resizeableActivity: true,
     adaptiveIcon: {
