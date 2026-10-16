@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "478264688227",
+    "project_id": "maintena-3a544",
+    "storage_bucket": "maintena-3a544.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:478264688227:android:3969af2d1a8cc5472dc256",
+        "android_client_info": {
+          "package_name": "com.profusionnumerik.maintena"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "478264688227-5ikegtmjbpdfd9budhnsr9g2ko7qg040.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOZQsS7GCuqfquNPvmnPnHSw_cGoMadRo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "478264688227-5ikegtmjbpdfd9budhnsr9g2ko7qg040.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
