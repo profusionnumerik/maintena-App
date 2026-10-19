@@ -4271,6 +4271,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // ─── Test push (diagnostic) ───────────────────────────────────────────────
+
+  app.post("/api/test-push", async (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization ?? "";
+    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (!idToken) return res.status(401).json({ error: "Token requis" });
+
+    const adminAuth = getAdminAuthInstance();
+    const db = getAdminDb();
+    if (!adminAuth || !db) return res.status(500).json({ error: "Admin non initialisé" });
+
+    try {
+      const decoded = await adminAuth.verifyIdToken(idToken);
+      const uid = decoded.uid;
+      const userDoc = await db.collection("users").doc(uid).get();
+      const pushToken: string | undefined = userDoc.data()?.pushToken;
+
+      if (!pushToken) {
+        return res.json({ ok: false, reason: "no_token", uid, message: "Aucun pushToken enregistré pour cet utilisateur. Les notifications ne peuvent pas être envoyées." });
+      }
+
+      if (!pushToken.startsWith("ExponentPushToken")) {
+        return res.json({ ok: false, reason: "invalid_token_format", token: pushToken.slice(0, 20) + "…", message: "Le token n'est pas au format Expo." });
+      }
+
+      const expRes = await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify([{
+          to: pushToken,
+          title: "🔔 Test Maintena",
+          body: "Les notifications fonctionnent !",
+          sound: "default",
+          data: { type: "test" },
+        }]),
+      });
+      const expBody = await expRes.json() as any;
+      const result = expBody?.data?.[0];
+      const status = result?.status ?? "unknown";
+      const details = result?.details ?? {};
+
+      return res.json({ ok: status === "ok", status, details, tokenPrefix: pushToken.slice(0, 30) + "…" });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─── Intervention créée ────────────────────────────────────────────────────
 
   app.post("/api/notify-intervention-created", async (req: Request, res: Response) => {

@@ -75,6 +75,36 @@ export default function ProfileScreen() {
   const [linkCode, setLinkCode] = useState("");
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
+
+  const handleTestPush = async () => {
+    if (!user) return;
+    setTestingPush(true);
+    try {
+      const { getAuth } = await import("firebase/auth");
+      const idToken = await getAuth().currentUser?.getIdToken();
+      if (!idToken) { Alert.alert("Erreur", "Non connecté"); return; }
+      const apiBase = process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || "";
+      const res = await fetch(`${apiBase}/api/test-push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (data.ok) {
+        Alert.alert("✅ Notification envoyée", "Vous devriez la recevoir dans quelques secondes.");
+      } else if (data.reason === "no_token") {
+        Alert.alert("❌ Token manquant", "Votre appareil n'a pas de token push enregistré.\n\nCause probable : les credentials APNs (iOS) ou FCM V1 (Android) ne sont pas configurés dans EAS.\n\nConsultez expo.dev → Credentials.");
+      } else if (data.reason === "invalid_token_format") {
+        Alert.alert("❌ Format invalide", `Token: ${data.token}\n\nLe format n'est pas Expo-compatible.`);
+      } else {
+        Alert.alert("❌ Echec envoi", `Status: ${data.status}\nDétails: ${JSON.stringify(data.details)}`);
+      }
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message ?? "Impossible de tester");
+    } finally {
+      setTestingPush(false);
+    }
+  };
 
   useEffect(() => {
     if (!user?.uid || !canInviteTeam) return;
@@ -492,6 +522,25 @@ export default function ProfileScreen() {
                 thumbColor="#fff"
               />
             </View>
+
+            <View style={s.separator} />
+
+            <Pressable
+              style={({ pressed }) => [s.row, pressed && { opacity: 0.7 }]}
+              onPress={handleTestPush}
+              disabled={testingPush}
+            >
+              <View style={[s.rowIcon, { backgroundColor: "#FFF7ED" }]}>
+                {testingPush
+                  ? <ActivityIndicator size="small" color={COLORS.warning} />
+                  : <Ionicons name="send-outline" size={18} color={COLORS.warning} />}
+              </View>
+              <View style={s.rowContent}>
+                <Text style={s.rowValue}>Tester les notifications</Text>
+                <Text style={s.rowLabel}>Envoie une notification de test sur cet appareil</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+            </Pressable>
           </View>
         </View>
 

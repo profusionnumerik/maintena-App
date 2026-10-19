@@ -13,6 +13,7 @@ import {
   orderBy, query, updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { formatFrenchPhone } from "@/lib/phone";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
@@ -320,10 +321,11 @@ export default function AnnuairePrestatairesScreen() {
               <TextInput
                 style={styles.input}
                 value={form.phone}
-                onChangeText={(v) => setForm((f) => ({ ...f, phone: v }))}
+                onChangeText={(v) => setForm((f) => ({ ...f, phone: formatFrenchPhone(v) }))}
                 placeholder="06 12 34 56 78"
                 placeholderTextColor={COLORS.textMuted}
                 keyboardType="phone-pad"
+                maxLength={14}
               />
             </Field>
             <Field label="Entreprise / Société">

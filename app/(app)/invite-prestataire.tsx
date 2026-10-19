@@ -18,18 +18,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
 import { useCoPro } from "@/context/CoProContext";
 import { ALL_CATEGORIES, CATEGORY_LABELS, Category } from "@/shared/types";
-
-function normalizePhone(phone: string): string {
-  return phone.replace(/[^0-9+\s().-]/g, "");
-}
+import { formatFrenchPhone, isValidFrenchPhone } from "@/lib/phone";
 
 function isValidEmail(email: string): boolean {
   return /\S+@\S+\.\S+/.test(email.trim());
-}
-
-function isValidPhone(phone: string): boolean {
-  const digits = phone.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15;
 }
 
 export default function InvitePrestataireScreen() {
@@ -77,7 +69,7 @@ export default function InvitePrestataireScreen() {
       return;
     }
 
-    if (!phone.trim() || !isValidPhone(phone)) {
+    if (!phone.trim() || !isValidFrenchPhone(phone)) {
       wa("Téléphone invalide", "Veuillez saisir un numéro de téléphone valide.");
       return;
     }
@@ -207,7 +199,7 @@ export default function InvitePrestataireScreen() {
             <TextInput
               style={styles.input}
               value={phone}
-              onChangeText={(text) => setPhone(normalizePhone(text))}
+              onChangeText={(text) => setPhone(formatFrenchPhone(text))}
               placeholder="Ex: 06 12 34 56 78"
               placeholderTextColor={COLORS.textMuted}
               keyboardType="phone-pad"

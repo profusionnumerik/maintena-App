@@ -336,13 +336,20 @@ function RootLayoutNav() {
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
-        if (finalStatus !== "granted") return;
+        if (finalStatus !== "granted") {
+          console.warn("[PUSH] Permission refusée:", finalStatus);
+          return;
+        }
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ??
           "f942f5d6-18ac-41c4-89a0-4d9b2fe98138";
         const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        console.log("[PUSH] Token obtenu:", token.slice(0, 30) + "...");
         await setDoc(doc(db, "users", user.uid), { pushToken: token }, { merge: true });
-      } catch {}
+        console.log("[PUSH] Token sauvegardé pour uid:", user.uid);
+      } catch (e) {
+        console.error("[PUSH] Erreur registration token:", e);
+      }
     };
 
     register();
