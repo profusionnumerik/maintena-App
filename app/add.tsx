@@ -375,7 +375,7 @@ export default function AddInterventionScreen() {
   const { addIntervention, updateIntervention, getIntervention } =
     useInterventions();
   const { currentCopro, currentRole, categoryFilter, members, preRegisterProvider } = useCoPro();
-  const { editId, reassign } = useLocalSearchParams<{ editId?: string; reassign?: string }>();
+  const { editId, reassign, passageMode, category: categoryParam, groupId: groupIdParam } = useLocalSearchParams<{ editId?: string; reassign?: string; passageMode?: string; category?: string; groupId?: string }>();
   const isEditMode = !!editId;
   const isReassign = reassign === "1";
 
@@ -391,7 +391,7 @@ export default function AddInterventionScreen() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<Category | null>(
-    categoryFilter ?? null
+    (categoryParam as Category | undefined) ?? categoryFilter ?? null
   );
   const isCategoryLocked = currentRole === "prestataire" && !!categoryFilter;
 
@@ -406,6 +406,17 @@ export default function AddInterventionScreen() {
   const [annuaireContacts, setAnnuaireContacts] = useState<any[]>([]);
   const [phoneError, setPhoneError] = useState("");
 
+  const [adminMode, setAdminMode] = useState<"programmer" | "passage">(passageMode === "1" ? "passage" : "programmer");
+
+  useEffect(() => {
+    if (adminMode === "passage") {
+      setDateStr("");
+      setDateError("");
+    } else {
+      setDateStr(todayDDMMYYYY());
+      setDateError("");
+    }
+  }, [adminMode]);
   const [providerMode, setProviderMode] = useState<ProviderMode>("existing");
   const [newProvider, setNewProvider] = useState<NewProviderForm>({
     firstName: "",
@@ -773,7 +784,7 @@ export default function AddInterventionScreen() {
     const formatted = formatDateInput(text, dateStr);
     setDateStr(formatted);
 
-    if (formatted.length === 10) validateDate(formatted);
+    if (formatted.length === 10) validateDate(formatted, isEditMode || (isAdmin && adminMode === "passage"));
     else setDateError("");
   };
 
@@ -816,7 +827,7 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    if (canManage) {
+    if (canManage && adminMode !== "passage" && !isEditMode) {
       if (providerMode === "existing" && !assignedToUid) {
         wa(
           "Prestataire requis",
@@ -834,7 +845,12 @@ export default function AddInterventionScreen() {
       }
     }
 
-    const parsedDate = validateDate(dateStr, isEditMode);
+    if (canManage && isEditMode && isReassign && providerMode === "new" && !validateNewProvider()) {
+      wa("Prestataire incomplet", "Veuillez remplir correctement les informations du nouveau prestataire.");
+      return;
+    }
+
+    const parsedDate = validateDate(dateStr, isEditMode || (isAdmin && adminMode === "passage"));
     if (!parsedDate) {
       wa("Date invalide", dateError || "Vérifiez la date saisie.");
       return;
@@ -1005,7 +1021,8 @@ export default function AddInterventionScreen() {
       return;
     }
 
-    const entryType: EntryType = isAdmin ? "programmation" : "intervention";
+    const entryType: EntryType = (isAdmin && adminMode === "passage") ? "intervention" : isAdmin ? "programmation" : "intervention";
+    const finalStatus: Status = (isAdmin && adminMode === "passage") ? "termine" : status;
     parsedDate.setHours(12, 0, 0, 0);
 
     try {
@@ -1160,10 +1177,11 @@ export default function AddInterventionScreen() {
           title: title.trim(),
           description: description.trim(),
           category,
-          status,
+          status: finalStatus,
           date: parsedDate.toISOString(),
           photos: photoUrls,
           entryType,
+          ...(groupIdParam ? { recurrenceGroupId: groupIdParam } : {}),
           technicianPhone:
             providerMode === "new"
               ? onlyPhoneDigits(newProvider.phone)
@@ -1280,6 +1298,9 @@ export default function AddInterventionScreen() {
     locationStatus === "no-coords" ||
     Platform.OS === "web";
 
+  const passageDateParsed = isAdmin && !isEditMode && adminMode === "passage" ? parseDDMMYYYY(dateStr) : null;
+  const isPassageDatePast = passageDateParsed ? !isTodayOrFuture(passageDateParsed) : false;
+
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: topPadding + 12 }]}>
@@ -1292,7 +1313,7 @@ export default function AddInterventionScreen() {
 
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>
-            {isReassign ? "Réattribuer" : isEditMode ? "Modifier" : isAdmin ? "Programmer" : "Déclarer"}
+            {isReassign ? "Réattribuer" : isEditMode ? "Modifier" : isAdmin && adminMode === "passage" ? "Enregistrer le passage" : isAdmin ? "Programmer" : "Déclarer"}
           </Text>
 
           {!isEditMode && (
@@ -1359,9 +1380,11 @@ export default function AddInterventionScreen() {
 
       {isAdmin && (
         <View style={styles.adminBanner}>
-          <Ionicons name="wifi-outline" size={14} color={COLORS.primary} />
+          <Ionicons name={adminMode === "passage" ? "checkmark-done-outline" : "wifi-outline"} size={14} color={COLORS.primary} />
           <Text style={styles.adminBannerText}>
-            Programmation à distance — aucune vérification de présence requise
+            {adminMode === "passage"
+              ? "Enregistrement admin — passage déjà réalisé par le prestataire"
+              : "Programmation à distance — aucune vérification de présence requise"}
           </Text>
         </View>
       )}
@@ -1410,6 +1433,35 @@ export default function AddInterventionScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {isAdmin && !isEditMode && !isReassign && (
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+            {(["programmer", "passage"] as const).map((mode) => {
+              const sel = adminMode === mode;
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => setAdminMode(mode)}
+                  style={{
+                    flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: "center",
+                    backgroundColor: sel ? COLORS.primary : COLORS.surface,
+                    borderWidth: 1.5, borderColor: sel ? COLORS.primary : COLORS.border,
+                    flexDirection: "row", justifyContent: "center", gap: 6,
+                  }}
+                >
+                  <Ionicons
+                    name={mode === "programmer" ? "calendar-outline" : "checkmark-done-outline"}
+                    size={15}
+                    color={sel ? "#fff" : COLORS.textMuted}
+                  />
+                  <Text style={{ fontSize: 13, fontFamily: "Inter_600SemiBold", color: sel ? "#fff" : COLORS.textMuted }}>
+                    {mode === "programmer" ? "Programmer" : "Passage effectué"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>Titre *</Text>
           <TextInput
@@ -1417,7 +1469,9 @@ export default function AddInterventionScreen() {
             value={title}
             onChangeText={setTitle}
             placeholder={
-              isAdmin
+              isAdmin && adminMode === "passage"
+                ? "Ex: Passage technicien ascenseur"
+                : isAdmin
                 ? "Ex: Vérification annuelle ascenseur"
                 : "Ex: Nettoyage hall d'entrée"
             }
@@ -1557,29 +1611,33 @@ export default function AddInterventionScreen() {
               style={[
                 styles.statusInfoIconWrap,
                 {
-                  backgroundColor: isAdmin
+                  backgroundColor: isAdmin && adminMode === "passage"
+                    ? "rgba(16,185,129,0.12)"
+                    : isAdmin
                     ? "rgba(37,99,235,0.12)"
                     : "rgba(16,185,129,0.12)",
                 },
               ]}
             >
               <Ionicons
-                name={isAdmin ? "calendar-outline" : "checkmark-circle-outline"}
+                name={isAdmin && adminMode === "passage" ? "checkmark-done-outline" : isAdmin ? "calendar-outline" : "checkmark-circle-outline"}
                 size={16}
-                color={isAdmin ? COLORS.primary : COLORS.success}
+                color={isAdmin && adminMode === "passage" ? COLORS.success : isAdmin ? COLORS.primary : COLORS.success}
               />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text
                 style={[
                   styles.statusInfoTitle,
-                  { color: isAdmin ? COLORS.primary : COLORS.success },
+                  { color: isAdmin && adminMode === "passage" ? COLORS.success : isAdmin ? COLORS.primary : COLORS.success },
                 ]}
               >
-                {isAdmin ? "Sera planifiée" : "Rapport d'intervention"}
+                {isAdmin && adminMode === "passage" ? "Passage réalisé" : isAdmin ? "Sera planifiée" : "Rapport d'intervention"}
               </Text>
               <Text style={styles.statusInfoDesc}>
-                {isAdmin
+                {isAdmin && adminMode === "passage"
+                  ? "L'intervention sera enregistrée directement comme terminée"
+                  : isAdmin
                   ? "Le prestataire devra marquer l'intervention comme réalisée"
                   : "Intervention déjà réalisée"}
               </Text>
@@ -1591,6 +1649,8 @@ export default function AddInterventionScreen() {
           <Text style={styles.fieldLabel}>
             {recurrenceEnabled
               ? "Date de début"
+              : isAdmin && adminMode === "passage"
+              ? "Date du passage"
               : isAdmin
               ? "Date souhaitée d'intervention"
               : "Date d'intervention"}
@@ -1609,7 +1669,7 @@ export default function AddInterventionScreen() {
               style={styles.dateInput}
               value={dateStr}
               onChangeText={handleDateChange}
-              placeholder="JJ/MM/AAAA"
+              placeholder={isAdmin && adminMode === "passage" ? "Date de passage" : "JJ/MM/AAAA"}
               placeholderTextColor={COLORS.textMuted}
               keyboardType="number-pad"
               returnKeyType="done"
@@ -1623,12 +1683,22 @@ export default function AddInterventionScreen() {
             <Text style={styles.fieldHint}>
               {isEditMode
                 ? "Format : JJ/MM/AAAA"
+                : isAdmin && adminMode === "passage"
+                ? "Format : JJ/MM/AAAA — dates passées autorisées"
                 : "Format : JJ/MM/AAAA — date antérieure à aujourd'hui impossible"}
             </Text>
           )}
+          {isPassageDatePast && !dateError && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6, backgroundColor: "rgba(245,158,11,0.10)", borderRadius: 8, padding: 8 }}>
+              <Ionicons name="time-outline" size={14} color={COLORS.warning} />
+              <Text style={{ fontSize: 12, color: COLORS.warning, fontFamily: "Inter_500Medium", flex: 1 }}>
+                Date passée — le passage sera enregistré comme réalisé
+              </Text>
+            </View>
+          )}
         </View>
 
-        {isAdmin && !isEditMode && (
+        {isAdmin && !isEditMode && adminMode !== "passage" && (
           <View style={styles.field}>
             <View style={styles.toggleRow}>
               <View style={{ flex: 1 }}>
@@ -1751,8 +1821,28 @@ export default function AddInterventionScreen() {
 
         {isAdmin && category && (
           <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Affectation prestataire</Text>
+            <Text style={styles.fieldLabel}>
+              {adminMode === "passage" ? "Prestataire (optionnel)" : "Affectation prestataire"}
+            </Text>
 
+            {adminMode === "passage" && (
+              <>
+                <Text style={[styles.fieldHint, { marginBottom: 8 }]}>
+                  Saisissez le nom tel qu'il apparaît sur la carte de passage (optionnel)
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={assignedToName}
+                  onChangeText={(v) => { setAssignedToName(v); setAssignedToUid(""); }}
+                  placeholder="Ex: Dupont Jean — Otis"
+                  placeholderTextColor={COLORS.textMuted}
+                  returnKeyType="done"
+                  maxLength={80}
+                />
+              </>
+            )}
+
+            {adminMode !== "passage" && (
             <View style={styles.modeSwitchRow}>
               <Pressable
                 onPress={() => {
@@ -1807,8 +1897,9 @@ export default function AddInterventionScreen() {
                 </Text>
               </Pressable>
             </View>
+            )}
 
-            {providerMode === "existing" ? (
+            {providerMode === "existing" && adminMode !== "passage" ? (
               (() => {
                 const memberEmails = new Set(availablePrestataires.map((p: any) => (p.email ?? "").toLowerCase()));
                 const coProLat = currentCopro?.latitude;
@@ -1936,7 +2027,7 @@ export default function AddInterventionScreen() {
                   </>
                 );
               })()
-            ) : (
+            ) : adminMode !== "passage" ? (
               <View style={styles.inlineFormCard}>
                 <Text style={styles.fieldHint}>
                   Saisissez rapidement les coordonnées du prestataire. Il recevra un
@@ -2015,11 +2106,11 @@ export default function AddInterventionScreen() {
                   )}
                 </View>
               </View>
-            )}
+            ) : null}
           </View>
         )}
 
-        {(!isAdmin || providerMode !== "new") && (
+        {(!isAdmin || providerMode !== "new") && adminMode !== "passage" && (
         <View style={styles.field}>
           <Text style={styles.fieldLabel}>
             Téléphone intervenant

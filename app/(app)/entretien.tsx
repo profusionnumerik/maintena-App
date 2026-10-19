@@ -812,15 +812,15 @@ export default function EntretienScreen() {
       // Convertir JJ-MM-AAAA → AAAA-MM-JJ pour Firestore
       const dateIso = displayToIso(form.date) || form.date;
       const visitId = `visit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const newVisit: EntretienVisit = {
+      const newVisit = {
         id: visitId,
         date: dateIso,
-        technicianName: form.technicianName.trim() || undefined,
-        notes: form.notes.trim() || undefined,
+        ...(form.technicianName.trim() ? { technicianName: form.technicianName.trim() } : {}),
+        ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
         addedBy: user.uid,
         addedByName: user.displayName ?? user.email ?? "—",
         createdAt: new Date().toISOString(),
-      };
+      } as EntretienVisit;
 
       const nextVisitDate = calcNextDate(dateIso, visitModalTarget.periodicite);
       const updatedVisits = [...visitModalTarget.visits, newVisit];

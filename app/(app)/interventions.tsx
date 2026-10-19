@@ -58,6 +58,8 @@ interface MaintenanceGroup {
   providerName?: string;
   invitedProviderEmail?: string;
   invitedProviderName?: string;
+  thisMonthPassage?: string;
+  coProId: string;
 }
 
 function inferFrequency(items: Intervention[]): string {
@@ -86,10 +88,11 @@ type FlatItem = SectionHeader | GroupHeader | ItemRow;
 
 // ── Maintenance group card ────────────────────────────────────────────────────
 
-function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin, isTomorrow, isLocked }: {
+function MaintenanceGroupCard({ group, onPress, onRemind, onRecordPassage, isAdmin, isTomorrow, isLocked }: {
   group: MaintenanceGroup;
   onPress: () => void;
   onRemind?: () => void;
+  onRecordPassage?: () => void;
   isAdmin?: boolean;
   isTomorrow?: boolean;
   isLocked?: boolean;
@@ -136,27 +139,41 @@ function MaintenanceGroupCard({ group, onPress, onRemind, isAdmin, isTomorrow, i
 
       <View style={styles.maintDates}>
         <View style={styles.maintDateItem}>
-          <Text style={styles.maintDateLabel}>Dernière réalisation</Text>
-          <Text style={[styles.maintDateValue, !group.lastDoneDate && styles.maintDateEmpty]}>
-            {group.lastDoneDate
-              ? new Date(group.lastDoneDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
-              : "—"}
-          </Text>
+          <Text style={styles.maintDateLabel}>Ce mois</Text>
+          {group.thisMonthPassage ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="checkmark-circle" size={13} color="#10B981" />
+              <Text style={[styles.maintDateValue, { color: "#065F46" }]}>
+                {new Date(group.thisMonthPassage).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Ionicons name="time-outline" size={13} color="#92400E" />
+              <Text style={[styles.maintDateValue, { color: "#92400E" }]}>En attente</Text>
+            </View>
+          )}
         </View>
         <View style={styles.maintDateDivider} />
         <View style={styles.maintDateItem}>
-          <Text style={styles.maintDateLabel}>Prochaine prévue</Text>
-          <Text style={[
-            styles.maintDateValue,
-            !group.nextDueDate && styles.maintDateEmpty,
-            group.status === "en_retard" && { color: "#EF4444" },
-          ]}>
-            {group.nextDueDate
-              ? new Date(group.nextDueDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
-              : "—"}
+          <Text style={styles.maintDateLabel}>Dernier passage</Text>
+          <Text style={[styles.maintDateValue, !group.lastDoneDate && styles.maintDateEmpty]}>
+            {group.lastDoneDate
+              ? new Date(group.lastDoneDate).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })
+              : "Aucun encore"}
           </Text>
         </View>
       </View>
+
+      {isAdmin && onRecordPassage && (
+        <Pressable
+          style={({ pressed }) => [styles.recordPassageBtn, pressed && { opacity: 0.75 }]}
+          onPress={(e) => { e.stopPropagation?.(); onRecordPassage(); }}
+        >
+          <Ionicons name="checkmark-done-outline" size={14} color="#fff" />
+          <Text style={styles.recordPassageBtnText}>Enregistrer un passage</Text>
+        </Pressable>
+      )}
 
       {group.missedCount > 0 && (
         <View style={styles.maintMissedRow}>
@@ -585,6 +602,8 @@ export default function InterventionsScreen() {
         status = "a_venir";
       }
       const todayIso       = new Date().toISOString().split("T")[0];
+      const nowDate        = new Date();
+      const currentYM      = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, "0")}`;
       const lastDone       = done.length > 0 ? done[done.length - 1] : undefined;
       const overduePending = pending.filter(i => i.date.split("T")[0] < todayIso);
       const futurePending  = pending.filter(i => i.date.split("T")[0] >= todayIso);
@@ -592,6 +611,7 @@ export default function InterventionsScreen() {
                            : overduePending.length > 0 ? overduePending[overduePending.length - 1]
                            : undefined;
       const latest         = items[items.length - 1];
+      const thisMonthDone  = done.find(i => i.date.startsWith(currentYM));
       result.push({
         groupId,
         title: latest.title,
@@ -608,6 +628,8 @@ export default function InterventionsScreen() {
         nextItemId: nextDue?.id ?? lastDone?.id ?? items[0].id,
         providerEmail: latest.invitedProvider?.email,
         providerName: latest.invitedProvider?.name ?? latest.technician,
+        thisMonthPassage: thisMonthDone?.date,
+        coProId: latest.coProId ?? "",
       });
     }
     const order: Record<MaintenanceStatus, number> = { en_retard: 0, a_venir: 1, fait: 2 };
@@ -860,6 +882,7 @@ export default function InterventionsScreen() {
                 isLocked={false}
                 onPress={() => router.push(`/maintenance-group/${item.groupId}` as any)}
                 onRemind={() => handleSendReminder(item)}
+                onRecordPassage={(isAdmin || isConseil) ? () => router.push(`/add?passageMode=1&category=${item.category}&groupId=${item.groupId}` as any) : undefined}
               />
             );
           }}
@@ -1058,6 +1081,14 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   reminderBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#D97706" },
+
+  recordPassageBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: COLORS.primary, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 9,
+    marginTop: 10, alignSelf: "stretch", justifyContent: "center",
+  },
+  recordPassageBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff" },
 
   // Intervention cards
   card: {

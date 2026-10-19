@@ -440,14 +440,13 @@ export default function InterventionDetailScreen() {
         new Date().toISOString().split("T")[0];
 
       const visitId = `visit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const techName = (intervention as any).assignedToName || (intervention as any).technician || "";
+      const visitNotes = (intervention as any).interventionReport || "";
       const newVisit = {
         id: visitId,
         date: visitDate,
-        technicianName:
-          (intervention as any).assignedToName ||
-          (intervention as any).technician ||
-          undefined,
-        notes: (intervention as any).interventionReport || undefined,
+        ...(techName ? { technicianName: techName } : {}),
+        ...(visitNotes ? { notes: visitNotes } : {}),
         addedBy: user.uid,
         addedByName: user.displayName || user.email || "—",
         createdAt: new Date().toISOString(),
