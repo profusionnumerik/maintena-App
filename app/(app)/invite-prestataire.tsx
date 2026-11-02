@@ -19,6 +19,8 @@ import { COLORS } from "@/constants/colors";
 import { useCoPro } from "@/context/CoProContext";
 import { ALL_CATEGORIES, CATEGORY_LABELS, Category } from "@/shared/types";
 import { formatFrenchPhone, isValidFrenchPhone } from "@/lib/phone";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 function isValidEmail(email: string): boolean {
   return /\S+@\S+\.\S+/.test(email.trim());
@@ -39,6 +41,7 @@ export default function InvitePrestataireScreen() {
   );
 
   const [firstName, setFirstName] = useState("");
+  const [helpVisible, setHelpVisible] = useState(false);
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -135,7 +138,9 @@ export default function InvitePrestataireScreen() {
             Création rapide avec code individuel
           </Text>
         </View>
+        <HelpButton onPress={() => setHelpVisible(true)} />
       </View>
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.invitePrestataire.title} content={HELP.invitePrestataire.content} />
 
       <ScrollView
         style={styles.scroll}

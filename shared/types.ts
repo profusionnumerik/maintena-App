@@ -266,6 +266,7 @@ export interface CoPro {
   conseilVote?: ConseilVote | null;
   revoteRequest?: RevoteRequest | null;
   // Informations légales du syndic (pour les documents officiels)
+  syndicType?: "benevole" | "professionnel";
   syndicCompanyName?: string; // Nom de la société syndic (si différent du nom résidence)
   syndicSiret?: string;       // SIRET du syndicat des copropriétaires ou du syndic
   syndicPhone?: string;       // Téléphone du syndic

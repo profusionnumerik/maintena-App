@@ -25,6 +25,8 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 import {
   ALL_EXPENSE_CATEGORIES, AnnualBudget, BudgetCustomLine,
   BuildingDef, CATEGORY_LABELS, ConseilVote, Expense, ExpenseCategory,
@@ -105,6 +107,7 @@ export default function ConseilFinancesScreen() {
   const { interventions: allInterventions } = useInterventions();
 
   const [tab, setTab] = useState<Tab>("depenses");
+  const [helpVisible, setHelpVisible] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null); // null = tous
@@ -142,8 +145,13 @@ export default function ConseilFinancesScreen() {
   const tresorierUid = liveTresorierUid !== undefined ? liveTresorierUid : (currentCopro?.tresorierUid ?? null);
   const conseilVote = liveVote !== undefined ? liveVote : (currentCopro?.conseilVote ?? null);
   const revoteRequest = liveRevoteRequest !== undefined ? liveRevoteRequest : (currentCopro?.revoteRequest ?? null);
-  const isTresorier = isConseil && user?.uid === tresorierUid;
-  // Seul le trésorier désigné peut écrire ; le syndic (admin) est en lecture seule
+  const syndicType = currentCopro?.syndicType ?? "professionnel";
+  const isBenevole = syndicType === "benevole";
+  // Syndic bénévole = admin est aussi trésorier, il écrit directement
+  // Syndic professionnel = seul le trésorier élu (conseil) peut écrire
+  const isTresorier = isBenevole
+    ? (currentRole === "admin")
+    : (isConseil && user?.uid === tresorierUid);
   const canWrite = isTresorier;
 
   // Bâtiments de la résidence — fallback si config absente
@@ -609,7 +617,8 @@ export default function ConseilFinancesScreen() {
           <Text style={styles.headerTitle}>Contrôle des comptes</Text>
           <Text style={styles.headerSub}>{currentCopro.name}</Text>
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <HelpButton onPress={() => setHelpVisible(true)} />
           {(isAdmin || isConseil) && expenses.length > 0 && (
             <>
               <Pressable
@@ -642,6 +651,7 @@ export default function ConseilFinancesScreen() {
           )}
         </View>
       </View>
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.controleComptes.title} content={HELP.controleComptes.content} />
 
       {/* Sélecteur d'année */}
       <View style={styles.yearRow}>
@@ -668,16 +678,16 @@ export default function ConseilFinancesScreen() {
       {loading ? <ActivityIndicator style={{ marginTop: 40 }} color={COLORS.primary} /> : (
         <ScrollView contentContainerStyle={styles.content}>
 
-          {/* ── Bannière lecture seule (syndic) ── */}
-          {isAdmin && (
+          {/* ── Bannière lecture seule (syndic pro uniquement) ── */}
+          {isAdmin && !isBenevole && (
             <View style={styles.readOnlyBanner}>
               <Ionicons name="eye-outline" size={16} color="#0369A1" />
-              <Text style={styles.readOnlyText}>Mode lecture seule — Le conseil syndical gère la saisie des comptes.</Text>
+              <Text style={styles.readOnlyText}>Mode lecture seule — Le trésorier élu par le conseil syndical gère la saisie des comptes.</Text>
             </View>
           )}
 
-          {/* ── Section vote trésorier (conseil uniquement) ── */}
-          {isConseil && (
+          {/* ── Section vote trésorier (syndic pro, conseil uniquement) ── */}
+          {isConseil && !isBenevole && (
             <View style={styles.voteCard}>
               {/* Cas A : pas de vote, pas de trésorier */}
               {!conseilVote && !tresorierUid && (

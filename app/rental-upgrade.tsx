@@ -12,23 +12,26 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { canPayInApp, NO_IN_APP_PAYMENT } from "@/lib/billing";
 import { auth } from "@/lib/firebase";
 import { apiRequest } from "@/lib/query-client";
 
-const CONTACT_EMAIL = "contact@maintena-pro.fr";
+const CONTACT_EMAIL = "contact@profusionnumerik.fr";
 
 // ─── Données des plans ────────────────────────────────────────────────────────
 
 const PLANS = [
   {
-    key:         "free",
-    label:       "Gratuit",
-    description: "Pour tester l'app avec un premier bien",
-    price:       "0 €",
-    period:      "",
+    key:         "simple",
+    label:       "Simple",
+    description: "1 logement · 1 mois offert puis 1,99 €/mois",
+    price:       "1,99 €",
+    period:      "/mois",
     color:       "#64748B",
     highlight:   false,
+    trialBadge:  "1 mois offert",
     features: [
+      { icon: "gift-outline",           text: "1 mois gratuit puis 1,99 €/mois" },
       { icon: "home-outline",           text: "1 logement" },
       { icon: "person-outline",         text: "1 locataire" },
       { icon: "folder-outline",         text: "5 Mo de stockage" },
@@ -107,7 +110,7 @@ function PlanCard({
   const [loading, setLoading] = useState(false);
 
   const handleUpgrade = async () => {
-    if (plan.key === "free" || isCurrent) return;
+    if (isCurrent) return;
     setLoading(true);
     try {
       const token = await auth.currentUser?.getIdToken();
@@ -184,8 +187,16 @@ function PlanCard({
         ))}
       </View>
 
+      {/* Badge trial */}
+      {"trialBadge" in plan && plan.trialBadge && !isCurrent && (
+        <View style={card.trialBadge}>
+          <Ionicons name="gift-outline" size={13} color="#16A34A" />
+          <Text style={card.trialBadgeText}>{plan.trialBadge}</Text>
+        </View>
+      )}
+
       {/* CTA */}
-      {plan.key !== "free" && !isCurrent && (
+      {!isCurrent && (
         <Pressable
           style={({ pressed }) => [
             card.cta,
@@ -202,7 +213,7 @@ function PlanCard({
             : <>
                 <Ionicons name="card-outline" size={15} color={plan.highlight ? "#fff" : plan.color} />
                 <Text style={[card.ctaText, !plan.highlight && { color: plan.color }]}>
-                  S'abonner
+                  {"trialBadge" in plan && plan.trialBadge ? "Commencer gratuitement" : "S'abonner"}
                 </Text>
               </>
           }
@@ -255,6 +266,7 @@ export default function RentalUpgradeScreen() {
           </Text>
         </View>
 
+        {canPayInApp ? (<>
         {/* Cards */}
         <View style={styles.cards}>
           {PLANS.map((p) => (
@@ -266,11 +278,16 @@ export default function RentalUpgradeScreen() {
         <View style={styles.contactNote}>
           <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.35)" />
           <Text style={styles.contactNoteText}>
-            Pas encore de paiement en ligne — envoyez-nous un email et nous activons votre compte sous 24h.
+            Paiement sécurisé par carte via Stripe. Résiliable à tout moment. Pour toute question : {CONTACT_EMAIL}
           </Text>
         </View>
-
-        <Text style={styles.emailHint}>{CONTACT_EMAIL}</Text>
+        </>) : (
+          // Application mobile : pas de prix ni de paiement Stripe (règles Google Play / App Store).
+          <View style={styles.contactNote}>
+            <Ionicons name="information-circle-outline" size={14} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.contactNoteText}>{NO_IN_APP_PAYMENT}</Text>
+          </View>
+        )}
       </ScrollView>
     </LinearGradient>
   );
@@ -348,4 +365,11 @@ const card = StyleSheet.create({
     gap: 8, margin: 16, marginTop: 4, borderRadius: 12, paddingVertical: 13,
   },
   ctaText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  trialBadge: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#DCFCE7", borderRadius: 8, marginHorizontal: 16, marginTop: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: "#BBF7D0",
+  },
+  trialBadgeText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#16A34A", flex: 1 },
 });

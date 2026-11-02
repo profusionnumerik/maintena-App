@@ -20,6 +20,8 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { wa, wConfirm } from "@/shared/dialogs";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 const DOC_TYPES = [
   { key: "reglement",    label: "Règlement de copropriété",  icon: "document-text",      color: "#2563EB" },
@@ -64,6 +66,7 @@ export default function DocumentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<DocType | null>(null);
+  const [helpVisible, setHelpVisible] = useState(false);
 
   useEffect(() => {
     if (!currentCopro?.id) return;
@@ -156,7 +159,9 @@ export default function DocumentsScreen() {
           <Text style={styles.headerSub}>{currentCopro?.name}</Text>
         </View>
         {uploading && <ActivityIndicator color={COLORS.primary} />}
+        <HelpButton onPress={() => setHelpVisible(true)} />
       </View>
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.documents.title} content={HELP.documents.content} />
 
       {/* Barre de recherche */}
       <View style={styles.searchBar}>

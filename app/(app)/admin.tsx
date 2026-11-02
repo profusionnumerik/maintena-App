@@ -1,6 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import * as Location from "expo-location";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +16,7 @@ import { collection, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where } 
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { getApiUrl } from "@/lib/query-client";
+import { canPayInApp } from "@/lib/billing";
 import { crossShare } from "@/lib/share";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -65,6 +67,13 @@ export default function AdminScreen() {
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
+  const [inAppSoundEnabled, setInAppSoundEnabled] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem("inapp_notif_sound_enabled").then((v) => {
+      if (v !== null) setInAppSoundEnabled(v !== "false");
+    }).catch(() => {});
+  }, []);
 
   // ── Salariés (prestataire) ──
   const [salaries, setSalaries] = useState<Array<{ uid: string; displayName: string | null; email: string | null }>>([]);
@@ -1194,7 +1203,7 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {isAdmin && userSubscription?.status === "active" && adminTab === "copro" && (
+      {canPayInApp && isAdmin && userSubscription?.status === "active" && adminTab === "copro" && (
         <Pressable
           style={({ pressed }) => [styles.portalBtn, pressed && { opacity: 0.82 }]}
           onPress={handleBillingPortal}
@@ -2105,6 +2114,23 @@ export default function AdminScreen() {
               </View>
               <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
             </Pressable>
+
+            <View style={styles.infoRow}>
+              <View style={styles.infoLeft}>
+                <Ionicons name="volume-medium-outline" size={18} color={COLORS.primary} />
+                <Text style={styles.infoText}>Son dans l'app</Text>
+              </View>
+              <Switch
+                value={inAppSoundEnabled}
+                onValueChange={(v) => {
+                  setInAppSoundEnabled(v);
+                  AsyncStorage.setItem("inapp_notif_sound_enabled", v ? "true" : "false").catch(() => {});
+                  if (Platform.OS !== "web") Haptics.selectionAsync();
+                }}
+                trackColor={{ true: COLORS.primary, false: COLORS.border }}
+                thumbColor="#fff"
+              />
+            </View>
 
             <Pressable
               style={styles.infoRow}

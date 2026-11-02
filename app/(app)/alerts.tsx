@@ -12,6 +12,8 @@ import { wa, wConfirm } from "@/shared/dialogs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AlertCard from "@/components/AlertCard";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 import PhotoViewer from "@/components/PhotoViewer";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -150,13 +152,15 @@ function SignalCard({ item, isOwn }: { item: Signalement; isOwn: boolean }) {
 }
 
 function SignalementModal({
-  visible, onClose, onSend, insetBottom,
+  visible, onClose, onSend, insetBottom, prefilledName, isPrestataire: isPrestataireSender,
 }: {
   visible: boolean; onClose: () => void;
   onSend: (message: string, senderName: string, apartmentNumber: string, photoUris?: string[], category?: Category, urgency?: "normal" | "urgent") => Promise<void>;
   insetBottom: number;
+  prefilledName?: string;
+  isPrestataire?: boolean;
 }) {
-  const [senderName, setSenderName] = useState("");
+  const [senderName, setSenderName] = useState(prefilledName ?? "");
   const [apartmentNumber, setApartmentNumber] = useState("");
   const [message, setMessage] = useState("");
   const [photoUris, setPhotoUris] = useState<string[]>([]);
@@ -164,7 +168,7 @@ function SignalementModal({
   const [urgency, setUrgency] = useState<"normal" | "urgent">("normal");
   const [sending, setSending] = useState(false);
 
-  const resetForm = () => { setSenderName(""); setApartmentNumber(""); setMessage(""); setPhotoUris([]); setCategory("divers"); setUrgency("normal"); };
+  const resetForm = () => { setSenderName(prefilledName ?? ""); setApartmentNumber(""); setMessage(""); setPhotoUris([]); setCategory("divers"); setUrgency("normal"); };
 
   const handlePickPhoto = async () => {
     if (photoUris.length >= MAX_SIGNAL_PHOTOS) return;
@@ -205,8 +209,8 @@ function SignalementModal({
   const handleSend = async () => {
     const trimmedMsg = message.trim();
     const trimmedName = senderName.trim();
-    const trimmedAppt = apartmentNumber.trim();
-    if (!trimmedMsg || !trimmedName || !trimmedAppt) return;
+    const trimmedAppt = isPrestataireSender ? "Prestataire" : apartmentNumber.trim();
+    if (!trimmedMsg || !trimmedName || (!isPrestataireSender && !trimmedAppt)) return;
     setSending(true);
     try {
       await onSend(trimmedMsg, trimmedName, trimmedAppt, photoUris.length > 0 ? photoUris : undefined, category, urgency);
@@ -219,7 +223,7 @@ function SignalementModal({
     }
   };
 
-  const canSend = !!message.trim() && !!senderName.trim() && !!apartmentNumber.trim() && !sending;
+  const canSend = !!message.trim() && !!senderName.trim() && (isPrestataireSender || !!apartmentNumber.trim()) && !sending;
   const canAddMore = photoUris.length < MAX_SIGNAL_PHOTOS;
 
   return (
@@ -231,25 +235,35 @@ function SignalementModal({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.modalTitle}>Signaler un problème</Text>
-            <Text style={styles.signalSub}>Visible par tous les propriétaires de la copropriété.</Text>
+            <Text style={styles.signalSub}>
+              {isPrestataireSender
+                ? "Signalez un problème visible sur le site à l'admin de la copropriété."
+                : "Visible par tous les propriétaires de la copropriété."}
+            </Text>
           </View>
         </View>
-        <View style={styles.signalRow}>
-          <TextInput
-            style={[styles.signalInputSmall, { flex: 1 }]}
-            placeholder="Votre nom"
-            placeholderTextColor={COLORS.textMuted}
-            value={senderName}
-            onChangeText={setSenderName}
-          />
-          <TextInput
-            style={[styles.signalInputSmall, { width: 100 }]}
-            placeholder="Appt n°"
-            placeholderTextColor={COLORS.textMuted}
-            value={apartmentNumber}
-            onChangeText={setApartmentNumber}
-          />
-        </View>
+        {isPrestataireSender ? (
+          <View style={[styles.signalInputSmall, { justifyContent: "center", marginBottom: 10, backgroundColor: COLORS.border + "40" }]}>
+            <Text style={{ fontSize: 14, fontFamily: "Inter_500Medium", color: COLORS.textMuted }}>{senderName}</Text>
+          </View>
+        ) : (
+          <View style={styles.signalRow}>
+            <TextInput
+              style={[styles.signalInputSmall, { flex: 1 }]}
+              placeholder="Votre nom"
+              placeholderTextColor={COLORS.textMuted}
+              value={senderName}
+              onChangeText={setSenderName}
+            />
+            <TextInput
+              style={[styles.signalInputSmall, { width: 100 }]}
+              placeholder="Appt n°"
+              placeholderTextColor={COLORS.textMuted}
+              value={apartmentNumber}
+              onChangeText={setApartmentNumber}
+            />
+          </View>
+        )}
         <Text style={styles.signalFieldLabel}>Catégorie</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
           <View style={{ flexDirection: "row", gap: 8, paddingVertical: 2 }}>
@@ -504,6 +518,7 @@ export default function AlertsScreen() {
 
   const isConseil = currentRole === "conseil";
   const [activeTab, setActiveTab] = useState<"alertes" | "annonces" | "sondages" | "rappels">("alertes");
+  const [helpVisible, setHelpVisible] = useState(false);
 
   const [reminderLogs, setReminderLogs] = useState<Array<{
     id: string; sentAt: string; title: string;
@@ -658,15 +673,28 @@ export default function AlertsScreen() {
   });
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  // IDs des interventions qui ont déjà reçu un rappel (non archivé)
+  const alreadyRemindedIds = useMemo(
+    () => new Set(reminderLogs.filter((r) => !r.archived).map((r) => r.interventionId)),
+    [reminderLogs]
+  );
+
   const filteredInterventions = useMemo(() =>
     interventions
-      .filter((iv) => iv.category === sendReminderCategory && iv.status !== "termine")
+      .filter((iv) => {
+        if (iv.category !== sendReminderCategory) return false;
+        if (iv.status !== "planifie") return false;
+        // Si un prestataire est sélectionné, ne montrer que ses interventions
+        if (sendReminderPrest && iv.assignedToUid && iv.assignedToUid !== sendReminderPrest) return false;
+        return true;
+      })
       .sort((a, b) => {
         const da = new Date(a.date ?? a.scheduledDate ?? "").getTime();
         const db2 = new Date(b.date ?? b.scheduledDate ?? "").getTime();
         return da - db2;
       }),
-    [interventions, sendReminderCategory]
+    [interventions, sendReminderCategory, sendReminderPrest]
   );
 
   const toIsoDate = (french: string) => {
@@ -1008,7 +1036,8 @@ export default function AlertsScreen() {
   );
 
   const tabSwitcher = (
-    <View style={styles.tabSwitcher}>
+    <View style={styles.tabSwitcherWrap}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabSwitcher}>
       <Pressable
         style={[styles.tabBtn, activeTab === "alertes" && styles.tabBtnActive]}
         onPress={() => setActiveTab("alertes")}
@@ -1022,19 +1051,21 @@ export default function AlertsScreen() {
           </View>
         )}
       </Pressable>
-      <Pressable
-        style={[styles.tabBtn, activeTab === "annonces" && styles.tabBtnActive]}
-        onPress={() => setActiveTab("annonces")}
-      >
-        <Text style={[styles.tabBtnText, activeTab === "annonces" && styles.tabBtnTextActive]}>
-          Annonces
-        </Text>
-        {announcements.length > 0 && (
-          <View style={[styles.tabBadge, { backgroundColor: COLORS.primary }]}>
-            <Text style={styles.tabBadgeText}>{announcements.length}</Text>
-          </View>
-        )}
-      </Pressable>
+      {!isPrestataire && (
+        <Pressable
+          style={[styles.tabBtn, activeTab === "annonces" && styles.tabBtnActive]}
+          onPress={() => setActiveTab("annonces")}
+        >
+          <Text style={[styles.tabBtnText, activeTab === "annonces" && styles.tabBtnTextActive]}>
+            Annonces
+          </Text>
+          {announcements.length > 0 && (
+            <View style={[styles.tabBadge, { backgroundColor: COLORS.primary }]}>
+              <Text style={styles.tabBadgeText}>{announcements.length}</Text>
+            </View>
+          )}
+        </Pressable>
+      )}
       {!isPrestataire && (
         <Pressable
           style={[styles.tabBtn, activeTab === "sondages" && styles.tabBtnActive]}
@@ -1067,6 +1098,7 @@ export default function AlertsScreen() {
           )}
         </Pressable>
       )}
+      </ScrollView>
     </View>
   );
 
@@ -1078,6 +1110,7 @@ export default function AlertsScreen() {
           <Text style={styles.coProSubtitle} numberOfLines={1}>{currentCopro.name}</Text>
         )}
       </View>
+      <HelpButton onPress={() => setHelpVisible(true)} />
       {isAdmin && activeTab === "alertes" && (
         <View style={styles.emailToggleRow}>
           <Ionicons
@@ -1400,7 +1433,9 @@ export default function AlertsScreen() {
       <ScrollView style={{ maxHeight: 180, marginBottom: 12 }} showsVerticalScrollIndicator={false}>
         {filteredInterventions.length === 0 ? (
           <Text style={{ color: COLORS.textMuted, fontSize: 13, marginBottom: 8 }}>
-            Aucune intervention programmée dans cette catégorie
+            {sendReminderPrest
+              ? "Aucune intervention planifiée pour ce prestataire dans cette catégorie"
+              : "Aucune intervention en attente dans cette catégorie"}
           </Text>
         ) : (
           filteredInterventions.map((iv) => {
@@ -1409,10 +1444,12 @@ export default function AlertsScreen() {
             ivDate.setHours(0, 0, 0, 0);
             const isPast = ivDate < today;
             const dateFr = ivDate.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+            const alreadySent = alreadyRemindedIds.has(iv.id);
             return (
               <Pressable
                 key={iv.id}
                 onPress={() => {
+                  if (alreadySent) return; // bloquer si rappel déjà envoyé
                   setSendReminderIntervention(iv);
                   if (iv.assignedToUid) {
                     const m = filteredPrestataireMembers.find((p) => p.uid === iv.assignedToUid)
@@ -1420,25 +1457,31 @@ export default function AlertsScreen() {
                     if (m) { setSendReminderPrest(m.uid); setSendReminderEmail(m.email ?? ""); }
                   }
                 }}
-                style={[styles.reminderPrestRow, sel && styles.reminderPrestRowSelected]}
+                style={[
+                  styles.reminderPrestRow,
+                  sel && styles.reminderPrestRowSelected,
+                  alreadySent && { opacity: 0.5 },
+                ]}
               >
                 <View style={[styles.reminderPrestAvatar, sel && { backgroundColor: COLORS.primary + "20" },
-                  !sel && isPast && { backgroundColor: "#FEF2F2" }]}>
+                  !sel && isPast && !alreadySent && { backgroundColor: "#FEF2F2" },
+                  alreadySent && { backgroundColor: "#F3F4F6" }]}>
                   <Ionicons
-                    name={isPast ? "time-outline" : "calendar-outline"}
+                    name={alreadySent ? "checkmark-done-outline" : isPast ? "time-outline" : "calendar-outline"}
                     size={14}
-                    color={sel ? COLORS.primary : isPast ? "#DC2626" : COLORS.textMuted}
+                    color={sel ? COLORS.primary : alreadySent ? COLORS.textMuted : isPast ? "#DC2626" : COLORS.textMuted}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.reminderPrestName, sel && { color: COLORS.primary }]} numberOfLines={1}>
+                  <Text style={[styles.reminderPrestName, sel && { color: COLORS.primary }, alreadySent && { color: COLORS.textMuted }]} numberOfLines={1}>
                     {iv.title}
                   </Text>
-                  <Text style={[styles.reminderPrestEmail, isPast && !sel && { color: "#DC2626" }]}>
-                    {dateFr}{isPast ? " · En retard" : " · À venir"}
+                  <Text style={[styles.reminderPrestEmail, isPast && !sel && !alreadySent && { color: "#DC2626" }]}>
+                    {alreadySent ? "Rappel déjà envoyé" : `${dateFr}${isPast ? " · En retard" : " · À venir"}`}
                   </Text>
                 </View>
                 {sel && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
+                {alreadySent && !sel && <Ionicons name="lock-closed-outline" size={14} color={COLORS.textMuted} />}
               </Pressable>
             );
           })
@@ -1493,29 +1536,51 @@ export default function AlertsScreen() {
         {topBar}
         {tabSwitcher}
         {activeTab === "rappels" ? prestataireRappelsContent : activeTab === "alertes" ? (
-          <ScrollView
-            showsVerticalScrollIndicator={false}
+          <FlatListAny
+            data={mySignals}
+            keyExtractor={(s: Signalement) => s.id}
+            renderItem={({ item }: { item: Signalement }) => (
+              <AlertCard
+                item={item}
+                onAcknowledge={() => {}}
+                onDelete={() => handleDeleteSignal(item.id)}
+                noActions
+              />
+            )}
+            ListHeaderComponent={(
+              <View>
+                <Pressable
+                  style={({ pressed }: { pressed: boolean }) => [styles.signalBtn, { margin: 20, marginBottom: 12 }, pressed && { opacity: 0.85 }]}
+                  onPress={() => setSignalModalVisible(true)}
+                >
+                  <Ionicons name="warning-outline" size={20} color="#fff" />
+                  <Text style={styles.signalBtnText}>Signaler un problème</Text>
+                </Pressable>
+                {mySignals.length > 0 && (
+                  <Text style={[styles.prestataireSub, { marginBottom: 4, paddingHorizontal: 20 }]}>
+                    Vos signalements ({mySignals.length})
+                  </Text>
+                )}
+              </View>
+            )}
+            ListEmptyComponent={(
+              <Text style={[styles.prestataireSub, { paddingHorizontal: 20 }]}>
+                Vos signalements seront transmis à l'admin de cette copropriété.
+              </Text>
+            )}
             contentContainerStyle={[styles.listContent, { paddingBottom: bottom + 16 }]}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Pressable
-              style={({ pressed }) => [styles.signalBtn, { margin: 20 }, pressed && { opacity: 0.85 }]}
-              onPress={() => setSignalModalVisible(true)}
-            >
-              <Ionicons name="warning-outline" size={20} color="#fff" />
-              <Text style={styles.signalBtnText}>Signaler un problème</Text>
-            </Pressable>
-            <Text style={styles.prestataireSub}>
-              Vos signalements seront transmis à l'admin de cette copropriété.
-            </Text>
-          </ScrollView>
+            showsVerticalScrollIndicator={false}
+          />
         ) : announcementsContent}
         <SignalementModal
           visible={signalModalVisible}
           onClose={() => setSignalModalVisible(false)}
           onSend={handleSend}
           insetBottom={bottom}
+          prefilledName={user?.displayName ?? ""}
+          isPrestataire={true}
         />
+        <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.communication.title} content={HELP.communication.content} />
       </View>
     );
   }
@@ -1565,6 +1630,7 @@ export default function AlertsScreen() {
         />
         {pollModal}
         {sendReminderModal}
+        <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.communication.title} content={HELP.communication.content} />
         <BottomSheet visible={devisModalVisible} onClose={() => setDevisModalVisible(false)} insetBottom={bottom}>
           <View style={styles.modalHandle} />
           <View style={styles.signalHeader}>
@@ -1689,6 +1755,7 @@ export default function AlertsScreen() {
       />
       {pollModal}
       {sendReminderModal}
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.communication.title} content={HELP.communication.content} />
     </View>
   );
 }
@@ -1876,10 +1943,12 @@ const styles = StyleSheet.create({
   },
   pollActionBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: COLORS.success },
 
-  tabSwitcher: {
-    flexDirection: "row",
+  tabSwitcherWrap: {
     backgroundColor: COLORS.surface,
     borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  tabSwitcher: {
+    flexDirection: "row",
     paddingHorizontal: 16,
   },
   tabBtn: {

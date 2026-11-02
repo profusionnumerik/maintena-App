@@ -20,6 +20,7 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { getApiUrl } from "@/lib/query-client";
 import { PLAN_PRICES } from "@/shared/types";
+import { canPayInApp } from "@/lib/billing";
 
 type Mode = "login" | "register" | "forgot";
 
@@ -609,7 +610,7 @@ export default function AuthScreen() {
             </Pressable>
           </View>
 
-          <PricingSection />
+          {canPayInApp && <PricingSection />}
         </ScrollView>
       </KeyboardAvoidingView>
     </LinearGradient>

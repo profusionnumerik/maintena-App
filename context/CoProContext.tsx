@@ -91,7 +91,8 @@ interface CoProContextValue {
     postalCode: string,
     city: string,
     lat?: number,
-    lng?: number
+    lng?: number,
+    syndicType?: "benevole" | "professionnel"
   ) => Promise<CoPro>;
   joinCoPro: (code: string) => Promise<CoPro>;
   deleteCoPro: (coProId: string) => Promise<void>;
@@ -768,7 +769,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       postalCode: string,
       city: string,
       lat?: number,
-      lng?: number
+      lng?: number,
+      syndicType?: "benevole" | "professionnel"
     ): Promise<CoPro> => {
       if (!user) throw new Error("Not authenticated");
 
@@ -812,6 +814,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         conseilInviteCode: conseilCode,
         createdAt: new Date().toISOString(),
         activatedAt: new Date().toISOString(),
+        syndicType: syndicType ?? "benevole",
       };
 
       if (lat !== undefined && lng !== undefined) {
@@ -1387,6 +1390,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
           type,
           coProName: currentCopro.name,
           senderName: user.displayName ?? user.email ?? "L'admin",
+          senderUid: user.uid,
         });
       } catch (e) {
         console.warn("Announcement email notification failed:", e);

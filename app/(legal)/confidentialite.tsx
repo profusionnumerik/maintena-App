@@ -22,7 +22,7 @@ export default function ConfidentialiteScreen() {
 
           <Section
             title="1. Responsable du traitement"
-            text="Profusion Numérik (SIREN 932 117 500) est responsable du traitement de vos données personnelles dans le cadre de l'application Maintena. Contact : contact@profusionnumerik.com — Tél. : 06 68 18 30 92."
+            text="Profusion Numérik (SIREN 932 117 500) est responsable du traitement de vos données personnelles dans le cadre de l'application Maintena. Contact : contact@profusionnumerik.fr — Tél. : 06 68 18 30 92."
           />
 
           <Section
@@ -62,7 +62,7 @@ export default function ConfidentialiteScreen() {
 
           <Section
             title="9. Vos droits (RGPD)"
-            text="Conformément au RGPD, vous disposez des droits suivants : accès, rectification, suppression, limitation, portabilité et opposition au traitement de vos données. Vous pouvez exercer ces droits en nous contactant à contact@profusionnumerik.com. En cas de désaccord, vous avez le droit d'introduire une réclamation auprès de la CNIL (www.cnil.fr)."
+            text="Conformément au RGPD, vous disposez des droits suivants : accès, rectification, suppression, limitation, portabilité et opposition au traitement de vos données. Vous pouvez exercer ces droits en nous contactant à contact@profusionnumerik.fr. En cas de désaccord, vous avez le droit d'introduire une réclamation auprès de la CNIL (www.cnil.fr)."
           />
 
           <Section
@@ -82,7 +82,7 @@ export default function ConfidentialiteScreen() {
 
           <Section
             title="13. Contact"
-            text="Pour toute question relative à la protection de vos données : contact@profusionnumerik.com"
+            text="Pour toute question relative à la protection de vos données : contact@profusionnumerik.fr"
           />
         </View>
       </ScrollView>

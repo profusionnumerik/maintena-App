@@ -17,9 +17,10 @@ import { HamburgerButton } from "@/components/rental/RentalDrawer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { addDoc, collection, onSnapshot, query, where } from "firebase/firestore";
+import { addDoc, collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
+import { canPayInApp } from "@/lib/billing";
 import { COLORS } from "@/constants/colors";
 import {
   RentalProperty,
@@ -245,8 +246,23 @@ function PropertyCard({ property }: { property: RentalProperty }) {
 
 export default function RentalDashboard() {
   const insets  = useSafeAreaInsets();
-  const { user, rentalPlan, planLimits } = useAuth();
+  const { user, rentalPlan, planLimits, rentalProfile, isTrialExpired, isOnTrial, trialDaysLeft } = useAuth();
   const router  = useRouter();
+
+  // Activer le trial automatiquement au premier accès (sans carte)
+  useEffect(() => {
+    if (!user?.uid) return;
+    const hasExplicitPlan = !!(rentalProfile as any)?.plan;
+    if (hasExplicitPlan) return;
+    // Nouveau bailleur sans plan → essai gratuit 30 jours
+    setDoc(doc(db, "users", user.uid), {
+      rentalProfile: {
+        plan: "trial",
+        trialStartedAt: new Date().toISOString(),
+        trialEndsAt: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+      },
+    }, { merge: true }).catch(() => {});
+  }, [user?.uid, (rentalProfile as any)?.plan]);
 
   const [properties, setProperties] = useState<RentalProperty[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -331,8 +347,36 @@ export default function RentalDashboard() {
         </Pressable>
       </View>
 
+      {/* Bandeau trial expiré — bloque l'accès */}
+      {isTrialExpired && (
+        <Pressable
+          style={styles.trialExpiredBanner}
+          onPress={() => router.push("/rental-upgrade" as any)}
+        >
+          <Ionicons name="time-outline" size={16} color="#fff" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.trialExpiredTitle}>Votre essai gratuit est terminé</Text>
+            <Text style={styles.trialExpiredSub}>{canPayInApp ? "Abonnez-vous à 1,99 €/mois pour continuer →" : "Votre abonnement n'est pas actif."}</Text>
+          </View>
+        </Pressable>
+      )}
+
+      {/* Bandeau trial actif */}
+      {isOnTrial && !isTrialExpired && (
+        <Pressable
+          style={styles.trialBanner}
+          onPress={() => router.push("/rental-upgrade" as any)}
+        >
+          <Ionicons name="gift-outline" size={14} color="#16A34A" />
+          <Text style={styles.trialBannerText}>
+            Essai gratuit · {trialDaysLeft} jour{trialDaysLeft > 1 ? "s" : ""} restant{trialDaysLeft > 1 ? "s" : ""}
+          </Text>
+          <Ionicons name="chevron-forward" size={13} color="#16A34A" />
+        </Pressable>
+      )}
+
       {/* Bandeau limite plan */}
-      {atLimit && !loading && (
+      {atLimit && !loading && !isTrialExpired && (
         <Pressable style={styles.limitBanner} onPress={() => setShowLimitModal(true)}>
           <Ionicons name="lock-closed-outline" size={14} color="#8B5CF6" />
           <Text style={styles.limitBannerText}>
@@ -342,8 +386,23 @@ export default function RentalDashboard() {
         </Pressable>
       )}
 
-      {/* Contenu */}
-      {loading ? (
+      {/* Contenu bloqué si trial expiré */}
+      {isTrialExpired ? (
+        <View style={styles.center}>
+          <Ionicons name="lock-closed-outline" size={56} color={COLORS.textMuted} style={{ opacity: 0.4, marginBottom: 16 }} />
+          <Text style={[styles.emptyTitle, { marginBottom: 8 }]}>Essai terminé</Text>
+          <Text style={[styles.emptyDesc, { marginBottom: 24 }]}>
+            Abonnez-vous pour continuer à gérer vos logements.
+          </Text>
+          <Pressable
+            style={({ pressed }) => [styles.emptyBtn, { backgroundColor: "#16A34A" }, pressed && { opacity: 0.8 }]}
+            onPress={() => router.push("/rental-upgrade" as any)}
+          >
+            <Ionicons name="card-outline" size={18} color="#fff" />
+            <Text style={styles.emptyBtnText}>{canPayInApp ? "Voir les offres — 1,99 €/mois" : "Voir mon abonnement"}</Text>
+          </Pressable>
+        </View>
+      ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator color="#8B5CF6" size="large" />
         </View>
@@ -466,6 +525,26 @@ const styles = StyleSheet.create({
   addBtnLocked: { backgroundColor: "#9CA3AF" },
   addBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#fff" },
 
+  trialBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#F0FDF4",
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: "#BBF7D0",
+  },
+  trialBannerText: {
+    flex: 1, fontSize: 12, fontFamily: "Inter_500Medium", color: "#16A34A",
+  },
+  trialExpiredBanner: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  trialExpiredTitle: {
+    fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#fff",
+  },
+  trialExpiredSub: {
+    fontSize: 11, fontFamily: "Inter_400Regular", color: "rgba(255,255,255,0.85)", marginTop: 1,
+  },
   limitBanner: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "rgba(139,92,246,0.07)",

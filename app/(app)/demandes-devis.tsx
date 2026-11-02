@@ -20,6 +20,8 @@ import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { wa, wConfirm } from "@/shared/dialogs";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 import {
   ALL_CATEGORIES, CATEGORY_ICONS, CATEGORY_LABELS, Category,
   DemandeDevis, DemandeDevisStatus, DevisOffer, ProviderContact,
@@ -120,6 +122,7 @@ export default function DemandesDevisScreen() {
 
   // Modals
   const [createModal, setCreateModal] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
   const [forwardModal, setForwardModal] = useState(false);
   const [compareModal, setCompareModal] = useState(false);
   const [selectedDemande, setSelectedDemande] = useState<DemandeDevis | null>(null);
@@ -400,10 +403,14 @@ export default function DemandesDevisScreen() {
           <Text style={styles.headerTitle}>Demandes de devis</Text>
           <Text style={styles.headerSub}>{currentCopro?.name}</Text>
         </View>
-        <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); setCreateModal(true); }}>
-          <Ionicons name="add" size={22} color="#fff" />
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <HelpButton onPress={() => setHelpVisible(true)} />
+          <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); setCreateModal(true); }}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </Pressable>
+        </View>
       </View>
+      <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.demandesDevis.title} content={HELP.demandesDevis.content} />
 
       {/* Tabs (admin/conseil only) */}
       {canManage && (

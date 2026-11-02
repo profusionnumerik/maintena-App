@@ -12,9 +12,10 @@ interface AlertCardProps {
   onDelete?: (id: string) => void;
   onRead?: (id: string) => void;
   onRequestDevis?: (item: Signalement) => void;
+  noActions?: boolean;
 }
 
-export default function AlertCard({ item, onAcknowledge, onDelete, onRead, onRequestDevis }: AlertCardProps) {
+export default function AlertCard({ item, onAcknowledge, onDelete, onRead, onRequestDevis, noActions }: AlertCardProps) {
   const [viewerIdx, setViewerIdx] = useState<number | null>(null);
   const photoList =
     item.photos && item.photos.length > 0
@@ -134,43 +135,45 @@ export default function AlertCard({ item, onAcknowledge, onDelete, onRead, onReq
           </View>
         )}
 
-        <View style={styles.actionRow}>
-          {isAck ? (
-            <View style={styles.ackChip}>
-              <Ionicons name="checkmark-circle" size={11} color={COLORS.success} />
-              <Text style={styles.ackChipText}>Pris en compte</Text>
-            </View>
-          ) : (
-            <Pressable
-              style={({ pressed }) => [styles.ackBtn, pressed && { opacity: 0.75 }]}
-              onPress={() => {
-                Haptics.selectionAsync();
-                onAcknowledge(item.id);
-              }}
-            >
-              <Ionicons name="checkmark" size={12} color={COLORS.primary} />
-              <Text style={styles.ackBtnText}>Pris en compte</Text>
-            </Pressable>
-          )}
+        {!noActions && (
+          <View style={styles.actionRow}>
+            {isAck ? (
+              <View style={styles.ackChip}>
+                <Ionicons name="checkmark-circle" size={11} color={COLORS.success} />
+                <Text style={styles.ackChipText}>Pris en compte</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [styles.ackBtn, pressed && { opacity: 0.75 }]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  onAcknowledge(item.id);
+                }}
+              >
+                <Ionicons name="checkmark" size={12} color={COLORS.primary} />
+                <Text style={styles.ackBtnText}>Pris en compte</Text>
+              </Pressable>
+            )}
 
-          {item.devisDemandeId ? (
-            <View style={styles.devisChip}>
-              <Ionicons name="document-text" size={11} color="#7C3AED" />
-              <Text style={styles.devisChipText}>Devis demandé</Text>
-            </View>
-          ) : onRequestDevis ? (
-            <Pressable
-              style={({ pressed }) => [styles.devisBtn, pressed && { opacity: 0.75 }]}
-              onPress={() => {
-                Haptics.selectionAsync();
-                onRequestDevis(item);
-              }}
-            >
-              <Ionicons name="send-outline" size={11} color="#7C3AED" />
-              <Text style={styles.devisBtnText}>Demander un devis</Text>
-            </Pressable>
-          ) : null}
-        </View>
+            {item.devisDemandeId ? (
+              <View style={styles.devisChip}>
+                <Ionicons name="document-text" size={11} color="#7C3AED" />
+                <Text style={styles.devisChipText}>Devis demandé</Text>
+              </View>
+            ) : onRequestDevis ? (
+              <Pressable
+                style={({ pressed }) => [styles.devisBtn, pressed && { opacity: 0.75 }]}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  onRequestDevis(item);
+                }}
+              >
+                <Ionicons name="send-outline" size={11} color="#7C3AED" />
+                <Text style={styles.devisBtnText}>Demander un devis</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        )}
       </View>
     </Pressable>
   );

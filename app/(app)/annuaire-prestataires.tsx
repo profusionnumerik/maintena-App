@@ -17,13 +17,17 @@ import { formatFrenchPhone } from "@/lib/phone";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS } from "@/shared/types";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 interface ProviderContact {
   id: string;
   coProId: string;
   coProName: string;
+  type?: "physique" | "morale";
   firstName: string;
   lastName: string;
+  raisonSociale?: string;
   email: string;
   phone: string;
   company: string;
@@ -36,7 +40,11 @@ interface ProviderContact {
   createdAt: string;
 }
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", company: "", specialty: "", city: "", postalCode: "" };
+const EMPTY_FORM = {
+  type: "physique" as "physique" | "morale",
+  firstName: "", lastName: "", raisonSociale: "",
+  email: "", phone: "", company: "", specialty: "", city: "", postalCode: "",
+};
 
 async function geocodeCity(city: string, postalCode?: string): Promise<{ lat: number; lng: number } | null> {
   try {
@@ -67,8 +75,9 @@ export default function AnnuairePrestatairesScreen() {
   const [editing, setEditing] = useState<ProviderContact | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [errors, setErrors] = useState<Partial<typeof EMPTY_FORM>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
+  const [helpVisible, setHelpVisible] = useState(false);
 
   // Annuaire commun à toutes les résidences — stocké au niveau du compte admin
   useEffect(() => {
@@ -89,6 +98,7 @@ export default function AnnuairePrestatairesScreen() {
     return (
       c.firstName.toLowerCase().includes(q) ||
       c.lastName.toLowerCase().includes(q) ||
+      (c.raisonSociale ?? "").toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q) ||
       c.company.toLowerCase().includes(q) ||
       c.phone.includes(q)
@@ -105,16 +115,26 @@ export default function AnnuairePrestatairesScreen() {
 
   const openEdit = (c: ProviderContact) => {
     setEditing(c);
-    setForm({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone, company: c.company, specialty: c.specialty ?? "", city: c.city ?? "", postalCode: c.postalCode ?? "" });
+    setForm({
+      type: c.type ?? "physique",
+      firstName: c.firstName, lastName: c.lastName,
+      raisonSociale: c.raisonSociale ?? "",
+      email: c.email, phone: c.phone, company: c.company,
+      specialty: c.specialty ?? "", city: c.city ?? "", postalCode: c.postalCode ?? "",
+    });
     setSelectedCategories(c.categories ?? []);
     setErrors({});
     setModalVisible(true);
   };
 
   const validate = (): boolean => {
-    const e: Partial<typeof EMPTY_FORM> = {};
-    if (!form.firstName.trim()) e.firstName = "Prénom requis";
-    if (!form.lastName.trim()) e.lastName = "Nom requis";
+    const e: Record<string, string> = {};
+    if (form.type === "physique") {
+      if (!form.firstName.trim()) e.firstName = "Prénom requis";
+      if (!form.lastName.trim()) e.lastName = "Nom requis";
+    } else {
+      if (!form.raisonSociale.trim()) e.raisonSociale = "Raison sociale requise";
+    }
     if (!form.email.trim()) e.email = "Email requis";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Email invalide";
     if (!form.city.trim()) e.city = "Ville requise";
@@ -129,11 +149,13 @@ export default function AnnuairePrestatairesScreen() {
       // Géocodage de la ville
       const coords = await geocodeCity(form.city.trim(), form.postalCode.trim() || undefined);
       const data: Record<string, any> = {
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
+        type: form.type,
+        firstName: form.type === "physique" ? form.firstName.trim() : "",
+        lastName: form.type === "physique" ? form.lastName.trim() : "",
+        raisonSociale: form.type === "morale" ? form.raisonSociale.trim() : "",
         email: form.email.trim().toLowerCase(),
         phone: form.phone.trim(),
-        company: form.company.trim(),
+        company: form.type === "physique" ? form.company.trim() : "",
         specialty: form.specialty.trim(),
         city: form.city.trim(),
         postalCode: form.postalCode.trim(),
@@ -159,9 +181,10 @@ export default function AnnuairePrestatairesScreen() {
   }, [form, editing, user?.uid, selectedCategories]);
 
   const handleDelete = (c: ProviderContact) => {
+    const displayName = c.type === "morale" ? (c.raisonSociale ?? "") : `${c.firstName} ${c.lastName}`;
     wConfirm(
       "Supprimer ce contact ?",
-      `${c.firstName} ${c.lastName} sera retiré de l'annuaire.`,
+      `${displayName} sera retiré de l'annuaire.`,
       async () => {
         try {
           await deleteDoc(doc(db, "users", user!.uid, "providerContacts", c.id));
@@ -182,10 +205,19 @@ export default function AnnuairePrestatairesScreen() {
           <Ionicons name="arrow-back" size={22} color={COLORS.text} />
         </Pressable>
         <Text style={styles.title}>Annuaire prestataires</Text>
-        <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAdd(); }}>
-          <Ionicons name="add" size={22} color="#fff" />
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <HelpButton onPress={() => setHelpVisible(true)} />
+          <Pressable style={styles.addBtn} onPress={() => { safeHaptic(); openAdd(); }}>
+            <Ionicons name="add" size={22} color="#fff" />
+          </Pressable>
+        </View>
       </View>
+      <HelpModal
+        visible={helpVisible}
+        onClose={() => setHelpVisible(false)}
+        title={HELP.annuaire.title}
+        content={HELP.annuaire.content}
+      />
 
       {/* Search */}
       <View style={styles.searchWrap}>
@@ -222,17 +254,28 @@ export default function AnnuairePrestatairesScreen() {
               )}
             </View>
           ) : (
-            filtered.map((c) => (
+            filtered.map((c) => {
+              const isMorale = c.type === "morale";
+              const displayName = isMorale ? (c.raisonSociale ?? "") : `${c.firstName} ${c.lastName}`;
+              const avatarLetters = isMorale
+                ? (c.raisonSociale ?? "?").substring(0, 2).toUpperCase()
+                : (c.firstName[0] ?? "") + (c.lastName[0] ?? "");
+              return (
               <Pressable key={c.id} style={styles.card} onPress={() => openEdit(c)}>
                 <View style={styles.cardAvatar}>
-                  <Text style={styles.cardAvatarText}>
-                    {(c.firstName[0] ?? "") + (c.lastName[0] ?? "")}
-                  </Text>
+                  <Text style={styles.cardAvatarText}>{avatarLetters}</Text>
                 </View>
                 <View style={styles.cardInfo}>
-                  <Text style={styles.cardName}>{c.firstName} {c.lastName}</Text>
-                  {!!(c.specialty || c.company) && (
-                    <Text style={styles.cardCompany}>{[c.specialty, c.company].filter(Boolean).join(" · ")}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={styles.cardName}>{displayName}</Text>
+                    {isMorale && (
+                      <View style={{ backgroundColor: "#EDE9FE", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 9, color: "#7C3AED", fontFamily: "Inter_600SemiBold", letterSpacing: 0.3 }}>ENTREPRISE</Text>
+                      </View>
+                    )}
+                  </View>
+                  {!!(c.specialty || (!isMorale && c.company)) && (
+                    <Text style={styles.cardCompany}>{isMorale ? c.specialty : [c.specialty, c.company].filter(Boolean).join(" · ")}</Text>
                   )}
                   <View style={styles.cardMeta}>
                     {!!c.city && (
@@ -263,7 +306,8 @@ export default function AnnuairePrestatairesScreen() {
                   <Ionicons name="trash-outline" size={18} color={COLORS.danger} />
                 </Pressable>
               </Pressable>
-            ))
+              );
+            })
           )}
           <View style={{ height: insets.bottom + 24 }} />
         </ScrollView>
@@ -286,26 +330,59 @@ export default function AnnuairePrestatairesScreen() {
 
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
-            <Field label="Prénom *" error={errors.firstName}>
-              <TextInput
-                style={[styles.input, !!errors.firstName && styles.inputError]}
-                value={form.firstName}
-                onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
-                placeholder="Jean"
-                placeholderTextColor={COLORS.textMuted}
-                autoCapitalize="words"
-              />
-            </Field>
-            <Field label="Nom *" error={errors.lastName}>
-              <TextInput
-                style={[styles.input, !!errors.lastName && styles.inputError]}
-                value={form.lastName}
-                onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
-                placeholder="Dupont"
-                placeholderTextColor={COLORS.textMuted}
-                autoCapitalize="words"
-              />
-            </Field>
+            {/* Sélecteur type */}
+            <View style={styles.segmentWrap}>
+              <Pressable
+                style={[styles.segmentBtn, form.type === "physique" && styles.segmentBtnActive]}
+                onPress={() => setForm((f) => ({ ...f, type: "physique" }))}
+              >
+                <Ionicons name="person-outline" size={14} color={form.type === "physique" ? "#fff" : COLORS.textMuted} />
+                <Text style={[styles.segmentLabel, form.type === "physique" && styles.segmentLabelActive]}>Personne physique</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.segmentBtn, form.type === "morale" && styles.segmentBtnActive]}
+                onPress={() => setForm((f) => ({ ...f, type: "morale" }))}
+              >
+                <Ionicons name="business-outline" size={14} color={form.type === "morale" ? "#fff" : COLORS.textMuted} />
+                <Text style={[styles.segmentLabel, form.type === "morale" && styles.segmentLabelActive]}>Entreprise</Text>
+              </Pressable>
+            </View>
+
+            {form.type === "morale" ? (
+              <Field label="Raison sociale *" error={errors.raisonSociale}>
+                <TextInput
+                  style={[styles.input, !!errors.raisonSociale && styles.inputError]}
+                  value={form.raisonSociale}
+                  onChangeText={(v) => setForm((f) => ({ ...f, raisonSociale: v }))}
+                  placeholder="Orona, SARL Dupont…"
+                  placeholderTextColor={COLORS.textMuted}
+                  autoCapitalize="words"
+                />
+              </Field>
+            ) : (
+              <>
+                <Field label="Prénom *" error={errors.firstName}>
+                  <TextInput
+                    style={[styles.input, !!errors.firstName && styles.inputError]}
+                    value={form.firstName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, firstName: v }))}
+                    placeholder="Jean"
+                    placeholderTextColor={COLORS.textMuted}
+                    autoCapitalize="words"
+                  />
+                </Field>
+                <Field label="Nom *" error={errors.lastName}>
+                  <TextInput
+                    style={[styles.input, !!errors.lastName && styles.inputError]}
+                    value={form.lastName}
+                    onChangeText={(v) => setForm((f) => ({ ...f, lastName: v }))}
+                    placeholder="Dupont"
+                    placeholderTextColor={COLORS.textMuted}
+                    autoCapitalize="words"
+                  />
+                </Field>
+              </>
+            )}
             <Field label="Email *" error={errors.email}>
               <TextInput
                 style={[styles.input, !!errors.email && styles.inputError]}
@@ -328,16 +405,18 @@ export default function AnnuairePrestatairesScreen() {
                 maxLength={14}
               />
             </Field>
-            <Field label="Entreprise / Société">
-              <TextInput
-                style={styles.input}
-                value={form.company}
-                onChangeText={(v) => setForm((f) => ({ ...f, company: v }))}
-                placeholder="SARL Dupont Plomberie…"
-                placeholderTextColor={COLORS.textMuted}
-                autoCapitalize="words"
-              />
-            </Field>
+            {form.type === "physique" && (
+              <Field label="Entreprise / Société">
+                <TextInput
+                  style={styles.input}
+                  value={form.company}
+                  onChangeText={(v) => setForm((f) => ({ ...f, company: v }))}
+                  placeholder="SARL Dupont Plomberie…"
+                  placeholderTextColor={COLORS.textMuted}
+                  autoCapitalize="words"
+                />
+              </Field>
+            )}
             <Field label="Ville *" error={errors.city}>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <TextInput
@@ -487,4 +566,21 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular", color: COLORS.text, backgroundColor: "#fff",
   },
   inputError: { borderColor: COLORS.danger },
+  segmentWrap: {
+    flexDirection: "row", gap: 8, marginBottom: 16, marginTop: 4,
+    backgroundColor: COLORS.background, borderRadius: 12, padding: 4,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  segmentBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, paddingVertical: 9, borderRadius: 9,
+  },
+  segmentBtnActive: {
+    backgroundColor: COLORS.primary,
+    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 6, elevation: 3,
+  },
+  segmentLabel: {
+    fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.textMuted,
+  },
+  segmentLabelActive: { color: "#fff" },
 });

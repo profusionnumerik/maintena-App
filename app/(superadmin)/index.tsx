@@ -382,6 +382,34 @@ export default function SuperAdminScreen() {
     }
   }, [user]);
 
+  // Alert.alert ne s'affiche pas sur le web : le super admin s'utilise surtout sur le site.
+  const notify = (title: string, message: string) => {
+    if (Platform.OS === "web") window.alert(`${title}\n\n${message}`);
+    else Alert.alert(title, message);
+  };
+
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+  const handleSendReminder = async (trial: Trial) => {
+    if (!user) return;
+    setRemindingId(trial.id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/send-trial-reminder", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: trial.type, id: trial.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      const stageLabel = data.stage === "fin" ? "essai terminé" : data.stage === "j1" ? "dernier jour" : "fin dans quelques jours";
+      notify("Rappel envoyé ✓", `E-mail « ${stageLabel} » envoyé à ${data.to}.`);
+    } catch (e: any) {
+      notify("Erreur", e.message);
+    } finally {
+      setRemindingId(null);
+    }
+  };
+
   const handleExtendTrial = async (trial: Trial, extraDays: number) => {
     if (!user) return;
     setExtendingId(trial.id + extraDays);
@@ -394,15 +422,17 @@ export default function SuperAdminScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Erreur");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const newEnd = new Date(data.trialEndsAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
-      Alert.alert(
-        "Essai prolongé ✓",
-        `+${extraDays} jours accordés à ${trial.email}.\nNouvelle fin : ${newEnd}\n\n📧 Un email de notification a été envoyé automatiquement.`
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const newEnd = new Date(data.trialEndsAt).toLocaleString("fr-FR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      notify(
+        extraDays > 0 ? "Essai prolongé ✓" : "Essai raccourci ✓",
+        extraDays > 0
+          ? `+${extraDays} jours accordés à ${trial.email}.\nNouvelle fin : ${newEnd}\n\n📧 Un email de notification a été envoyé automatiquement.`
+          : `Nouvelle fin pour ${trial.email} : ${newEnd}.\nAucun e-mail envoyé : utilisez « Envoyer le rappel » pour le tester.`
       );
       loadTrials();
     } catch (e: any) {
-      Alert.alert("Erreur", e.message);
+      notify("Erreur", e.message);
     } finally {
       setExtendingId(null);
     }
@@ -828,6 +858,10 @@ export default function SuperAdminScreen() {
                         { label: "+30j", days: 30 },
                         { label: "+3 mois", days: 90 },
                         { label: "+1 an", days: 365 },
+                      ]).concat(isExpired ? [] : [
+                        { label: "−1j", days: -1 },
+                        { label: "−7j", days: -7 },
+                        { label: "Terminer", days: -3650 },
                       ]).map(({ label, days }) => (
                         <Pressable
                           key={days}
@@ -841,6 +875,14 @@ export default function SuperAdminScreen() {
                           }
                         </Pressable>
                       ))}
+                      <Pressable
+                        style={[styles.discountBtn, remindingId === t.id && { opacity: 0.5 }]}
+                        onPress={() => handleSendReminder(t)}
+                        disabled={!!remindingId}
+                      >
+                        <Ionicons name="mail-outline" size={14} color="#D97706" />
+                        <Text style={styles.discountBtnText}>{remindingId === t.id ? "Envoi…" : "Envoyer le rappel"}</Text>
+                      </Pressable>
                       <Pressable
                         style={styles.discountBtn}
                         onPress={() => { setDiscountModal(t); setDiscountPercent(20); setDiscountExtraDays(0); setDiscountMessage(""); }}

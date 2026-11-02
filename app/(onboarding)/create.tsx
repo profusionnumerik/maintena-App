@@ -12,6 +12,7 @@ import { COLORS } from "@/constants/colors";
 import { useCoPro } from "@/context/CoProContext";
 import { useAuth } from "@/context/AuthContext";
 import { getApiUrl } from "@/lib/query-client";
+import { canPayInApp } from "@/lib/billing";
 import { CoPro } from "@/shared/types";
 
 export default function CreateCoPro() {
@@ -25,6 +26,7 @@ export default function CreateCoPro() {
   const [street, setStreet] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [city, setCity] = useState("");
+  const [syndicType, setSyndicType] = useState<"benevole" | "professionnel" | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CoPro | null>(null);
@@ -69,6 +71,7 @@ export default function CreateCoPro() {
 
   const handleCreate = async () => {
     if (!name.trim()) { setError("Le nom est requis."); return; }
+    if (!syndicType) { setError("Veuillez préciser votre type de syndic."); return; }
     setError(null);
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -89,7 +92,7 @@ export default function CreateCoPro() {
           setGeocodeStatus("not-found");
         }
       }
-      const copro = await createCoPro(name, street, postalCode, city, lat, lng);
+      const copro = await createCoPro(name, street, postalCode, city, lat, lng, syndicType ?? "benevole");
       setCreated(copro);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
@@ -300,13 +303,51 @@ export default function CreateCoPro() {
               </View>
             )}
 
+            {/* Type de syndic */}
+            <View style={styles.field}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="person-outline" size={15} color={COLORS.textMuted} />
+                <Text style={styles.sectionLabel}>Type de syndic *</Text>
+              </View>
+              <View style={styles.syndicRow}>
+                <Pressable
+                  style={[styles.syndicBtn, syndicType === "benevole" && styles.syndicBtnActive]}
+                  onPress={() => { setSyndicType("benevole"); setError(null); }}
+                >
+                  <Ionicons name="person-circle-outline" size={22} color={syndicType === "benevole" ? "#fff" : COLORS.textMuted} />
+                  <Text style={[styles.syndicLabel, syndicType === "benevole" && styles.syndicLabelActive]}>Syndic bénévole</Text>
+                  <Text style={[styles.syndicSub, syndicType === "benevole" && { color: "rgba(255,255,255,0.8)" }]}>Je gère moi-même ma résidence</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.syndicBtn, syndicType === "professionnel" && styles.syndicBtnActive]}
+                  onPress={() => { setSyndicType("professionnel"); setError(null); }}
+                >
+                  <Ionicons name="business-outline" size={22} color={syndicType === "professionnel" ? "#fff" : COLORS.textMuted} />
+                  <Text style={[styles.syndicLabel, syndicType === "professionnel" && styles.syndicLabelActive]}>Syndic professionnel</Text>
+                  <Text style={[styles.syndicSub, syndicType === "professionnel" && { color: "rgba(255,255,255,0.8)" }]}>Cabinet ou société mandatée</Text>
+                </Pressable>
+              </View>
+              {syndicType === "benevole" && (
+                <View style={styles.syndicHint}>
+                  <Ionicons name="information-circle-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.syndicHintText}>Vous êtes à la fois propriétaire et gestionnaire. Pas besoin d'élire un trésorier, vous gérez les comptes directement.</Text>
+                </View>
+              )}
+              {syndicType === "professionnel" && (
+                <View style={styles.syndicHint}>
+                  <Ionicons name="information-circle-outline" size={14} color={COLORS.primary} />
+                  <Text style={styles.syndicHintText}>Le conseil syndical devra élire un trésorier parmi ses membres pour surveiller les comptes dans Maintena.</Text>
+                </View>
+              )}
+            </View>
+
             {error && (
               <View style={styles.errorBox}>
                 <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
                   <Ionicons name="alert-circle-outline" size={16} color={COLORS.danger} style={{ marginTop: 1 }} />
                   <Text style={[styles.errorText, { flex: 1 }]}>{error}</Text>
                 </View>
-                {error.includes("limité") && (
+                {canPayInApp && error.includes("limité") && (
                   <Pressable
                     onPress={handleUpgrade}
                     disabled={openingPortal}
@@ -417,4 +458,21 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   continueBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#fff" },
+  syndicRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  syndicBtn: {
+    flex: 1, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border,
+    backgroundColor: COLORS.surface, padding: 14, alignItems: "center", gap: 4,
+  },
+  syndicBtnActive: {
+    backgroundColor: COLORS.primary, borderColor: COLORS.primary,
+    shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
+  },
+  syndicLabel: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: COLORS.text, textAlign: "center" },
+  syndicLabelActive: { color: "#fff" },
+  syndicSub: { fontSize: 11, fontFamily: "Inter_400Regular", color: COLORS.textMuted, textAlign: "center", lineHeight: 15 },
+  syndicHint: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 8,
+    backgroundColor: COLORS.primary + "10", borderRadius: 10, padding: 10,
+  },
+  syndicHintText: { flex: 1, fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.primary, lineHeight: 17 },
 });

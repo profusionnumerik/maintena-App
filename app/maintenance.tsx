@@ -3,12 +3,15 @@ import {
   Animated,
   Easing,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 
@@ -108,12 +111,21 @@ export default function MaintenanceScreen() {
         {/* Contact */}
         <View style={styles.contactRow}>
           <Ionicons name="mail-outline" size={14} color={COLORS.textMuted} />
-          <Text style={styles.contact}>contact@profusionnumerik.com</Text>
+          <Text style={styles.contact}>contact@profusionnumerik.fr</Text>
         </View>
       </View>
 
       {/* Footer */}
       <Text style={styles.footer}>Maintena · Profusion Numérik</Text>
+
+      {/* Déconnexion */}
+      <Pressable
+        style={styles.logoutBtn}
+        onPress={() => signOut(auth).catch(() => {})}
+      >
+        <Ionicons name="log-out-outline" size={14} color={COLORS.textMuted} />
+        <Text style={styles.logoutText}>Se déconnecter</Text>
+      </Pressable>
     </View>
   );
 }
@@ -253,6 +265,22 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: 28,
     fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: COLORS.textMuted,
+  },
+
+  logoutBtn: {
+    marginTop: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.04)",
+  },
+  logoutText: {
+    fontSize: 13,
     fontFamily: "Inter_400Regular",
     color: COLORS.textMuted,
   },

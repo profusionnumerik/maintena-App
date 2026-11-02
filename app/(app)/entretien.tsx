@@ -23,6 +23,8 @@ import {
 import { wa, wConfirm } from "@/shared/dialogs";
 import { getApiUrl } from "@/lib/query-client";
 import * as Clipboard from "expo-clipboard";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -685,6 +687,7 @@ export default function EntretienScreen() {
 
   const [entretiens, setEntretiens] = useState<Entretien[]>([]);
   const [loading, setLoading] = useState(true);
+  const [helpVisible, setHelpVisible] = useState(false);
 
   // Modals
   const [equipModalVisible, setEquipModalVisible] = useState(false);
@@ -950,6 +953,7 @@ export default function EntretienScreen() {
           <Text style={styles.headerTitle}>Carnet d'entretien</Text>
           <Text style={styles.headerSub}>{currentCopro?.name ?? ""}</Text>
         </View>
+        <HelpButton onPress={() => setHelpVisible(true)} />
         {canEdit && (
           <Pressable
             style={styles.addBtn}
@@ -958,6 +962,7 @@ export default function EntretienScreen() {
             <Ionicons name="add" size={22} color="#fff" />
           </Pressable>
         )}
+        <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.entretien.title} content={HELP.entretien.content} />
       </View>
 
       {/* Bandeau stats */}

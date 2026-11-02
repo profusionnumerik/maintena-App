@@ -22,7 +22,7 @@ export default function CguScreen() {
 
           <Section
             title="1. Éditeur"
-            text="L'application Maintena est éditée par Profusion Numérik, entreprise individuelle, SIREN 932 117 500, dont le siège social est en France. Contact : contact@profusionnumerik.com — Tél. : 06 68 18 30 92."
+            text="L'application Maintena est éditée par ProFusion Numérik, SASU (société par actions simplifiée unipersonnelle), SIREN 932 117 500, RCS Toulouse, dont le siège social est en France. Contact : contact@profusionnumerik.fr — Tél. : 06 68 18 30 92."
           />
 
           <Section
@@ -42,7 +42,7 @@ export default function CguScreen() {
 
           <Section
             title="4. Comptes utilisateurs"
-            text="Chaque utilisateur est responsable de l'exactitude des informations fournies et de la confidentialité de ses identifiants d'accès. Toute utilisation du compte est réputée faite par le titulaire. En cas de perte ou de compromission de vos identifiants, vous devez contacter immédiatement contact@profusionnumerik.com."
+            text="Chaque utilisateur est responsable de l'exactitude des informations fournies et de la confidentialité de ses identifiants d'accès. Toute utilisation du compte est réputée faite par le titulaire. En cas de perte ou de compromission de vos identifiants, vous devez contacter immédiatement contact@profusionnumerik.fr."
           />
 
           <Section
@@ -133,7 +133,7 @@ export default function CguScreen() {
 
           <Section
             title="14. Contact"
-            text="Pour toute question relative aux présentes conditions : contact@profusionnumerik.com"
+            text="Pour toute question relative aux présentes conditions : contact@profusionnumerik.fr"
           />
         </View>
       </ScrollView>

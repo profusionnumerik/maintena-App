@@ -18,6 +18,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
 import { wa, wConfirm } from "@/shared/dialogs";
 import { useInterventions } from "@/context/InterventionsContext";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 interface Lot {
   id: string;
@@ -48,6 +50,7 @@ export default function TantièmesScreen() {
   const [saving,  setSaving]  = useState(false);
   const [exporting, setExporting] = useState(false);
   const [tab,     setTab]     = useState<"lots" | "calcul">("lots");
+  const [helpVisible, setHelpVisible] = useState(false);
 
   // montant de charges à répartir
   const [totalCharges, setTotalCharges] = useState("");
@@ -156,7 +159,8 @@ export default function TantièmesScreen() {
           <Text style={styles.headerTitle}>Tantièmes</Text>
           <Text style={styles.headerSub}>{currentCopro?.name} · {lots.length} lots</Text>
         </View>
-        <View style={{ flexDirection: "row", gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          <HelpButton onPress={() => setHelpVisible(true)} />
           {lots.length > 0 && (
             <Pressable style={[styles.addBtn, { backgroundColor: "#7C3AED" }]} onPress={handleExportPDF} disabled={exporting}>
               {exporting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document-text-outline" size={20} color="#fff" />}
@@ -168,6 +172,7 @@ export default function TantièmesScreen() {
             </Pressable>
           )}
         </View>
+        <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.tantièmes.title} content={HELP.tantièmes.content} />
       </View>
 
       {/* Tabs */}

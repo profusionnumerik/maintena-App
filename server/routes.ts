@@ -294,7 +294,7 @@ const SHARED_CSS = `
 `;
 
 function pageShell(title: string, body: string, backLabel = "← Retour à l'accueil", backHref = "/", footerHtml?: string) {
-  const footer = footerHtml ?? `<p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="tel:0668183092">06 68 18 30 92</a> · <a href="mailto:contact@profusionnumerik.com">contact@profusionnumerik.com</a> · <a href="/privacy-policy">Confidentialité</a></p>`;
+  const footer = footerHtml ?? `<p>© 2026 ProFusion Numérik · SIREN 932 117 500 · <a href="tel:0668183092">06 68 18 30 92</a> · <a href="mailto:contact@profusionnumerik.fr">contact@profusionnumerik.fr</a> · <a href="/privacy-policy">Confidentialité</a></p>`;
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -1689,7 +1689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       </div>
 
       <p style="margin-top:20px;font-size:0.78rem;color:rgba(255,255,255,0.35);">
-        Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a>
+        Une question ? <a href="mailto:contact@profusionnumerik.fr" style="color:var(--blue);">contact@profusionnumerik.fr</a>
       </p>
     </div>
   </div>`));
@@ -2437,7 +2437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p>Les présentes CGU sont soumises au droit français. Tout litige sera soumis à la compétence des tribunaux de Toulouse.</p>
 
       <h2>10. Contact</h2>
-      <p>Pour toute question : <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a> · 06 68 18 30 92</p>
+      <p>Pour toute question : <a href="mailto:contact@profusionnumerik.fr" style="color:var(--blue);">contact@profusionnumerik.fr</a> · 06 68 18 30 92</p>
     </div>
   </div>
   <style>
@@ -2768,7 +2768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p class="subtitle">Votre abonnement Maintena est activé. Fermez cette fenêtre et retournez dans l’application.</p>
       <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:16px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Accéder à l’application</a>
       <p style="margin-top:16px;font-size:13px;color:var(--muted);">Ou ouvrez l’application mobile Maintena sur votre téléphone.</p>
-      <p style="margin-top:12px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.com" style="color:var(--blue);">contact@profusionnumerik.com</a></p>
+      <p style="margin-top:12px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.fr" style="color:var(--blue);">contact@profusionnumerik.fr</a></p>
     </div>
   </div>`));
   });
@@ -2804,7 +2804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       <p class="subtitle">Le plan <strong>${planLabel}</strong> est maintenant actif sur votre compte bailleur.</p>
       <p style="margin-top:8px;font-size:14px;color:var(--muted);">Fermez cette fenêtre et retournez dans l'application Maintena — votre plan est déjà mis à jour.</p>
       <a href="https://maintena-pro.fr" style="display:inline-block;margin-top:20px;background:var(--blue);color:white;padding:13px 28px;border-radius:12px;font-weight:700;font-size:15px;">Retour à l'application</a>
-      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@maintena-pro.fr" style="color:var(--blue);">contact@maintena-pro.fr</a></p>
+      <p style="margin-top:16px;font-size:13px;color:var(--muted);">Une question ? <a href="mailto:contact@profusionnumerik.fr" style="color:var(--blue);">contact@profusionnumerik.fr</a></p>
     </div>
   </div>`));
   });
@@ -3438,24 +3438,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await verifySuperAdmin(req, db);
       const now = new Date().toISOString();
 
-      // Essais copro : copros avec trialEndsAt
-      const coProSnap = await db.collection("copros")
-        .where("trialEndsAt", "!=", null)
-        .orderBy("trialEndsAt", "desc")
-        .get();
+      // Essais syndic : l'essai est porté par le compte (users.trialEndsAt), c'est lui que lit l'app.
+      const coProSnap = await db.collection("users").where("trialEndsAt", "!=", null).get();
 
       const coProTrials = coProSnap.docs.map((d) => {
         const data = d.data();
-        const trialEndsAt = data.trialEndsAt as string;
+        const trialEndsAt = String(data.trialEndsAt);
         const expired = trialEndsAt < now;
         const daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000);
-        const isSubscribed = data.subscription?.status === "active";
+        const isSubscribed = data.subscriptionStatus === "active" || !!data.stripeSubscriptionId;
         return {
           id: d.id,
           type: "copro" as const,
-          name: data.name ?? "Copropriété",
-          email: data.adminEmail ?? "",
-          adminId: data.adminId ?? "",
+          name: data.displayName ?? data.email ?? "Syndic",
+          email: data.email ?? "",
+          adminId: d.id,
           trialEndsAt,
           daysLeft,
           status: isSubscribed ? "converted" : expired ? "expired" : "active",
@@ -3505,34 +3502,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       await verifySuperAdmin(req, db);
       const { type, id, extraDays } = req.body as { type?: string; id?: string; extraDays?: number };
-      if (!type || !id || !extraDays || extraDays < 1 || extraDays > 3650) {
-        return res.status(400).json({ error: "type, id et extraDays (1-3650) requis." });
+      // extraDays négatif : raccourcit l'essai (jamais avant maintenant), sans e-mail.
+      if (!type || !id || !Number.isInteger(extraDays) || !extraDays || Math.abs(extraDays) > 3650) {
+        return res.status(400).json({ error: "type, id et extraDays (entre -3650 et 3650, non nul) requis." });
       }
+      const shift = (current: string | undefined) => {
+        const nowMs = Date.now();
+        const currentMs = current ? new Date(current).getTime() : NaN;
+        const base = extraDays > 0 && currentMs > nowMs ? currentMs : extraDays > 0 ? nowMs : (Number.isNaN(currentMs) ? nowMs : currentMs);
+        return new Date(Math.max(nowMs, base + extraDays * 86400000)).toISOString();
+      };
 
       let toEmail = "";
       let toName = "";
       let newEndsAt = "";
 
       if (type === "copro") {
-        const ref = db.collection("copros").doc(id);
+        // L'essai du syndic est sur son compte (id = uid), c'est ce que lit l'application.
+        const ref = db.collection("users").doc(id);
         const snap = await ref.get();
-        if (!snap.exists) return res.status(404).json({ error: "Copro introuvable." });
+        if (!snap.exists) return res.status(404).json({ error: "Utilisateur introuvable." });
         const data = snap.data()!;
-        const current = data.trialEndsAt as string | undefined;
-        const base = current && current > new Date().toISOString() ? new Date(current) : new Date();
-        newEndsAt = new Date(base.getTime() + extraDays * 86400000).toISOString();
-        await ref.update({ trialEndsAt: newEndsAt });
-        toEmail = data.adminEmail ?? "";
-        toName = data.name ?? "Copropriété";
+        if (data.subscriptionStatus === "active" || data.stripeSubscriptionId) {
+          return res.status(409).json({ error: "Ce compte a déjà un abonnement : pas d'essai à modifier." });
+        }
+        newEndsAt = shift(data.trialEndsAt as string | undefined);
+        // Les rappels repartent de zéro pour la nouvelle date de fin.
+        await ref.update({ subscriptionStatus: "trialing", trialEndsAt: newEndsAt, "trialReminders.copro": {} });
+        toEmail = data.email ?? "";
+        toName = data.displayName ?? "Syndic";
       } else if (type === "rental") {
         const ref = db.collection("users").doc(id);
         const snap = await ref.get();
         if (!snap.exists) return res.status(404).json({ error: "Utilisateur introuvable." });
         const data = snap.data()!;
-        const current = data.rentalProfile?.trialEndsAt as string | undefined;
-        const base = current && current > new Date().toISOString() ? new Date(current) : new Date();
-        newEndsAt = new Date(base.getTime() + extraDays * 86400000).toISOString();
-        await ref.update({ "rentalProfile.trialEndsAt": newEndsAt });
+        newEndsAt = shift(data.rentalProfile?.trialEndsAt as string | undefined);
+        await ref.update({ "rentalProfile.trialEndsAt": newEndsAt, "trialReminders.rental": {} });
         toEmail = data.email ?? "";
         toName = data.displayName ?? "Bailleur";
       } else {
@@ -3576,7 +3581,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Continuer sur Maintena →
       </a>
       <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
-        Pour toute question, répondez à cet email ou écrivez-nous à contact@maintena-pro.fr.
+        Pour toute question, répondez à cet email ou écrivez-nous à contact@profusionnumerik.fr.
       </p>
     </div>
     <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">
@@ -3586,7 +3591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 </body>
 </html>`;
 
-        if (toEmail) {
+        if (toEmail && extraDays > 0) {
           await rc.client.emails.send({
             from: fromEmail,
             to: toEmail,
@@ -3598,7 +3603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.warn("[extend-trial] email send failed:", emailErr);
       }
 
-      return res.json({ ok: true, trialEndsAt: newEndsAt, emailSent: !!toEmail });
+      return res.json({ ok: true, trialEndsAt: newEndsAt, emailSent: !!toEmail && extraDays > 0 });
     } catch (e: any) {
       return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
     }
@@ -3639,11 +3644,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       </h1>
       ${message ? `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">${escapeHtml(message)}</p>` : `<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 20px;">Votre période d'essai Maintena est terminée, mais nous souhaitions vous proposer une offre spéciale pour continuer à utiliser l'application.</p>`}
       ${hasDiscount ? `<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px;text-align:center;"><p style="margin:0 0 4px;color:#64748B;font-size:12px;">Votre réduction</p><p style="margin:0;color:#0F172A;font-size:32px;font-weight:800;">${discountPercent}%</p><p style="margin:4px 0 0;color:#64748B;font-size:12px;">Contactez-nous pour en bénéficier</p></div>` : ""}
-      <a href="mailto:contact@maintena-pro.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
+      <a href="mailto:contact@profusionnumerik.fr" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;">
         Profiter de l'offre →
       </a>
       <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
-        Pour toute question, répondez à cet email ou écrivez-nous à contact@maintena-pro.fr.
+        Pour toute question, répondez à cet email ou écrivez-nous à contact@profusionnumerik.fr.
       </p>
     </div>
   </div>
@@ -3726,7 +3731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Choisir mon abonnement
       </a>
       <p style="color:#94A3B8;font-size:12px;line-height:1.6;margin:0;">
-        Des questions ? Répondez à cet email ou contactez-nous à <a href="mailto:contact@profusionnumerik.com" style="color:#2563EB;">contact@profusionnumerik.com</a>
+        Des questions ? Répondez à cet email ou contactez-nous à <a href="mailto:contact@profusionnumerik.fr" style="color:#2563EB;">contact@profusionnumerik.fr</a>
       </p>
     </div>
     <div style="padding:16px 32px;text-align:center;border-top:1px solid #F1F5F9;">
@@ -3739,6 +3744,172 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       return res.json({ ok: true, sent, skipped });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Cron : fin d'essai gratuit → e-mail avec le lien vers l'abonnement ─────
+  // Appelé chaque jour par Cloud Scheduler (en-tête x-cron-secret) ou par le super admin.
+  // L'application mobile n'affiche aucun paiement (règles Google Play / App Store) : c'est cet
+  // e-mail, envoyé par le serveur, qui invite à s'abonner sur le site. Trois envois au plus par
+  // essai (J-7, veille, jour de fin), chacun une seule fois, mémorisés dans users.trialReminders.
+  // ── E-mails de rappel de fin d'essai (cron quotidien et envoi manuel du super admin) ──
+  type TrialStage = "j7" | "j1" | "fin";
+  const trialStageOf = (daysLeft: number): TrialStage | null =>
+    daysLeft >= 5 && daysLeft <= 7 ? "j7" : daysLeft === 1 ? "j1" : daysLeft <= 0 && daysLeft >= -3 ? "fin" : null;
+
+  const trialAppUrl = "https://maintena-pro.fr/app";
+  const trialContactEmail = "contact@profusionnumerik.fr";
+
+  const trialReminderSubject = (stage: TrialStage, daysLeft: number) =>
+    stage === "fin" ? "Votre essai gratuit Maintena est terminé"
+    : stage === "j1" ? "Dernier jour de votre essai gratuit Maintena"
+    : `Votre essai gratuit Maintena se termine dans ${daysLeft} jours`;
+
+  const trialReminderHtml = (stage: TrialStage, module: "copro" | "rental", name: string, endsAt: Date) => {
+    const date = endsAt.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" });
+    const what = module === "rental" ? "vos logements et vos locataires" : "vos copropriétés";
+    const intro = stage === "fin"
+      ? `Votre essai gratuit de <strong>Maintena</strong> s'est terminé le <strong>${date}</strong>. Pour retrouver l'accès à ${what}, choisissez votre abonnement.`
+      : `Votre essai gratuit de <strong>Maintena</strong> se termine le <strong>${date}</strong>. Pour continuer à gérer ${what} sans interruption, choisissez votre abonnement.`;
+    return `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#F4F7FF;font-family:-apple-system,sans-serif;">
+<div style="max-width:520px;margin:40px auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+  <div style="background:#0B1628;padding:32px 32px 24px;">
+    <div style="font-size:28px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Maintena</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">${module === "rental" ? "Gestion locative" : "Gestion de copropriété"}</div>
+  </div>
+  <div style="padding:32px;">
+    <h1 style="font-size:22px;font-weight:700;color:#0F172A;margin:0 0 12px;">${name ? `Bonjour ${escapeHtml(name)},` : "Bonjour,"}</h1>
+    <p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 24px;">${intro}</p>
+    <a href="${trialAppUrl}" style="display:inline-block;background:#2563EB;color:#fff;font-size:15px;font-weight:700;padding:14px 28px;border-radius:12px;text-decoration:none;margin-bottom:16px;">
+      Choisir mon abonnement
+    </a>
+    <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 24px;">
+      Connectez-vous sur <a href="${trialAppUrl}" style="color:#2563EB;">maintena-pro.fr</a> avec votre compte habituel : le paiement par carte est sécurisé par Stripe, et l'abonnement se renouvelle ensuite automatiquement. Résiliable à tout moment.
+    </p>
+    <p style="color:#94A3B8;font-size:12px;line-height:1.6;margin:0;">
+      Message automatique, merci de ne pas y répondre. Une question ? Écrivez-nous à <a href="mailto:${trialContactEmail}" style="color:#2563EB;">${trialContactEmail}</a>.
+    </p>
+  </div>
+  <div style="padding:16px 32px;text-align:center;border-top:1px solid #F1F5F9;">
+    <p style="margin:0;color:#94A3B8;font-size:12px;">© ${new Date().getFullYear()} ProFusion Numérik · <a href="https://maintena-pro.fr" style="color:#2563EB;">maintena-pro.fr</a></p>
+  </div>
+</div>
+</body></html>`;
+  };
+
+
+  // Envoi immédiat du rappel d'essai, depuis l'onglet Essais du super admin (test ou relance).
+  // Étape : celle du jour si elle existe, sinon la veille (essai en cours) ou la fin (essai terminé).
+  app.post("/api/superadmin/send-trial-reminder", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { type, id } = req.body as { type?: string; id?: string };
+      if ((type !== "copro" && type !== "rental") || !id) return res.status(400).json({ error: "type et id requis." });
+      const ref = db.collection("users").doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: "Utilisateur introuvable." });
+      const data = snap.data()!;
+      const endsAt = type === "rental" ? data.rentalProfile?.trialEndsAt : data.trialEndsAt;
+      const end = new Date(String(endsAt ?? ""));
+      if (Number.isNaN(end.getTime())) return res.status(409).json({ error: "Ce compte n'a pas d'essai en cours." });
+      let to = String(data.email ?? "").trim();
+      if (!to) {
+        try { to = (await getAdminAuthInstance()?.getUser(id))?.email ?? ""; } catch { /* compte supprimé */ }
+      }
+      if (!to) return res.status(409).json({ error: "Aucune adresse e-mail pour ce compte." });
+
+      const rc = await getUncachableResendClient().catch(() => null);
+      if (!rc) return res.status(503).json({ error: "Email non configuré." });
+      const daysLeft = Math.ceil((end.getTime() - Date.now()) / 86400000);
+      const stage: TrialStage = trialStageOf(daysLeft) ?? (daysLeft > 0 ? "j1" : "fin");
+      await rc.client.emails.send({
+        from: rc.fromEmail ?? "Maintena <noreply@maintena-pro.fr>",
+        to,
+        subject: trialReminderSubject(stage, daysLeft),
+        html: trialReminderHtml(stage, type, String(data.displayName ?? data.firstName ?? "").trim(), end),
+      });
+      await ref.set({ trialReminders: { [type]: { [stage]: new Date().toISOString() } } }, { merge: true });
+      return res.json({ ok: true, stage, to });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/cron/trial-reminders", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+
+    const cronSecret = req.headers["x-cron-secret"] ?? "";
+    const isCron = cronSecret !== "" && cronSecret === (process.env.CRON_SECRET ?? "");
+    if (!isCron) {
+      try { await verifySuperAdmin(req, db); } catch {
+        return res.status(403).json({ error: "Accès refusé." });
+      }
+    }
+
+    let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
+    try { resendClient = await getUncachableResendClient(); } catch {
+      return res.status(503).json({ error: "Email non configuré." });
+    }
+
+    const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+
+    try {
+      const now = Date.now();
+      // Syndics en essai sans carte enregistrée (un essai Stripe avec carte se prélève tout seul)
+      // et bailleurs en essai.
+      const [coproSnap, rentalSnap] = await Promise.all([
+        db.collection("users").where("subscriptionStatus", "==", "trialing").get(),
+        db.collection("users").where("rentalProfile.plan", "==", "trial").get(),
+      ]);
+      const candidates = [
+        ...coproSnap.docs
+          .filter((d) => d.data().trialEndsAt && !d.data().stripeSubscriptionId)
+          .map((d) => ({ doc: d, module: "copro" as const, endsAt: String(d.data().trialEndsAt) })),
+        ...rentalSnap.docs
+          .filter((d) => d.data().rentalProfile?.trialEndsAt)
+          .map((d) => ({ doc: d, module: "rental" as const, endsAt: String(d.data().rentalProfile.trialEndsAt) })),
+      ];
+
+      const sent: string[] = [];
+      const failed: string[] = [];
+      for (const { doc: d, module, endsAt } of candidates) {
+        const end = new Date(endsAt);
+        if (Number.isNaN(end.getTime())) continue;
+        const daysLeft = Math.ceil((end.getTime() - now) / 86400000);
+        const stage = trialStageOf(daysLeft);
+        if (!stage) continue;
+        const data = d.data();
+        if (data.trialReminders?.[module]?.[stage]) continue;
+
+        let to = String(data.email ?? "").trim();
+        if (!to) {
+          try { to = (await getAdminAuthInstance()?.getUser(d.id))?.email ?? ""; } catch { /* compte supprimé */ }
+        }
+        if (!to) continue;
+
+        try {
+          await resendClient.client.emails.send({
+            from,
+            to,
+            subject: trialReminderSubject(stage, daysLeft),
+            html: trialReminderHtml(stage, module, String(data.displayName ?? data.firstName ?? "").trim(), end),
+          });
+          await d.ref.set({ trialReminders: { [module]: { [stage]: new Date().toISOString() } } }, { merge: true });
+          sent.push(`${d.id}:${module}:${stage}`);
+        } catch (e: any) {
+          console.error("[trial-reminders] envoi échoué", d.id, e?.message);
+          failed.push(d.id);
+        }
+      }
+
+      return res.json({ ok: true, sent, failed });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
     }
@@ -3895,14 +4066,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     coProId: string,
     title: string,
     body: string,
-    data?: Record<string, string>
+    data?: Record<string, string>,
+    excludeUid?: string
   ): Promise<void> {
     const db = getAdminDb();
     if (!db) return;
 
-    // Récupérer les UIDs des membres
+    // Récupérer les UIDs des membres (sauf l'expéditeur)
     const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
-    const uids = membersSnap.docs.map((d) => d.id);
+    const uids = membersSnap.docs.map((d) => d.id).filter((uid) => uid !== excludeUid);
     if (uids.length === 0) return;
 
     // Récupérer les pushTokens
@@ -4028,9 +4200,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/notify-announcement", async (req: Request, res: Response) => {
-    const { coProId, title, message, type, coProName, senderName } = req.body as {
+    const { coProId, title, message, type, coProName, senderName, senderUid } = req.body as {
       coProId?: string; title?: string; message?: string;
-      type?: string; coProName?: string; senderName?: string;
+      type?: string; coProName?: string; senderName?: string; senderUid?: string;
     };
 
     if (!coProId || !title || !message) {
@@ -4044,12 +4216,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const membersSnap = await db.collection("copros").doc(coProId).collection("members").get();
     const allMembers = membersSnap.docs.map((d) => d.data());
     console.log(`[notify-announcement] ${allMembers.length} membres total, rôles:`, allMembers.map((m) => m.role));
+    // Email à tous les résidents (propriétaires + locataires), sauf l'expéditeur
     const ownerEmails: string[] = allMembers
-      .filter((m) => m.role === "propriétaire" && m.email && m.receiveAnnouncementEmails !== false)
+      .filter((m) =>
+        ["propriétaire", "locataire"].includes(m.role) &&
+        m.email &&
+        m.uid !== senderUid &&
+        m.receiveAnnouncementEmails !== false
+      )
       .map((m) => m.email as string);
-    console.log(`[notify-announcement] ${ownerEmails.length} propriétaires à notifier`);
+    console.log(`[notify-announcement] ${ownerEmails.length} résidents à notifier`);
 
-    if (ownerEmails.length === 0) return res.json({ sent: 0, reason: "no_owners" });
+    if (ownerEmails.length === 0) return res.json({ sent: 0, reason: "no_recipients" });
 
     let resendClient: Awaited<ReturnType<typeof getUncachableResendClient>>;
     try {
@@ -8088,12 +8266,12 @@ document.getElementById("devisForm").addEventListener("submit", async function(e
 
     const stripe = getStripe();
     if (!stripe) {
-      return res.status(503).json({ error: "Paiement non configuré. Contactez contact@maintena-pro.fr." });
+      return res.status(503).json({ error: "Paiement non configuré. Contactez contact@profusionnumerik.fr." });
     }
 
     const priceId = getRentalPriceId(plan);
     if (!priceId) {
-      return res.status(503).json({ error: `Prix Stripe manquant pour le plan "${plan}". Contactez contact@maintena-pro.fr.` });
+      return res.status(503).json({ error: `Prix Stripe manquant pour le plan "${plan}". Contactez contact@profusionnumerik.fr.` });
     }
 
     const PLAN_LABELS: Record<string, string> = {
@@ -10254,7 +10432,7 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
         Continuer avec Maintena →
       </a>
       <p style="color:#94A3B8;font-size:12px;margin-top:24px;line-height:1.6;">
-        Si vous avez des questions, répondez à cet email ou contactez-nous à contact@maintena-pro.fr.
+        Si vous avez des questions, répondez à cet email ou contactez-nous à contact@profusionnumerik.fr.
       </p>
     </div>
     <div style="padding:18px 32px;border-top:1px solid #F1F5F9;text-align:center;">

@@ -1,17 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, useWindowDimensions } from "react-native";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useCoPro } from "@/context/CoProContext";
+import { useInterventions } from "@/context/InterventionsContext";
+import { useAuth } from "@/context/AuthContext";
 import { COLORS } from "@/constants/colors";
 import { Entretien, getEntretienStatut } from "@/shared/types";
+import * as Notifications from "expo-notifications";
 
 type TabBarIconProps = { color: string; size: number; focused: boolean }
 
+async function triggerLocalNotif(title: string, body: string) {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: true },
+      trigger: null,
+    });
+  } catch {}
+}
+
 export default function AppLayout() {
   const { currentCopro, currentRole, signalements } = useCoPro();
+  const { interventions } = useInterventions();
+  const { user } = useAuth();
   const { width } = useWindowDimensions();
 
   // Sur web ≥ 768px la sidebar gère la navigation — on masque la tab bar du bas
@@ -24,6 +38,73 @@ export default function AppLayout() {
 
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
   const isOwner = currentRole === "propriétaire";
+
+  // Notifications locales lors de nouveaux événements (app ouverte)
+  // soundReadyRef : ignore les données initiales Firestore au démarrage
+  const soundReadyRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => { soundReadyRef.current = true; }, 3500);
+    return () => clearTimeout(t);
+  }, []);
+
+  const prevUnackRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (prevUnackRef.current === null) { prevUnackRef.current = unacknowledgedCount; return; }
+    if (soundReadyRef.current && unacknowledgedCount > prevUnackRef.current) {
+      const nb = unacknowledgedCount - prevUnackRef.current;
+      triggerLocalNotif("📋 Nouveau signalement", `${nb} nouveau${nb > 1 ? "x" : ""} signalement${nb > 1 ? "s" : ""} à traiter`);
+    }
+    prevUnackRef.current = unacknowledgedCount;
+  }, [unacknowledgedCount]);
+
+  const [newInterventionCount, setNewInterventionCount] = useState(0);
+
+  const prevInterventionIdsRef = useRef<Set<string> | null>(null);
+  const prevInterventionStatusRef = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    const ids = new Set(interventions.map((i) => i.id));
+    const statusMap = new Map(interventions.map((i) => [i.id, i.status]));
+
+    if (prevInterventionIdsRef.current === null) {
+      prevInterventionIdsRef.current = ids;
+      prevInterventionStatusRef.current = statusMap;
+      return;
+    }
+
+    if (soundReadyRef.current) {
+      // Nouvelles interventions créées par quelqu'un d'autre
+      const newOnes = interventions.filter((i) => !prevInterventionIdsRef.current!.has(i.id) && i.createdBy !== user?.uid);
+      if (newOnes.length > 0) {
+        setNewInterventionCount((c) => c + newOnes.length);
+        triggerLocalNotif("🔧 Nouvelle intervention", newOnes[0].title ?? "Une intervention a été ajoutée");
+      }
+
+      // Changements de statut — notifier l'admin quelle que soit l'origine (c'est le prestataire qui met à jour)
+      if (isAdmin && prevInterventionStatusRef.current) {
+        const STATUS_LABELS: Record<string, string> = {
+          "planifié": "Planifiée",
+          "en-cours": "En cours",
+          "en cours": "En cours",
+          "terminé": "Terminée",
+          "termine": "Terminée",
+          "planifie": "Planifiée",
+        };
+        for (const iv of interventions) {
+          const prevStatus = prevInterventionStatusRef.current.get(iv.id);
+          if (prevStatus && prevStatus !== iv.status) {
+            triggerLocalNotif(
+              "🔧 Intervention mise à jour",
+              `${iv.assignedToName ?? "Prestataire"} · ${iv.title} → ${STATUS_LABELS[iv.status] ?? iv.status}`
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    prevInterventionIdsRef.current = ids;
+    prevInterventionStatusRef.current = statusMap;
+  }, [interventions]);
 
   const [entretienAlertCount, setEntretienAlertCount] = useState(0);
   useEffect(() => {
@@ -77,11 +158,22 @@ export default function AppLayout() {
 
       <Tabs.Screen
         name="interventions"
+        listeners={{
+          tabPress: () => setNewInterventionCount(0),
+        }}
         options={{
           title: "Interventions",
           tabBarIcon: ({ color, size }: TabBarIconProps) => (
             <Ionicons name="construct" size={size} color={color} />
           ),
+          tabBarBadge: newInterventionCount > 0 ? newInterventionCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: COLORS.primary,
+            color: "#fff",
+            fontSize: 10,
+            fontFamily: "Inter_700Bold",
+            minWidth: 18,
+          },
         }}
       />
 

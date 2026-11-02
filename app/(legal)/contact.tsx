@@ -4,9 +4,9 @@ import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 
-const SUPPORT_EMAIL = "contact@profusionnumerik.com";
+const SUPPORT_EMAIL = "contact@profusionnumerik.fr";
 const COMPANY_NAME = "Profusion Numérik";
-const WEBSITE_URL = "https://maintena.profusionnumerik.com";
+const WEBSITE_URL = "https://maintena-pro.fr";
 
 export default function ContactScreen() {
   const handleEmail = async () => {

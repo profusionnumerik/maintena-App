@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useCoPro } from "@/context/CoProContext";
+import { canPayInApp, NO_IN_APP_PAYMENT } from "@/lib/billing";
 import { getApiUrl } from "@/lib/query-client";
 import { crossShare } from "@/lib/share";
 import { PLAN_PRICES, PLAN_COPRO_LIMITS, SubscriptionPlan } from "@/shared/types";
@@ -359,7 +360,8 @@ export default function BlockedScreen() {
                     : `Votre abonnement ${expiryDate ? `a expiré le ${expiryDate}` : "est expiré"}. Renouvelez-le pour retrouver l'accès à toutes vos copropriétés.`}
                 </Text>
 
-                {/* Sélecteur de plan */}
+                {/* Sélecteur de plan (site web uniquement : pas de paiement Stripe dans l'application mobile) */}
+                {canPayInApp ? (<>
                 <View style={styles.planSelector}>
                   {(["benevole", "starter", "pro", "business"] as SubscriptionPlan[]).map((key, idx) => {
                     const isActive = selectedPlan === key;
@@ -416,6 +418,9 @@ export default function BlockedScreen() {
                   <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
                   Paiement sécurisé par Stripe
                 </Text>
+                </>) : (
+                  <Text style={[styles.cardDesc, { textAlign: "center" }]}>{NO_IN_APP_PAYMENT}</Text>
+                )}
               </View>
             </>
           ) : (
@@ -466,6 +471,7 @@ export default function BlockedScreen() {
                       )}
                     </Pressable>
 
+                    {canPayInApp && (<>
                     <View style={styles.divider} />
 
                     <Text style={[styles.cardDesc, { textAlign: "center" }]}>Ou abonnez-vous directement</Text>
@@ -518,6 +524,7 @@ export default function BlockedScreen() {
                       <Ionicons name="shield-checkmark-outline" size={12} color={COLORS.textMuted} />{" "}
                       Paiement sécurisé par Stripe
                     </Text>
+                    </>)}
                   </>
                 )}
               </View>

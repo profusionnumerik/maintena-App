@@ -30,7 +30,7 @@ const NAV_ITEMS = [
 
 export function RentalDrawer() {
   const { isOpen, close } = useRentalNav();
-  const { user, logout, deleteAccount, resetUserType } = useAuth();
+  const { user, logout, deleteAccount, resetUserType, userType, setActiveMode } = useAuth();
   const router   = useRouter();
   const pathname = usePathname();
   const insets   = useSafeAreaInsets();
@@ -117,12 +117,28 @@ export function RentalDrawer() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.profileRole}>Bailleur</Text>
+            <Text style={styles.profileRole}>Espace bailleur</Text>
           </View>
           <Pressable onPress={close} hitSlop={12}>
             <Ionicons name="close" size={22} color={COLORS.textSecondary} />
           </Pressable>
         </View>
+
+        {/* Switcher — visible uniquement si l'utilisateur a aussi une copro */}
+        {userType === "both" && (
+          <Pressable
+            style={styles.switcherBanner}
+            onPress={async () => {
+              await setActiveMode("copro");
+              close();
+              router.replace("/(app)");
+            }}
+          >
+            <Ionicons name="business-outline" size={16} color="#7C3AED" />
+            <Text style={styles.switcherBannerText}>Basculer vers la copropriété</Text>
+            <Ionicons name="arrow-forward" size={14} color="#7C3AED" />
+          </Pressable>
+        )}
 
         <View style={styles.divider} />
 
@@ -153,6 +169,24 @@ export function RentalDrawer() {
         </View>
 
         <View style={styles.divider} />
+
+        {/* Basculer vers la copropriété — visible uniquement si l'utilisateur a les deux modules */}
+        {userType === "both" && (
+          <Pressable
+            style={styles.navItem}
+            onPress={async () => {
+              await setActiveMode("copro");
+              close();
+              router.replace("/(app)");
+            }}
+          >
+            <View style={[styles.navIcon, { backgroundColor: "#EDE9FE" }]}>
+              <Ionicons name="business-outline" size={20} color="#7C3AED" />
+            </View>
+            <Text style={[styles.navLabel, { color: "#7C3AED", fontFamily: "Inter_600SemiBold" }]}>Espace copropriété</Text>
+            <Ionicons name="swap-horizontal-outline" size={15} color="#7C3AED" />
+          </Pressable>
+        )}
 
         {/* Paramètres */}
         <Pressable
@@ -256,6 +290,14 @@ const styles = StyleSheet.create({
   profileName: { fontSize: 15, fontFamily: "Inter_700Bold", color: COLORS.text },
   profileRole: { fontSize: 12, fontFamily: "Inter_400Regular", color: COLORS.textMuted },
 
+  switcherBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#F5F3FF", borderRadius: 12,
+    paddingVertical: 10, paddingHorizontal: 14,
+    marginHorizontal: 16, marginTop: 8,
+    borderWidth: 1, borderColor: "rgba(139,92,246,0.2)",
+  },
+  switcherBannerText: { flex: 1, fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#7C3AED" },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 10, marginHorizontal: 16 },
 
   nav: { paddingHorizontal: 10, gap: 2 },

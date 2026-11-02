@@ -18,6 +18,8 @@ import {
   ALL_CATEGORIES, Category, CATEGORY_ICONS, CATEGORY_LABELS,
   Intervention, Status, STATUS_LABELS,
 } from "@/shared/types";
+import HelpModal, { HelpButton } from "@/components/HelpModal";
+import { HELP } from "@/shared/help";
 
 const VISIBLE_CHIPS = 5;
 const FlatListAny = FlatList as any;
@@ -450,6 +452,7 @@ export default function InterventionsScreen() {
   const [openGroups,      setOpenGroups]      = useState<Set<string>>(new Set<string>());
   const [sendingReminder, setSendingReminder] = useState<string | null>(null); // groupId en cours
   const [showArchived,    setShowArchived]    = useState(false);
+  const [helpVisible,     setHelpVisible]     = useState(false);
 
   // Navigation depuis l'accueil : tab=maintenances|interventions, status=planifie|en_cours|termine
   useEffect(() => {
@@ -812,6 +815,7 @@ export default function InterventionsScreen() {
       <View style={[styles.topBar, { paddingTop: top + 16 }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.pageTitle}>Interventions</Text>
+          <HelpModal visible={helpVisible} onClose={() => setHelpVisible(false)} title={HELP.interventions.title} content={HELP.interventions.content} />
           {currentCopro?.name ? (
             hasMultipleCopros ? (
               <Pressable style={styles.coProSwitcher} onPress={() => router.navigate("/(app)")}>
@@ -823,6 +827,7 @@ export default function InterventionsScreen() {
             )
           ) : null}
         </View>
+        <HelpButton onPress={() => setHelpVisible(true)} />
       </View>
 
       {/* Tab switcher */}

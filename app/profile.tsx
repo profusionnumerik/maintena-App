@@ -23,6 +23,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro } from "@/context/CoProContext";
 import { getApiUrl } from "@/lib/query-client";
+import { canPayInApp } from "@/lib/billing";
 import { collection, doc, getDoc, getDocs, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -402,7 +403,7 @@ export default function ProfileScreen() {
           <Text style={s.sectionTitle}>Abonnement</Text>
 
           {hasPaidSub ? (
-            <Pressable onPress={handleBillingPortal} disabled={openingPortal}
+            <Pressable onPress={canPayInApp ? handleBillingPortal : undefined} disabled={openingPortal || !canPayInApp}
               style={({ pressed }) => [s.subCard, s.subCardActive, pressed && { opacity: 0.85 }]}>
               <View style={[s.rowIcon, { backgroundColor: "#F0FDF4" }]}>
                 {openingPortal
@@ -411,9 +412,9 @@ export default function ProfileScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={s.subTitle}>Abonnement actif</Text>
-                <Text style={s.subSub}>Gérer, modifier ou résilier</Text>
+                {canPayInApp && <Text style={s.subSub}>Gérer, modifier ou résilier</Text>}
               </View>
-              <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />
+              {canPayInApp && <Ionicons name="chevron-forward" size={16} color={COLORS.textMuted} />}
             </Pressable>
           ) : (
             <View style={[s.subCard, isTrialExpired ? s.subCardExpired : s.subCardTrial]}>
@@ -434,7 +435,7 @@ export default function ProfileScreen() {
                     : "Accès complet à toutes les fonctionnalités"}
                 </Text>
               </View>
-              {isTrialExpired && (
+              {isTrialExpired && canPayInApp && (
                 <View style={s.subBadge}>
                   <Text style={s.subBadgeText}>S'abonner</Text>
                 </View>

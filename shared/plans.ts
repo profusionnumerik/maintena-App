@@ -3,7 +3,7 @@
  * Référence unique pour les limites côté client et serveur.
  */
 
-export type RentalPlan = "free" | "starter" | "pro" | "business";
+export type RentalPlan = "free" | "trial" | "simple" | "starter" | "pro" | "business";
 
 export interface PlanLimits {
   properties: number;   // logements max (Infinity = illimité)
@@ -22,6 +22,22 @@ export const PLAN_LIMITS: Record<RentalPlan, PlanLimits> = {
     label:        "Gratuit",
     price:        "0 €",
     period:       "",
+  },
+  trial: {
+    properties:   1,
+    tenants:      1,
+    storageBytes: 5 * 1024 * 1024,   // 5 Mo
+    label:        "Essai gratuit",
+    price:        "0 €",
+    period:       "",
+  },
+  simple: {
+    properties:   1,
+    tenants:      1,
+    storageBytes: 5 * 1024 * 1024,   // 5 Mo
+    label:        "Simple",
+    price:        "1,99 €",
+    period:       "/mois",
   },
   starter: {
     properties:   4,
@@ -51,6 +67,6 @@ export const PLAN_LIMITS: Record<RentalPlan, PlanLimits> = {
 
 /** Résout le plan à partir du champ Firestore (undefined → "free") */
 export function resolvePlan(raw: string | undefined | null): RentalPlan {
-  if (raw === "starter" || raw === "pro" || raw === "business") return raw;
+  if (raw === "trial" || raw === "simple" || raw === "starter" || raw === "pro" || raw === "business") return raw;
   return "free";
 }

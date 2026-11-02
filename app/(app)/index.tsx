@@ -284,7 +284,7 @@ export default function HomeScreen() {
 
   const top = Platform.OS === "web" ? 67 : insets.top;
   const bottom = Platform.OS === "web" ? 34 : insets.bottom;
-  const canAdd = currentRole === "admin" || currentRole === "collaborateur";
+  const canAdd = currentRole === "admin" || currentRole === "co-admin" || currentRole === "collaborateur";
 
   // Prochaines interventions en haut (date ≥ aujourd'hui, croissant), passées en bas (décroissant)
   const todayStr = new Date().toISOString().split("T")[0];
