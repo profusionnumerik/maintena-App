@@ -13,8 +13,8 @@ export function ReadOnlyNotice({ compact, style }: { compact?: boolean; style?: 
   if (!isReadOnly) return null;
   const isSyndic = currentRole === "admin" || currentRole === "co-admin";
   const text = isSyndic
-    ? "Votre résidence est en lecture seule : tout reste consultable, mais plus rien ne peut être ajouté (interventions, documents, photos…)."
-    : "La résidence est en lecture seule : tout reste consultable, mais plus rien ne peut être ajouté. Votre syndic peut réactiver l'accès.";
+    ? "Votre résidence est en lecture seule : tout reste consultable, mais plus rien ne peut être ajouté ni modifié (interventions, alertes, documents, photos…). La suppression reste possible."
+    : "La résidence est en lecture seule : tout reste consultable, mais plus rien ne peut être ajouté ni modifié. Votre syndic peut réactiver l'accès.";
   return (
     <View style={[styles.box, compact && styles.compact, style]}>
       <View style={{ flex: 1, gap: 2 }}>

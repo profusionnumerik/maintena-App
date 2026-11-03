@@ -1302,8 +1302,8 @@ export default function AddInterventionScreen() {
   const passageDateParsed = isAdmin && !isEditMode && adminMode === "passage" ? parseDDMMYYYY(dateStr) : null;
   const isPassageDatePast = passageDateParsed ? !isTodayOrFuture(passageDateParsed) : false;
 
-  // Essai terminé : pas de nouvelle intervention (la modification d'une existante reste possible).
-  if (isReadOnly && !isEditMode) {
+  // Essai terminé : ni nouvelle intervention ni modification d'une existante.
+  if (isReadOnly) {
     return (
       <View style={[styles.root, { padding: 20, paddingTop: topPadding + 12, gap: 16 }]}>
         <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}>

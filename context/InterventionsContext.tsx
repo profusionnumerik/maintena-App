@@ -295,6 +295,7 @@ export function InterventionsProvider({
       const coProId =
         interventions.find((i) => i.id === id)?.coProId ?? currentCopro?.id;
       if (!coProId) return;
+      if (isReadOnly) throw new Error(READ_ONLY_MESSAGE);
 
       const docRef = doc(db, "copros", coProId, "interventions", id);
       const payload: Record<string, any> = {};
@@ -366,7 +367,7 @@ export function InterventionsProvider({
 
       await updateDoc(docRef, payload);
     },
-    [currentCopro, interventions]
+    [currentCopro, interventions, isReadOnly]
   );
 
   const deleteIntervention = useCallback(

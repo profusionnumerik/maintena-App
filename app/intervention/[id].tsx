@@ -22,6 +22,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { COLORS } from "@/constants/colors";
 import { CategoryBadge } from "@/components/CategoryBadge";
+import { ReadOnlyNotice } from "@/components/ReadOnlyBanner";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useInterventions } from "@/context/InterventionsContext";
 import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
@@ -243,7 +244,7 @@ export default function InterventionDetailScreen() {
     deleteInterventionsByGroupId,
     updateIntervention,
   } = useInterventions();
-  const { currentCopro, currentRole } = useCoPro();
+  const { currentCopro, currentRole, isReadOnly } = useCoPro();
   const { user } = useAuth();
 
   const isAdmin = currentRole === "admin" || currentRole === "co-admin";
@@ -252,6 +253,8 @@ export default function InterventionDetailScreen() {
   const isProprietaire = currentRole === "propriétaire";
   const canManage = isAdmin || isConseil;
   const canDelete = isAdmin;
+  // Essai terminé / abonnement inactif : boutons de modification grisés (la suppression reste possible)
+  const lockedStyle = isReadOnly ? { opacity: 0.4 } : null;
 
   const topPadding = Platform.OS === "web" ? 67 : insets.top;
   const bottomPadding = Platform.OS === "web" ? 34 : insets.bottom + 16;
@@ -408,6 +411,7 @@ export default function InterventionDetailScreen() {
   // ─── Carnet d'entretien ────────────────────────────────────────────────────
 
   const openCarnetModal = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro || !intervention) return;
     setCarnetLoading(true);
     try {
@@ -428,6 +432,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleSaveToCarnet = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro || !carnetSelectedId || !user || !intervention) return;
     setCarnetSaving(true);
     try {
@@ -532,6 +537,7 @@ export default function InterventionDetailScreen() {
   }, [cleaningAreas]);
 
   const handleToggleChecklistItem = async (areaId: string) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     // Seul le prestataire peut cocher/décocher (attestation de travail), et uniquement avant validation
     if (!intervention || !isPrestataire || intervention.status !== "planifie") return;
 
@@ -682,6 +688,7 @@ export default function InterventionDetailScreen() {
 
   // Capture GPS and validate proximity to copro, then open camera
   const takeCompletionPhoto = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (remainingSlots <= 0) return;
 
     if (Platform.OS === "web") {
@@ -755,6 +762,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleMarkRealise = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!report.trim()) {
       wa("Rapport requis", "Veuillez remplir le rapport d’intervention avant de valider.");
       return;
@@ -799,6 +807,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleValidate = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!intervention.interventionReport && !report.trim()) {
       wa("Rapport manquant", "Le prestataire doit remplir le rapport d’intervention avant validation.");
       return;
@@ -841,6 +850,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleProviderRespond = async (status: "accepted" | "refused") => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     setIsRespondingProvider(true);
     try {
       await updateIntervention(intervention.id, {
@@ -870,6 +880,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleSaveAmount = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     const v = parseFloat(amountInput.replace(",", "."));
     if (isNaN(v) || v <= 0) {
       wa("Montant invalide", "Entrez un nombre positif.");
@@ -967,6 +978,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleExceptionalBypass = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!user || !currentCopro?.id || !intervention) return;
     setBypassModalVisible(false);
     try {
@@ -983,6 +995,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleRequestBypass = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!intervention) return;
     setIsRequestingBypass(true);
     try {
@@ -1002,6 +1015,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleApproveBypass = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!intervention) return;
     setIsApprovingBypass(true);
     try {
@@ -1019,12 +1033,14 @@ export default function InterventionDetailScreen() {
   const [teamLinkEmails, setTeamLinkEmails] = useState<string[]>([""]);
 
   const handleTeamLink = () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     const existing = (intervention as any)?.teamEmails as string[] | undefined;
     setTeamLinkEmails(existing && existing.length > 0 ? existing : [""]);
     setTeamLinkModalVisible(true);
   };
 
   const handleTeamLinkConfirm = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro?.id || !intervention) return;
     const validEmails = teamLinkEmails.map((e) => e.trim()).filter(Boolean);
     setTeamLinkModalVisible(false);
@@ -1058,6 +1074,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleResendGuestEmail = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro?.id) {
       wa("Erreur", "Aucune copropriété active.");
       return;
@@ -1104,8 +1121,8 @@ export default function InterventionDetailScreen() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             {canManage && intervention.status !== "termine" && (
               <Pressable
-                onPress={() => router.push(`/add?editId=${intervention.id}` as any)}
-                style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } router.push(`/add?editId=${intervention.id}` as any); }}
+                style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }, lockedStyle]}
               >
                 <Ionicons
                   name="pencil-outline"
@@ -1119,7 +1136,7 @@ export default function InterventionDetailScreen() {
               <Pressable
                 onPress={handleTeamLink}
                 disabled={isGeneratingTeamLink}
-                style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }, isGeneratingTeamLink && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }, isGeneratingTeamLink && { opacity: 0.6 }, lockedStyle]}
               >
                 {isGeneratingTeamLink ? (
                   <ActivityIndicator size="small" color="rgba(255,255,255,0.85)" />
@@ -1176,6 +1193,7 @@ export default function InterventionDetailScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
       >
+        <ReadOnlyNotice style={{ marginBottom: 12 }} />
         {viewerPhotos.length > 0 && (
           <PhotoViewer
             urls={viewerPhotos}
@@ -1285,7 +1303,7 @@ export default function InterventionDetailScreen() {
           {isPrestataire && remainingSlots > 0 && (
             <View style={styles.completionActions}>
               <Pressable
-                style={({ pressed }) => [styles.completionBtn, { flex: 1 }, pressed && { opacity: 0.8 }]}
+                style={({ pressed }) => [styles.completionBtn, { flex: 1 }, pressed && { opacity: 0.8 }, lockedStyle]}
                 onPress={takeCompletionPhoto}
               >
                 <Ionicons name="camera-outline" size={18} color={COLORS.primary} />
@@ -1302,7 +1320,7 @@ export default function InterventionDetailScreen() {
 
           {isPrestataire && localCompletionPhotos.length > 0 && (
             <Pressable
-              style={[styles.saveProofBtn, isUploadingCompletion && { opacity: 0.6 }]}
+              style={[styles.saveProofBtn, isUploadingCompletion && { opacity: 0.6 }, lockedStyle]}
               onPress={handleSavePhotosOnly}
               disabled={isUploadingCompletion}
             >
@@ -1418,8 +1436,8 @@ export default function InterventionDetailScreen() {
             {/* Réattribuer si refusé */}
             {providerStatus === "refused" && (
               <Pressable
-                onPress={() => router.push(`/add?editId=${intervention.id}&reassign=1` as any)}
-                style={({ pressed }) => [styles.reassignBtn, pressed && { opacity: 0.85 }]}
+                onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } router.push(`/add?editId=${intervention.id}&reassign=1` as any); }}
+                style={({ pressed }) => [styles.reassignBtn, pressed && { opacity: 0.85 }, lockedStyle]}
               >
                 <Ionicons name="swap-horizontal-outline" size={18} color="#fff" />
                 <Text style={styles.reassignBtnText}>Réattribuer à un autre prestataire</Text>
@@ -1431,7 +1449,7 @@ export default function InterventionDetailScreen() {
               onPress={handleResendGuestEmail}
               disabled={isSharingGuestInvite}
               style={({ pressed }) => [
-                styles.shareBtnSecondary,
+                styles.shareBtnSecondary, lockedStyle,
                 pressed && { opacity: 0.85 },
                 isSharingGuestInvite && { opacity: 0.65 },
               ]}
@@ -1452,7 +1470,7 @@ export default function InterventionDetailScreen() {
                 onPress={handleSendReminder}
                 disabled={isSendingReminder}
                 style={({ pressed }) => [
-                  styles.reminderRelanceBtn,
+                  styles.reminderRelanceBtn, lockedStyle,
                   pressed && { opacity: 0.85 },
                   isSendingReminder && { opacity: 0.65 },
                 ]}
@@ -1506,7 +1524,7 @@ export default function InterventionDetailScreen() {
               onPress={handleTeamLink}
               disabled={isGeneratingTeamLink}
               style={({ pressed }) => [
-                styles.shareBtnSecondary,
+                styles.shareBtnSecondary, lockedStyle,
                 pressed && { opacity: 0.85 },
                 isGeneratingTeamLink && { opacity: 0.65 },
               ]}
@@ -1537,7 +1555,7 @@ export default function InterventionDetailScreen() {
               <Pressable
                 onPress={() => handleProviderRespond("refused")}
                 disabled={isRespondingProvider}
-                style={({ pressed }) => [styles.refuseBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.refuseBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }, lockedStyle]}
               >
                 <Ionicons name="close-outline" size={18} color={COLORS.danger} />
                 <Text style={styles.refuseBtnText}>Refuser</Text>
@@ -1545,7 +1563,7 @@ export default function InterventionDetailScreen() {
               <Pressable
                 onPress={() => handleProviderRespond("accepted")}
                 disabled={isRespondingProvider}
-                style={({ pressed }) => [styles.acceptBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.acceptBtn, pressed && { opacity: 0.85 }, isRespondingProvider && { opacity: 0.6 }, lockedStyle]}
               >
                 {isRespondingProvider
                   ? <ActivityIndicator color="#fff" size="small" />
@@ -1765,7 +1783,7 @@ export default function InterventionDetailScreen() {
                 onPress={handleMarkRealise}
                 disabled={isUploadingCompletion || !report.trim() || (dateNotYetReached && !intervention.bypassApproved && !intervention.exceptionalBypass)}
                 style={({ pressed }) => [
-                  styles.doneBtn,
+                  styles.doneBtn, lockedStyle,
                   pressed && { opacity: 0.85 },
                   (isUploadingCompletion || !report.trim() || (dateNotYetReached && !intervention.bypassApproved && !intervention.exceptionalBypass)) && { opacity: 0.45 },
                 ]}
@@ -1799,8 +1817,8 @@ export default function InterventionDetailScreen() {
                   </Text>
                   {bypassCount !== null && bypassCount < BYPASS_QUOTA ? (
                     <Pressable
-                      style={styles.bypassBtn}
-                      onPress={() => setBypassModalVisible(true)}
+                      style={[styles.bypassBtn, lockedStyle]}
+                      onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setBypassModalVisible(true); }}
                       disabled={!report.trim()}
                     >
                       <Ionicons name="alert-circle-outline" size={15} color="#D97706" />
@@ -1815,7 +1833,7 @@ export default function InterventionDetailScreen() {
                     </View>
                   ) : (
                     <Pressable
-                      style={[styles.bypassBtn, { borderColor: COLORS.danger }]}
+                      style={[styles.bypassBtn, { borderColor: COLORS.danger }, lockedStyle]}
                       onPress={handleRequestBypass}
                       disabled={isRequestingBypass || !report.trim()}
                     >
@@ -1856,7 +1874,7 @@ export default function InterventionDetailScreen() {
                     Le prestataire demande à soumettre cette intervention hors délai (quota épuisé).
                   </Text>
                   <Pressable
-                    style={[styles.bypassApproveBtn, isApprovingBypass && { opacity: 0.6 }]}
+                    style={[styles.bypassApproveBtn, isApprovingBypass && { opacity: 0.6 }, lockedStyle]}
                     onPress={handleApproveBypass}
                     disabled={isApprovingBypass}
                   >
@@ -1884,7 +1902,7 @@ export default function InterventionDetailScreen() {
                 onPress={handleValidate}
                 disabled={isUploadingCompletion}
                 style={({ pressed }) => [
-                  styles.doneBtn,
+                  styles.doneBtn, lockedStyle,
                   { backgroundColor: COLORS.success },
                   pressed && { opacity: 0.85 },
                   isUploadingCompletion && { opacity: 0.7 },
@@ -1929,7 +1947,7 @@ export default function InterventionDetailScreen() {
                   Enregistrez ce passage dans le carnet pour mettre à jour la date du prochain entretien.
                 </Text>
                 <Pressable
-                  style={styles.carnetBtn}
+                  style={[styles.carnetBtn, lockedStyle]}
                   onPress={openCarnetModal}
                   disabled={carnetLoading}
                 >
@@ -2188,7 +2206,7 @@ export default function InterventionDetailScreen() {
               <Ionicons name="wallet-outline" size={18} color="#0891B2" />
               <Text style={styles.amountCardTitle}>Montant de l'intervention</Text>
               {isAdmin && !amountEditing && (
-                <Pressable style={styles.amountEditBtn} onPress={() => setAmountEditing(true)}>
+                <Pressable style={[styles.amountEditBtn, lockedStyle]} onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setAmountEditing(true); }}>
                   <Ionicons name="create-outline" size={16} color="#0891B2" />
                   <Text style={styles.amountEditText}>{intervention.amount !== undefined ? "Modifier" : "Saisir"}</Text>
                 </Pressable>

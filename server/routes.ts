@@ -587,6 +587,22 @@ async function createGuestInviteRecord(params: {
   };
 }
 
+// Résidence en lecture seule (essai terminé, abonnement du syndic arrêté) : même règle que
+// coproOpen() dans firestore.rules, à partir de accessUntilMs calculé par le serveur.
+const READ_ONLY_ERROR =
+  "Cette résidence est en lecture seule : la période d'essai ou l'abonnement du syndic est terminé. Plus rien ne peut être ajouté ni modifié.";
+function coproOpenNow(c: any): boolean {
+  if (!c) return true;
+  if (c.subscriptionStatus === "active") return true;
+  if (typeof c.accessUntilMs !== "number") return true;
+  return Date.now() < c.accessUntilMs;
+}
+async function coproIsOpen(db: FirebaseFirestore.Firestore | null, coProId: string): Promise<boolean> {
+  if (!db || !coProId) return true;
+  const snap = await db.collection("copros").doc(coProId).get();
+  return coproOpenNow(snap.exists ? snap.data() : null);
+}
+
 async function buildGuestInterventionPayload(token: string) {
   const invite = await getGuestInviteByToken(token);
   if (!invite) {
@@ -626,6 +642,9 @@ async function buildGuestInterventionPayload(token: string) {
   const intervention = interventionSnap.data() as any;
   const coproSnap = await db.collection("copros").doc(invite.data.coProId).get();
   const copro = coproSnap.exists ? (coproSnap.data() as any) : null;
+  if (!coproOpenNow(copro)) {
+    return { error: READ_ONLY_ERROR, status: 403 as const };
+  }
 
   const providerName =
     invite.data.providerName ||
@@ -5071,6 +5090,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[remind-intervention] manquants:", missing, "body:", JSON.stringify(req.body).slice(0, 300));
       return res.status(400).json({ error: "Paramètres manquants.", missing });
     }
+    if (!(await coproIsOpen(getAdminDb(), coProId))) return res.status(403).json({ error: READ_ONLY_ERROR });
 
     const db = getAdminDb();
     const sentAt = new Date().toISOString();
@@ -5230,6 +5250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!coProId || !interventionId || !invitedProvider?.email) {
       return res.status(400).json({ error: "coProId, interventionId et invitedProvider.email sont requis." });
     }
+    if (!(await coproIsOpen(getAdminDb(), coProId))) return res.status(403).json({ error: READ_ONLY_ERROR });
 
     const db = getAdminDb();
     if (!db) {
@@ -5367,6 +5388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!coProId || !interventionId) {
       return res.status(400).json({ error: "coProId et interventionId requis." });
     }
+    if (!(await coproIsOpen(getAdminDb(), coProId))) return res.status(403).json({ error: READ_ONLY_ERROR });
     const db = getAdminDb();
     if (!db) return res.status(503).json({ error: "Firebase Admin non configuré." });
 
@@ -5478,6 +5500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "coProId, interventionId et providerEmail sont requis.",
       });
     }
+    if (!(await coproIsOpen(getAdminDb(), coProId))) return res.status(403).json({ error: READ_ONLY_ERROR });
 
     const db = getAdminDb();
     if (!db) {
@@ -6148,6 +6171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!coProId || !interventionId || !companyName) {
       return res.status(400).json({ error: "coProId, interventionId et companyName requis." });
     }
+    if (!(await coproIsOpen(getAdminDb(), coProId))) return res.status(403).json({ error: READ_ONLY_ERROR });
     const db = getAdminDb();
     if (!db) return res.status(503).json({ error: "Firebase non configuré." });
 
@@ -6243,6 +6267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (snap.empty) return res.redirect(`/team-intervention/${token}?error=lien_invalide`);
 
       const link = snap.docs[0].data();
+      if (!(await coproIsOpen(db, link.coProId))) return res.redirect(`/team-intervention/${token}?error=lecture_seule`);
       const body = req.body as Record<string, string>;
       const employeeName = body.employeeName;
       const description = body.description;
@@ -6422,6 +6447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const errorMsg = error === "nom_requis" ? "Votre nom est obligatoire."
       : error === "serveur" ? "Une erreur est survenue. Réessayez."
       : error === "lien_invalide" ? "Lien invalide."
+      : error === "lecture_seule" ? READ_ONLY_ERROR
       : "";
 
     const html = pageShell(`Déclaration de passage — ${escapeHtml(link.interventionTitle)}`, `

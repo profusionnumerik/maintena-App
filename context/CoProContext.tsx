@@ -193,7 +193,7 @@ function computeSubscriptionStatus(data: any): UserSubscription {
 }
 
 export const READ_ONLY_MESSAGE =
-  "Votre période d'essai est terminée : la résidence est en lecture seule. Tout reste consultable, mais rien ne peut être ajouté. Le syndic peut réactiver l'accès en choisissant un abonnement.";
+  "Votre période d'essai est terminée : la résidence est en lecture seule. Tout reste consultable, mais rien ne peut être ajouté ni modifié (seule la suppression reste possible). Le syndic peut réactiver l'accès en choisissant un abonnement.";
 
 // Dernière valeur de isReadOnly, lisible depuis n'importe quel gestionnaire (sans dépendance de hook).
 let readOnlyNow = false;
@@ -1342,6 +1342,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const acknowledgeSignalement = useCallback(
     async (id: string, adminResponse?: string) => {
       if (!currentCopro) return;
+      assertOpen();
       // Récupérer le créateur du signalement pour lui envoyer une push
       const snap = await getDoc(doc(db, "copros", currentCopro.id, "signalements", id));
       const creatorUid = snap.exists() ? snap.data()?.uid : null;
@@ -1474,6 +1475,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const castPollVote = useCallback(
     async (pollId: string, optionIndex: number) => {
       if (!currentCopro || !user) return;
+      assertOpen();
       await updateDoc(doc(db, "copros", currentCopro.id, "polls", pollId), {
         [`votes.${user.uid}`]: optionIndex,
       });
@@ -1484,6 +1486,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
   const closePoll = useCallback(
     async (pollId: string) => {
       if (!currentCopro) return;
+      assertOpen();
       await updateDoc(doc(db, "copros", currentCopro.id, "polls", pollId), {
         status: "closed",
         closedAt: new Date().toISOString(),

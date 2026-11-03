@@ -17,7 +17,7 @@ import { HELP } from "@/shared/help";
 import PhotoViewer from "@/components/PhotoViewer";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import {
   Announcement, AnnouncementType, ANNOUNCEMENT_TYPE_LABELS, ANNOUNCEMENT_TYPE_COLORS,
   Poll, PollTarget, POLL_TARGET_LABELS, Signalement,
@@ -610,6 +610,7 @@ export default function AlertsScreen() {
   const [devisModalVisible, setDevisModalVisible] = useState(false);
 
   const handleOpenDevisModal = async (sig: Signalement) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro) return;
     setDevisSignalement(sig);
     setDevisSelected([]);
@@ -815,6 +816,7 @@ export default function AlertsScreen() {
   };
 
   const handleVotePoll = (poll: Poll, optIdx: number) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (poll.status === "closed") return;
     if (poll.votes[user?.uid ?? ""] !== undefined) return;
     wConfirm(
@@ -830,6 +832,7 @@ export default function AlertsScreen() {
   };
 
   const handleClosePoll = (poll: Poll) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     wConfirm(
       "Clôturer le sondage ?",
       "Plus aucun vote ne sera accepté.",
@@ -855,7 +858,7 @@ export default function AlertsScreen() {
           <Text style={styles.emptyTitle}>Aucun sondage</Text>
           <Text style={styles.emptyDesc}>Créez un sondage pour consulter les copropriétaires.</Text>
           {!isPrestataire && (
-            <Pressable style={[styles.signalBtn, { marginTop: 16 }]} onPress={() => setPollModalVisible(true)}>
+            <Pressable style={[styles.signalBtn, { marginTop: 16 }]} onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setPollModalVisible(true); }}>
               <Ionicons name="add-outline" size={18} color="#fff" />
               <Text style={styles.signalBtnText}>Créer un sondage</Text>
             </Pressable>
@@ -1150,17 +1153,17 @@ export default function AlertsScreen() {
         </View>
       )}
       {(isProprietaire || isConseil) && activeTab === "alertes" && (
-        <Pressable style={styles.addBtn} onPress={() => setSignalModalVisible(true)}>
+        <Pressable style={styles.addBtn} onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setSignalModalVisible(true); }}>
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
       {isAdmin && activeTab === "annonces" && (
-        <Pressable style={styles.addBtn} onPress={() => setAnnoModalVisible(true)}>
+        <Pressable style={styles.addBtn} onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setAnnoModalVisible(true); }}>
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
       {!isPrestataire && activeTab === "sondages" && (
-        <Pressable style={[styles.addBtn, { backgroundColor: "#8B5CF6" }]} onPress={() => setPollModalVisible(true)}>
+        <Pressable style={[styles.addBtn, { backgroundColor: "#8B5CF6" }]} onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setPollModalVisible(true); }}>
           <Ionicons name="add" size={22} color="#fff" />
         </Pressable>
       )}
@@ -1295,7 +1298,7 @@ export default function AlertsScreen() {
           {isAdmin && (
             <Pressable
               style={[styles.signalBtn, { marginTop: 16 }]}
-              onPress={() => setAnnoModalVisible(true)}
+              onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setAnnoModalVisible(true); }}
             >
               <Ionicons name="megaphone-outline" size={18} color="#fff" />
               <Text style={styles.signalBtnText}>Publier une annonce</Text>
@@ -1551,7 +1554,7 @@ export default function AlertsScreen() {
               <View>
                 <Pressable
                   style={({ pressed }: { pressed: boolean }) => [styles.signalBtn, { margin: 20, marginBottom: 12 }, pressed && { opacity: 0.85 }]}
-                  onPress={() => setSignalModalVisible(true)}
+                  onPress={() => { if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; } setSignalModalVisible(true); }}
                 >
                   <Ionicons name="warning-outline" size={20} color="#fff" />
                   <Text style={styles.signalBtnText}>Signaler un problème</Text>

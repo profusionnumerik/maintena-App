@@ -137,38 +137,46 @@ service cloud.firestore {
         allow update: if isSignedIn() && isMember(coProId) && (
           memberData(coProId).role != 'propriétaire' ||
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])
-        );
+        ) && coproOpen(coProId);
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /providerContacts/{contactId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
-        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        allow update: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /expenses/{expenseId} {
         allow read: if canManageFinances(coProId);
         allow create: if canManageFinances(coProId) && coproOpen(coProId);
-        allow update: if canManageFinances(coProId);
+        allow update: if canManageFinances(coProId) && coproOpen(coProId);
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /budgets/{budgetId} {
         allow read: if canManageFinances(coProId);
-        allow write: if canManageFinances(coProId);
+        allow create, update: if canManageFinances(coProId) && coproOpen(coProId);
+        allow delete: if canManageFinances(coProId);
       }
 
       match /signalements/{signalementId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isMember(coProId) && coproOpen(coProId);
-        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        // En lecture seule, le syndic peut encore marquer une alerte comme lue
+        allow update: if isSignedIn() && isCoProAdmin(coProId) && (
+          coproOpen(coProId) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        );
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /announcements/{announcementId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
-        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        allow update: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /demandesDevis/{demandeId} {
@@ -179,7 +187,7 @@ service cloud.firestore {
         allow update: if isSignedIn() && (
           isCoProAdmin(coProId) || isConseilMember(coProId) ||
           resource.data.createdBy == request.auth.uid
-        );
+        ) && coproOpen(coProId);
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
@@ -188,7 +196,7 @@ service cloud.firestore {
         allow read: if isSignedIn() && isMember(coProId);
         // Écriture : admin et conseil seulement
         allow create: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
-        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
@@ -197,14 +205,15 @@ service cloud.firestore {
         allow read: if isSignedIn() && isMember(coProId);
         // Écriture : admin et conseil seulement
         allow create: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
-        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
         allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
       }
 
       match /lots/{lotId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
-        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        allow update: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /interventions/{interventionId}/history/{eventId} {
@@ -230,7 +239,7 @@ service cloud.firestore {
           isCoProAdmin(coProId) ||
           resource.data.createdBy == request.auth.uid ||
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
-        );
+        ) && coproOpen(coProId);
         // Suppression : créateur ou admin seulement
         allow delete: if isSignedIn() && (
           isCoProAdmin(coProId) ||
