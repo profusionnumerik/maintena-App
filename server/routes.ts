@@ -3368,8 +3368,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       await verifySuperAdmin(req, db);
       const snap = await db.collection("copros").orderBy("createdAt", "desc").get();
-      const copros = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Uniquement de quoi gérer le compte : le contenu des résidences (finances, interventions,
+      // codes d'invitation…) reste réservé à leurs membres.
+      const copros = snap.docs.map((d) => {
+        const c = d.data();
+        return {
+          id: d.id,
+          name: c.name ?? "",
+          address: c.address ?? "",
+          status: c.status ?? "pending",
+          adminId: c.adminId ?? "",
+          adminEmail: c.adminEmail ?? "",
+          createdAt: c.createdAt ?? null,
+          subscriptionStatus: c.subscriptionStatus ?? null,
+          freeAccess: c.freeAccess ?? null,
+        };
+      });
       return res.json({ copros });
+    } catch (e: any) {
+      return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
+    }
+  });
+
+  // Supprime définitivement une résidence et tout son contenu (Admin SDK), sans l'ouvrir.
+  app.post("/api/superadmin/delete-copro", async (req: Request, res: Response) => {
+    const db = getAdminDb();
+    if (!db) return res.status(503).json({ error: "Firebase non configuré." });
+    try {
+      await verifySuperAdmin(req, db);
+      const { coProId } = req.body as { coProId?: string };
+      if (!coProId) return res.status(400).json({ error: "coProId requis." });
+      const ref = db.collection("copros").doc(coProId);
+      if (!(await ref.get()).exists) return res.status(404).json({ error: "Résidence introuvable." });
+
+      const [codes, users] = await Promise.all([
+        db.collection("inviteCodes").where("coProId", "==", coProId).get(),
+        db.collection("users").where("managedCoproIds", "array-contains", coProId).get(),
+      ]);
+      const batch = db.batch();
+      codes.docs.forEach((d) => batch.delete(d.ref));
+      users.docs.forEach((d) => batch.update(d.ref, { managedCoproIds: FieldValue.arrayRemove(coProId) }));
+      await batch.commit();
+      await db.recursiveDelete(ref);
+      return res.json({ ok: true });
     } catch (e: any) {
       return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
     }

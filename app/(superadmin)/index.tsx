@@ -59,7 +59,8 @@ export default function SuperAdminScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, logout, isSuperAdmin, isCollaborator, previewRole, setPreviewRole } = useAuth();
-  const { setPreviewCoproRole, setPreviewCoPro } = useCoPro();
+  // Prévisualisation des rôles : uniquement sur ses propres résidences (jamais celles des clients).
+  const { setPreviewCoproRole, setPreviewCoPro, copros: myCopros } = useCoPro();
   const [copros, setCopros] = useState<CoPro[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -578,6 +579,35 @@ export default function SuperAdminScreen() {
     }
   };
 
+  // Suppression définitive d'une résidence (et de tout son contenu), sans l'ouvrir.
+  const handleDeleteCopro = async (item: CoPro) => {
+    if (!user) return;
+    const msg = `Supprimer définitivement « ${item.name} » ?\n\nInterventions, documents, finances, membres et codes d'invitation seront effacés. Cette action est irréversible.`;
+    const ok = Platform.OS === "web"
+      ? window.confirm(msg)
+      : await new Promise<boolean>((resolve) => Alert.alert("Supprimer la résidence", msg, [
+          { text: "Annuler", style: "cancel", onPress: () => resolve(false) },
+          { text: "Supprimer", style: "destructive", onPress: () => resolve(true) },
+        ]));
+    if (!ok) return;
+    setUpdatingId(item.id);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(new URL("/api/superadmin/delete-copro", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ coProId: item.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erreur");
+      setCopros((prev) => prev.filter((c) => c.id !== item.id));
+    } catch (e: any) {
+      if (Platform.OS === "web") window.alert(e.message); else Alert.alert("Erreur", e.message);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const handleStatusChange = async (coProId: string, newStatus: CoProStatus) => {
     if (!user) return;
     const labels: Record<CoProStatus, string> = {
@@ -1000,11 +1030,12 @@ export default function SuperAdminScreen() {
                     style={{ backgroundColor: isActive ? color : bg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
                     onPress={() => {
                       if (nav === "copro") {
-                        if (copros.length === 0) {
-                          Alert.alert("Aucune copropriété", "Créez d'abord une copropriété dans l'onglet Copros pour pouvoir prévisualiser.");
+                        if (myCopros.length === 0) {
+                          const msg = "La prévisualisation se fait sur une résidence dont vous êtes membre. Créez une résidence de test avec votre compte pour l'utiliser.";
+                          if (Platform.OS === "web") window.alert(msg); else Alert.alert("Aucune résidence de test", msg);
                           return;
                         }
-                        setPreviewCoPro(copros[0]);
+                        setPreviewCoPro(myCopros[0]);
                         setPreviewCoproRole(coproRole as any);
                         setPreviewRole("copro");
                         router.replace("/(app)");
@@ -1554,10 +1585,6 @@ export default function SuperAdminScreen() {
                     {new Date(item.createdAt).toLocaleDateString("fr-FR")}
                   </Text>
                 </View>
-                <View style={styles.metaRow}>
-                  <Ionicons name="key-outline" size={13} color={COLORS.textMuted} />
-                  <Text style={styles.metaCode}>{item.inviteCode}</Text>
-                </View>
               </View>
 
               <View style={styles.actions}>
@@ -1609,6 +1636,14 @@ export default function SuperAdminScreen() {
                     <Text style={styles.actionSuspendText}>Suspendre</Text>
                   </Pressable>
                 )}
+                <Pressable
+                  style={[styles.actionBtn, styles.actionSuspend]}
+                  onPress={() => handleDeleteCopro(item)}
+                  disabled={isUpdating}
+                >
+                  <Ionicons name="trash-outline" size={15} color="#991B1B" />
+                  <Text style={styles.actionSuspendText}>Supprimer</Text>
+                </Pressable>
               </View>
             </View>
           );

@@ -283,17 +283,8 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     setLoadError(null);
 
     try {
-      if (isSuperAdmin) {
-        const snap = await getDocs(collection(db, "copros"));
-        const list: CoPro[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<CoPro, "id">),
-        }));
-        setCopros(list);
-        await selectDefault(list, user.uid);
-        return;
-      }
-
+      // Le super admin ne voit que les résidences dont il est membre, comme tout le monde :
+      // il gère les comptes depuis son panneau, sans accès au contenu des autres résidences.
       const roles: Record<string, MemberRole> = {};
       const coProMap: Record<string, CoPro> = {};
       let s1Succeeded = false;

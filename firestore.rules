@@ -33,8 +33,10 @@ service cloud.firestore {
       return isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
     }
 
+    // Le super admin n'a pas accès au contenu des résidences : il gère les comptes depuis son
+    // panneau, par le serveur (Admin SDK). Il ne voit une résidence que s'il en est membre.
     function canReadCopro(coProId) {
-      return isSuperAdmin() || isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
+      return isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
     }
 
     /** Vérifie si l'utilisateur est locataire du logement (via rentalInfo stocké dans son profil) */
@@ -74,7 +76,7 @@ service cloud.firestore {
     match /inviteCodes/{code} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && request.resource.data.coProId is string;
-      allow update, delete: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(resource.data.coProId));
+      allow update, delete: if isSignedIn() && isCoProAdmin(resource.data.coProId);
     }
 
     match /guestInterventionInvites/{inviteId} {
@@ -85,16 +87,15 @@ service cloud.firestore {
       allow read: if canReadCopro(coProId);
       allow create: if isSignedIn();
       allow update: if isSignedIn() && (
-        isSuperAdmin() ||
         isCoProAdmin(coProId) ||
         // Membres du conseil : uniquement les champs du vote trésorier
         (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid', 'revoteRequest']))
       );
-      allow delete: if isSignedIn() && (isSuperAdmin() || resource.data.adminId == request.auth.uid);
+      allow delete: if isSignedIn() && resource.data.adminId == request.auth.uid;
 
       match /members/{userId} {
-        allow read: if isSignedIn() && (isSuperAdmin() || isMember(coProId));
-        allow write: if isSignedIn() && (isSuperAdmin() || isCoProAdmin(coProId) || request.auth.uid == userId);
+        allow read: if isSignedIn() && isMember(coProId);
+        allow write: if isSignedIn() && (isCoProAdmin(coProId) || request.auth.uid == userId);
       }
 
       match /interventions/{interventionId} {
@@ -104,7 +105,7 @@ service cloud.firestore {
           memberData(coProId).role != 'propriétaire' ||
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])
         );
-        allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+        allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /providerContacts/{contactId} {
@@ -125,13 +126,13 @@ service cloud.firestore {
 
       match /signalements/{signalementId} {
         allow create, read: if isSignedIn() && isMember(coProId);
-        allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /announcements/{announcementId} {
         allow read: if isSignedIn() && isMember(coProId);
         allow create: if isSignedIn() && isCoProAdmin(coProId);
-        allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || isSuperAdmin());
+        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /demandesDevis/{demandeId} {
@@ -194,8 +195,7 @@ service cloud.firestore {
         // Suppression : créateur ou admin seulement
         allow delete: if isSignedIn() && (
           isCoProAdmin(coProId) ||
-          resource.data.createdBy == request.auth.uid ||
-          isSuperAdmin()
+          resource.data.createdBy == request.auth.uid
         );
       }
     }
@@ -230,41 +230,35 @@ service cloud.firestore {
     // Logements — bailleur propriétaire + locataire peut lire son propre logement
     match /properties/{propertyId} {
       allow read: if isSignedIn() && (
-        isSuperAdmin() ||
         resource.data.landlordId == request.auth.uid ||
         isTenantOf(propertyId)
       );
       allow create: if isSignedIn() &&
         request.resource.data.landlordId == request.auth.uid;
       allow update, delete: if isSignedIn() && (
-        isSuperAdmin() ||
         resource.data.landlordId == request.auth.uid
       );
 
       // Locataires du logement
       match /tenants/{tenantId} {
         allow read: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
           resource.data.userId == request.auth.uid
         );
         allow create, update, delete: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
       }
 
       // Signalements locataire
       match /issues/{issueId} {
         allow read: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
           resource.data.tenantUserId == request.auth.uid
         );
         allow create: if isSignedIn(); // locataire peut signaler un problème
         allow update, delete: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
       }
 
@@ -272,8 +266,7 @@ service cloud.firestore {
       match /interventions/{interventionId} {
         // Bailleur : accès complet
         allow read, write: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
         // Locataire : lecture de toutes les interventions du logement
         allow read: if isSignedIn() && isTenantOf(propertyId);
@@ -311,33 +304,28 @@ service cloud.firestore {
       // Le locataire peut lire les documents marqués visibleToTenant = true
       match /documents/{docId} {
         allow read: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid ||
           (isTenantOf(propertyId) && resource.data.visibleToTenant == true)
         );
         allow create, update, delete: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
       }
 
       // Quittances de loyer
       match /quittances/{quittanceId} {
         allow read, create: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
         allow update, delete: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
       }
 
       // Carnet d'entretien / historique du logement
       match /history/{eventId} {
         allow read, write: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
       }
     }
@@ -395,7 +383,6 @@ service cloud.firestore {
     match /properties/{propertyId}/inventoryReports/{reportId} {
       // Bailleur : accès complet à ses logements
       allow read, write: if isSignedIn() && (
-        isSuperAdmin() ||
         get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
       );
 
@@ -414,8 +401,7 @@ service cloud.firestore {
       match /rooms/{roomId} {
         // Bailleur : accès complet
         allow read, write: if isSignedIn() && (
-          isSuperAdmin() ||
-          get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
+            get(/databases/$(database)/documents/properties/$(propertyId)).data.landlordId == request.auth.uid
         );
 
         // Locataire : lecture de toutes les pièces si c'est son logement
