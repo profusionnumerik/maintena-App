@@ -23,7 +23,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import HelpModal, { HelpButton } from "@/components/HelpModal";
 import { HELP } from "@/shared/help";
@@ -324,6 +324,7 @@ export default function ConseilFinancesScreen() {
   };
 
   const handleSaveExpense = useCallback(async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro?.id || !user) return;
     const amount = parseFloat(form.amount.replace(",", "."));
     if (!form.label.trim()) { wa("Erreur", "Libellé requis."); return; }
@@ -386,6 +387,7 @@ export default function ConseilFinancesScreen() {
   };
 
   const handleSaveBudget = useCallback(async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro?.id || !user) return;
     setSavingBudget(true);
     try {

@@ -39,6 +39,29 @@ service cloud.firestore {
       return isMember(coProId) || (isSignedIn() && resource.data.adminId == request.auth.uid);
     }
 
+    // Résidence ouverte aux créations : accès offert, ou accessUntilMs (calculé par le serveur à
+    // partir de l'essai et de l'abonnement du syndic) dans le futur. Sinon lecture seule : tout se
+    // consulte, rien ne se crée. Résidence pas encore recalculée (pas de champ) : ouverte, comme avant.
+    function coproOpen(coProId) {
+      let c = get(/databases/$(database)/documents/copros/$(coProId)).data;
+      return c.get('subscriptionStatus', '') == 'active'
+        || !('accessUntilMs' in c)
+        || request.time.toMillis() < c.accessUntilMs;
+    }
+
+    // Champs d'abonnement : écrits uniquement par le serveur (Admin SDK), jamais par l'application.
+    function coproBillingKeys() {
+      return ['subscriptionStatus', 'subscriptionPlan', 'subscriptionExpiresAt', 'subscriptionActivatedAt',
+              'accessUntilMs', 'accessSyncedAt', 'stripePaid', 'stripeSubscriptionId', 'stripeCustomerId',
+              'stripeSessionId', 'freeAccessReason', 'freeAccessGrantedAt'];
+    }
+    function userBillingKeys() {
+      return ['subscriptionStatus', 'subscriptionPlan', 'subscriptionExpiresAt', 'subscriptionActivatedAt',
+              'subscriptionCanceledAt', 'trialEndsAt', 'trialReminders', 'accessType', 'demoExpiresAt',
+              'demoMaxCopros', 'demoMaxMembersPerCopro', 'demoGrantedAt', 'stripeSubscriptionId',
+              'stripeCustomerId', 'stripeSessionId'];
+    }
+
     /** Vérifie si l'utilisateur est locataire du logement (via rentalInfo stocké dans son profil) */
     function isTenantOf(propertyId) {
       return isSignedIn() &&
@@ -46,7 +69,11 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow read, delete: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid
+        && !request.resource.data.keys().hasAny(userBillingKeys());
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(userBillingKeys());
       // Employeur peut lire les profils de ses salariés
       allow read: if isSignedIn() && resource.data.employerUid == request.auth.uid;
 
@@ -85,8 +112,12 @@ service cloud.firestore {
 
     match /copros/{coProId} {
       allow read: if canReadCopro(coProId);
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && (
+      // Nouvelle résidence : essai de 30 jours au plus, sans champ d'abonnement.
+      allow create: if isSignedIn()
+        && !request.resource.data.keys().hasAny(coproBillingKeys().removeAll(['accessUntilMs']))
+        && request.resource.data.get('accessUntilMs', 0) <= request.time.toMillis() + 31 * 86400000;
+      allow update: if isSignedIn()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(coproBillingKeys().concat(['trialEndsAt'])) && (
         isCoProAdmin(coProId) ||
         // Membres du conseil : uniquement les champs du vote trésorier
         (isConseilMember(coProId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conseilVote', 'tresorierUid', 'revoteRequest']))
@@ -95,12 +126,14 @@ service cloud.firestore {
 
       match /members/{userId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow write: if isSignedIn() && (isCoProAdmin(coProId) || request.auth.uid == userId);
+        // Rejoindre une résidence (ou y ajouter quelqu'un) : seulement si elle est ouverte.
+        allow create: if isSignedIn() && (isCoProAdmin(coProId) || request.auth.uid == userId) && coproOpen(coProId);
+        allow update, delete: if isSignedIn() && (isCoProAdmin(coProId) || request.auth.uid == userId);
       }
 
       match /interventions/{interventionId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role in ['admin', 'collaborateur'];
+        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role in ['admin', 'collaborateur'] && coproOpen(coProId);
         allow update: if isSignedIn() && isMember(coProId) && (
           memberData(coProId).role != 'propriétaire' ||
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])
@@ -110,12 +143,14 @@ service cloud.firestore {
 
       match /providerContacts/{contactId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create, update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
+        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /expenses/{expenseId} {
         allow read: if canManageFinances(coProId);
-        allow create, update: if canManageFinances(coProId);
+        allow create: if canManageFinances(coProId) && coproOpen(coProId);
+        allow update: if canManageFinances(coProId);
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
@@ -125,20 +160,21 @@ service cloud.firestore {
       }
 
       match /signalements/{signalementId} {
-        allow create, read: if isSignedIn() && isMember(coProId);
+        allow read: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId) && coproOpen(coProId);
         allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /announcements/{announcementId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create: if isSignedIn() && isCoProAdmin(coProId);
+        allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
         allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /demandesDevis/{demandeId} {
         // Tout membre peut lire et créer un ticket
         allow read: if isSignedIn() && isMember(coProId);
-        allow create: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId) && coproOpen(coProId);
         // Mise à jour : admin, conseil, ou créateur du ticket
         allow update: if isSignedIn() && (
           isCoProAdmin(coProId) || isConseilMember(coProId) ||
@@ -151,7 +187,8 @@ service cloud.firestore {
         // Lecture : tous les membres de la copropriété
         allow read: if isSignedIn() && isMember(coProId);
         // Écriture : admin et conseil seulement
-        allow create, update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow create: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
+        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
         allow delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
@@ -159,18 +196,20 @@ service cloud.firestore {
         // Lecture : tous les membres de la copropriété
         allow read: if isSignedIn() && isMember(coProId);
         // Écriture : admin et conseil seulement
-        allow create, update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
+        allow create: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId)) && coproOpen(coProId);
+        allow update: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
         allow delete: if isSignedIn() && (isCoProAdmin(coProId) || isConseilMember(coProId));
       }
 
       match /lots/{lotId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create, update, delete: if isSignedIn() && isCoProAdmin(coProId);
+        allow create: if isSignedIn() && isCoProAdmin(coProId) && coproOpen(coProId);
+        allow update, delete: if isSignedIn() && isCoProAdmin(coProId);
       }
 
       match /interventions/{interventionId}/history/{eventId} {
         allow read: if isSignedIn() && isMember(coProId);
-        allow create: if isSignedIn() && isMember(coProId);
+        allow create: if isSignedIn() && isMember(coProId) && coproOpen(coProId);
         allow update, delete: if false;
       }
 
@@ -185,7 +224,7 @@ service cloud.firestore {
         // Visible à tous les membres (filtrage de visibilité assuré côté client)
         allow read: if isSignedIn() && isMember(coProId);
         // Tout membre non-prestataire peut créer un sondage
-        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role != 'prestataire';
+        allow create: if isSignedIn() && isMember(coProId) && memberData(coProId).role != 'prestataire' && coproOpen(coProId);
         // Vote : le créateur ou l'admin peut clôturer/modifier ; n'importe quel membre peut voter (update votes seulement)
         allow update: if isSignedIn() && isMember(coProId) && (
           isCoProAdmin(coProId) ||
@@ -200,8 +239,13 @@ service cloud.firestore {
       }
     }
 
+    // Recherche de ses propres adhésions (collectionGroup « members » filtré sur son uid ou son
+    // e-mail) : chacun ne lit que ses fiches, pas la liste des membres des autres résidences.
     match /{path=**}/members/{memberId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid ||
+        resource.data.email == request.auth.token.email
+      );
     }
 
     // Tokens de devis (lookup public pour le formulaire prestataire — lecture par token uniquement côté serveur Admin SDK)

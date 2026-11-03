@@ -26,6 +26,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { db } from "@/lib/firebase";
@@ -82,6 +83,8 @@ interface CoProContextValue {
   loadError: string | null;
   userSubscription: UserSubscription | null;
   isSubscribed: boolean;
+  /** Résidence sans essai ni abonnement : tout reste consultable, rien ne peut être créé. */
+  isReadOnly: boolean;
   isInTrial: boolean;
   trialDaysLeft: number;
   switchCoPro: (id: string) => void;
@@ -187,6 +190,15 @@ function computeSubscriptionStatus(data: any): UserSubscription {
     activatedAt: data.subscriptionActivatedAt,
     expiresAt,
   };
+}
+
+export const READ_ONLY_MESSAGE =
+  "Votre période d'essai est terminée : la résidence est en lecture seule. Tout reste consultable, mais rien ne peut être ajouté. Le syndic peut réactiver l'accès en choisissant un abonnement.";
+
+// Dernière valeur de isReadOnly, lisible depuis n'importe quel gestionnaire (sans dépendance de hook).
+let readOnlyNow = false;
+export function isCoproReadOnly(): boolean {
+  return readOnlyNow;
 }
 
 export function CoProProvider({ children }: { children: React.ReactNode }) {
@@ -742,11 +754,30 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     () =>
       isSuperAdmin ||
       isInTrial ||
+      ((currentCopro as any)?.accessUntilMs ?? 0) > Date.now() ||
       currentCopro?.subscriptionStatus === "active" ||
       userSubscription?.status === "active" ||
       userSubscription?.status === "trialing",
     [isSuperAdmin, isInTrial, currentCopro, userSubscription]
   );
+
+  // accessUntilMs est calculé par le serveur à partir de l'abonnement du syndic : les membres
+  // de la résidence ont le même accès que lui. Avant ce calcul, on garde l'ancienne règle.
+  const isReadOnly = useMemo(() => {
+    if (!currentCopro || isSuperAdmin) return false;
+    const accessUntilMs = (currentCopro as any).accessUntilMs;
+    if (currentCopro.subscriptionStatus === "active") return false;
+    if (typeof accessUntilMs === "number") return accessUntilMs <= Date.now();
+    return !isSubscribed;
+  }, [currentCopro, isSuperAdmin, isSubscribed]);
+
+  // Garde commune des fonctions qui créent quelque chose (lu au moment de l'appel).
+  const readOnlyRef = useRef(isReadOnly);
+  readOnlyRef.current = isReadOnly;
+  readOnlyNow = isReadOnly;
+  const assertOpen = () => {
+    if (readOnlyRef.current) throw new Error(READ_ONLY_MESSAGE);
+  };
 
   const switchCoPro = useCallback(async (id: string) => {
     setCurrentCoproId(id);
@@ -800,6 +831,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
         adminEmail: user.email,
         status: "active",
         trialEndsAt,
+        accessUntilMs: new Date(trialEndsAt).getTime(),
         inviteCode: code,
         ownerInviteCode: ownerCode,
         conseilInviteCode: conseilCode,
@@ -1034,6 +1066,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const generateCategoryCode = useCallback(
     async (category: Category): Promise<string> => {
+      assertOpen();
       if (!currentCopro || (currentRole !== "admin" && currentRole !== "co-admin"))
         throw new Error("Non autorisé");
 
@@ -1064,6 +1097,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
     async (
       payload: InvitePrestatairePayload
     ): Promise<{ inviteCode: string; memberId: string }> => {
+      assertOpen();
       if (!user || !currentCopro || (currentRole !== "admin" && currentRole !== "co-admin")) {
         throw new Error("Non autorisé");
       }
@@ -1105,6 +1139,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const preRegisterProvider = useCallback(
     async (payload: PreRegisterProviderPayload): Promise<{ status: "new" | "updated" | "already_registered" }> => {
+      assertOpen();
       const phone = normalizePhone(payload.phone);
       if (!phone) throw new Error("Numéro de téléphone requis");
 
@@ -1231,6 +1266,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       category?: Category,
       urgency?: "normal" | "urgent"
     ) => {
+      assertOpen();
       if (!user || !currentCopro) throw new Error("Non authentifié.");
 
       let photos: string[] = [];
@@ -1360,6 +1396,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       type: AnnouncementType,
       expiresAt?: string
     ) => {
+      assertOpen();
       if (!user || !currentCopro) throw new Error("Non authentifié.");
 
       await addDoc(collection(db, "copros", currentCopro.id, "announcements"), {
@@ -1402,6 +1439,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
 
   const addPoll = useCallback(
     async (title: string, options: string[], target: PollTarget, expiresAt?: string) => {
+      assertOpen();
       if (!currentCopro || !user) return;
       const data: any = {
         coProId: currentCopro.id,
@@ -1532,6 +1570,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       loadError,
       userSubscription,
       isSubscribed,
+      isReadOnly,
       isInTrial,
       trialDaysLeft,
       switchCoPro,
@@ -1584,6 +1623,7 @@ export function CoProProvider({ children }: { children: React.ReactNode }) {
       loadError,
       userSubscription,
       isSubscribed,
+      isReadOnly,
       isInTrial,
       trialDaysLeft,
       switchCoPro,

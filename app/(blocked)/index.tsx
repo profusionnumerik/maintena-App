@@ -295,7 +295,7 @@ export default function BlockedScreen() {
       >
         <Pressable
           style={styles.backBtn}
-          onPress={() => router.replace("/(onboarding)")}
+          onPress={() => router.replace("/(app)")}
         >
           <Ionicons name="arrow-back-outline" size={20} color="rgba(255,255,255,0.7)" />
           <Text style={styles.backBtnText}>Retour</Text>

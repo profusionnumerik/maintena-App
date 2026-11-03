@@ -5,9 +5,22 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    // Fichiers d'une résidence : réservés à ses membres. Dépôt seulement si la résidence est
+    // ouverte (voir coproOpen dans firestore.rules) : en lecture seule, rien ne s'ajoute.
+    function isCoproMember(coProId) {
+      return firestore.exists(/databases/(default)/documents/copros/$(coProId)/members/$(request.auth.uid));
+    }
+    function coproOpen(coProId) {
+      let c = firestore.get(/databases/(default)/documents/copros/$(coProId)).data;
+      return c.get('subscriptionStatus', '') == 'active'
+        || !('accessUntilMs' in c)
+        || request.time.toMillis() < c.accessUntilMs;
+    }
+
     match /copros/{coProId}/{allPaths=**} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.resource.size < 10 * 1024 * 1024;
+      allow read: if isSignedIn() && isCoproMember(coProId);
+      allow write: if isSignedIn() && isCoproMember(coProId) && coproOpen(coProId)
+                   && request.resource.size < 10 * 1024 * 1024;
     }
 
     // Signatures personnelles (modèle + signatures devis)

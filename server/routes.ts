@@ -1654,6 +1654,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch {}
 
       const baseUrl = getBaseUrl(req);
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true, redirectUrl: `${baseUrl}/trial-success`, userId, coProId: coProRef.id });
     } catch (e: any) {
       console.error("web-signup-trial error:", e);
@@ -1966,6 +1967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await batch.commit();
       }
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ received: true });
     } catch (e: any) {
       console.error("stripe-webhook error:", e);
@@ -2023,6 +2025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
       }
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true, trialEndsAt });
     } catch (e: any) {
       console.error("start-trial error:", e);
@@ -2220,6 +2223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await batch.commit();
       }
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ activated: true, expiresAt: expiresAtStr });
     } catch (e: any) {
       console.error("activate-user-subscription error:", e);
@@ -2946,6 +2950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       await batch.commit();
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({
         success: true,
         activatedAt: now.toISOString(),
@@ -2959,6 +2964,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── Accès Démo (Super Admin) ──────────────────────────────────────────────────
+
+  // ── Accès des résidences ─────────────────────────────────────────────────
+  // copros.accessUntilMs : jusqu'à quand la résidence est ouverte (création d'interventions,
+  // documents, annonces…). Calculé uniquement ici (les règles Firestore interdisent à l'app de le
+  // modifier) à partir de l'accès offert, de l'essai de la résidence et de l'abonnement de son
+  // syndic (adminId). Résidents, prestataires et conseil ont ainsi le même accès que leur syndic.
+  const ACCESS_FOREVER_MS = 8_640_000_000_000_000;
+  function isoToMs(value: unknown): number {
+    const t = value ? new Date(String(value)).getTime() : NaN;
+    return Number.isNaN(t) ? 0 : t;
+  }
+  function syndicAccessUntilMs(u: any): number {
+    if (!u) return 0;
+    const status = u.subscriptionStatus;
+    // Abonnement Stripe (y compris l'essai bénévole avec carte) : Stripe renouvelle tout seul,
+    // la fin arrive par le webhook customer.subscription.deleted (statut « canceled »).
+    if (u.stripeSubscriptionId && (status === "active" || status === "trialing")) return ACCESS_FOREVER_MS;
+    if (status === "active") {
+      const end = u.subscriptionExpiresAt ?? u.demoExpiresAt;
+      return end ? isoToMs(end) : ACCESS_FOREVER_MS;
+    }
+    if (status === "trialing") return isoToMs(u.trialEndsAt);
+    return 0;
+  }
+  function coproAccessUntilMs(c: any, syndic: any): number {
+    const offered = c.subscriptionStatus === "active"
+      ? (c.subscriptionExpiresAt ? isoToMs(c.subscriptionExpiresAt) : ACCESS_FOREVER_MS)
+      : 0;
+    return Math.max(offered, isoToMs(c.trialEndsAt), syndicAccessUntilMs(syndic));
+  }
+  async function writeCoproAccess(db: FirebaseFirestore.Firestore, copros: FirebaseFirestore.QueryDocumentSnapshot[]) {
+    const adminIds = [...new Set(copros.map((d) => d.data().adminId).filter(Boolean))] as string[];
+    const syndics = new Map<string, any>();
+    for (let i = 0; i < adminIds.length; i += 100) {
+      const refs = adminIds.slice(i, i + 100).map((id) => db.collection("users").doc(id));
+      (await db.getAll(...refs)).forEach((s) => syndics.set(s.id, s.data()));
+    }
+    let batch = db.batch();
+    let pending = 0;
+    for (const d of copros) {
+      const c = d.data();
+      const until = coproAccessUntilMs(c, syndics.get(c.adminId));
+      if (c.accessUntilMs === until) continue;
+      batch.set(d.ref, { accessUntilMs: until, accessSyncedAt: new Date().toISOString() }, { merge: true });
+      if (++pending === 400) { await batch.commit(); batch = db.batch(); pending = 0; }
+    }
+    if (pending) await batch.commit();
+  }
+  async function syncCoproAccess(db: FirebaseFirestore.Firestore, adminUid: string) {
+    const snap = await db.collection("copros").where("adminId", "==", adminUid).get();
+    await writeCoproAccess(db, snap.docs);
+  }
+  async function syncAllCoproAccess(db: FirebaseFirestore.Firestore) {
+    const snap = await db.collection("copros").get();
+    await writeCoproAccess(db, snap.docs);
+  }
 
   async function verifySuperAdmin(req: Request, db: FirebaseFirestore.Firestore) {
     const adminAuth = getAdminAuthInstance();
@@ -3025,6 +3086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true, ...demoData });
     } catch (e: any) {
       return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
@@ -3057,6 +3119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch { /* user not found */ }
       }
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true });
     } catch (e: any) {
       return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
@@ -3326,6 +3389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch {}
 
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true, redirectUrl: `${getBaseUrl(req)}/trial-success` });
     } catch (e: any) {
       console.error("demo-signup error:", e);
@@ -3353,6 +3417,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           accessType: u.accessType ?? "trial",
           subscriptionStatus: u.subscriptionStatus ?? "",
           managedCoproIds: u.managedCoproIds ?? [],
+          // Étiquette affichée dans l'onglet Activité (un membre qui a rejoint avec un code n'a
+          // ni essai ni abonnement : son accès dépend de celui de sa résidence).
+          accessLabel:
+            u.accessType === "demo" ? "Démo"
+            : u.subscriptionStatus === "active" ? (u.stripeSubscriptionId ? "Abonné" : "Accès actif")
+            : u.subscriptionStatus === "trialing"
+              ? (isoToMs(u.trialEndsAt) > Date.now() ? "Essai en cours" : "Essai terminé")
+            : u.subscriptionStatus === "canceled" ? "Résilié"
+            : u.subscriptionStatus === "pending" ? "Paiement en attente"
+            : "Membre",
         };
       });
       return res.json({ users });
@@ -3367,6 +3441,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!db) return res.status(503).json({ error: "Firebase non configuré." });
     try {
       await verifySuperAdmin(req, db);
+      // Remet à jour l'accès des résidences (rattrapage), sans faire attendre la liste.
+      syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       const snap = await db.collection("copros").orderBy("createdAt", "desc").get();
       // Uniquement de quoi gérer le compte : le contenu des résidences (finances, interventions,
       // codes d'invitation…) reste réservé à leurs membres.
@@ -3465,6 +3541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await db.collection("copros").doc(coProId).update(update);
+      await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
       return res.json({ ok: true, expiresAt: expiresAt ?? "lifetime" });
     } catch (e: any) {
       return res.status(e.message === "Accès refusé." ? 403 : 500).json({ error: e.message });
@@ -3570,6 +3647,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newEndsAt = shift(data.trialEndsAt as string | undefined);
         // Les rappels repartent de zéro pour la nouvelle date de fin.
         await ref.update({ subscriptionStatus: "trialing", trialEndsAt: newEndsAt, "trialReminders.copro": {} });
+        await syncCoproAccess(db, id);
         toEmail = data.email ?? "";
         toName = data.displayName ?? "Syndic";
       } else if (type === "rental") {
@@ -3900,6 +3978,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const from = resendClient.fromEmail ?? "Maintena <noreply@maintena-pro.fr>";
+
+    // Rattrapage quotidien de l'accès des résidences (fins d'essai, changements manqués).
+    await syncAllCoproAccess(db).catch((e: any) => console.error("[copro-access] sync", e?.message));
 
     try {
       const now = Date.now();
@@ -10622,6 +10703,10 @@ document.getElementById("submitBtn").addEventListener("click", async () => {
     if (req.path.startsWith("/api/")) return res.status(404).json({ error: "Not found" });
     return sendSPA(req, res);
   });
+
+  // Au démarrage : recalcule l'accès de toutes les résidences (rattrapage après mise en ligne).
+  const bootDb = getAdminDb();
+  if (bootDb) syncAllCoproAccess(bootDb).catch((e: any) => console.error("[copro-access] sync", e?.message));
 
   const httpServer = createServer(app);
   return httpServer;

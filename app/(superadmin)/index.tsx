@@ -774,7 +774,7 @@ export default function SuperAdminScreen() {
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
                       <View style={{ backgroundColor: isDemo ? "#EFF6FF" : "#D1FAE5", borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 }}>
                         <Text style={{ fontSize: 10, fontFamily: "Inter_600SemiBold", color: isDemo ? COLORS.primary : "#059669" }}>
-                          {isDemo ? "Démo" : "Essai 30j"}
+                          {u.accessLabel ?? (isDemo ? "Démo" : "Membre")}
                         </Text>
                       </View>
                       <Text style={styles.demoUserDate}>{date}</Text>

@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { ReadOnlyNotice } from "@/components/ReadOnlyBanner";
 import { useCoPro } from "@/context/CoProContext";
 import { useInterventions } from "@/context/InterventionsContext";
 import { uploadPhoto, uploadPhotoPending } from "@/lib/storage";
@@ -374,7 +375,7 @@ export default function AddInterventionScreen() {
   const { user } = useAuth();
   const { addIntervention, updateIntervention, getIntervention } =
     useInterventions();
-  const { currentCopro, currentRole, categoryFilter, members, preRegisterProvider } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, members, preRegisterProvider, isReadOnly } = useCoPro();
   const { editId, reassign, passageMode, category: categoryParam, groupId: groupIdParam } = useLocalSearchParams<{ editId?: string; reassign?: string; passageMode?: string; category?: string; groupId?: string }>();
   const isEditMode = !!editId;
   const isReassign = reassign === "1";
@@ -1300,6 +1301,18 @@ export default function AddInterventionScreen() {
 
   const passageDateParsed = isAdmin && !isEditMode && adminMode === "passage" ? parseDDMMYYYY(dateStr) : null;
   const isPassageDatePast = passageDateParsed ? !isTodayOrFuture(passageDateParsed) : false;
+
+  // Essai terminé : pas de nouvelle intervention (la modification d'une existante reste possible).
+  if (isReadOnly && !isEditMode) {
+    return (
+      <View style={[styles.root, { padding: 20, paddingTop: topPadding + 12, gap: 16 }]}>
+        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.closeBtn, pressed && { opacity: 0.7 }]}>
+          <Ionicons name="close" size={22} color={COLORS.text} />
+        </Pressable>
+        <ReadOnlyNotice />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>

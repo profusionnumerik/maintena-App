@@ -13,7 +13,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import {
   Entretien, EntretienEquipement, EntretienPeriodicite, EntretienStatut, EntretienVisit,
   ENTRETIEN_EQUIPEMENT_ICONS, ENTRETIEN_EQUIPEMENT_LABELS,
@@ -766,6 +766,7 @@ export default function EntretienScreen() {
 
   // ── Sauvegarde équipement ─────────────────────────────────────────────────
   const handleSaveEquipement = useCallback(async (form: EntretienForm) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro || !user) return;
     setSaving(true);
     try {
@@ -809,6 +810,7 @@ export default function EntretienScreen() {
 
   // ── Enregistrer une visite ────────────────────────────────────────────────
   const handleSaveVisit = useCallback(async (form: VisitForm) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro || !user || !visitModalTarget) return;
     setSaving(true);
     try {

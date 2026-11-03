@@ -18,7 +18,7 @@ import {
 import { db, storage } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import { wa, wConfirm } from "@/shared/dialogs";
 import HelpModal, { HelpButton } from "@/components/HelpModal";
 import { HELP } from "@/shared/help";
@@ -82,6 +82,7 @@ export default function DocumentsScreen() {
   }, [currentCopro?.id]);
 
   const handleUpload = async (type: DocType) => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!canWrite || !currentCopro?.id || !user) return;
     try {
       const res = await DocumentPicker.getDocumentAsync({

@@ -24,7 +24,7 @@ import { COLORS } from "@/constants/colors";
 import { CategoryBadge } from "@/components/CategoryBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useInterventions } from "@/context/InterventionsContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import { uploadPhoto } from "@/lib/storage";
 import { CleaningArea, generateCleaningAreas } from "@/shared/types";
 import { wa, wConfirm } from "@/shared/dialogs";
@@ -321,6 +321,7 @@ export default function InterventionDetailScreen() {
     : false;
 
   const handleSendReminder = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!invitedProvider?.email || !currentCopro || !intervention || !user) return;
     setIsSendingReminder(true);
     try {
@@ -478,6 +479,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleCreateEntretien = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!newEntretienLabel.trim()) { wa("Erreur", "Donnez un nom à l'équipement."); return; }
     const coProId = intervention?.coProId ?? currentCopro?.id;
     if (!coProId || !user) return;
@@ -622,6 +624,7 @@ export default function InterventionDetailScreen() {
   };
 
   const handleSavePhotosOnly = async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (localCompletionPhotos.length === 0) return;
 
     const coProId = intervention.coProId ?? currentCopro?.id;

@@ -463,13 +463,9 @@ function RootLayoutNav() {
       if (!inOnboarding) router.replace("/(onboarding)");
       return;
     }
-    // Bloquer si l'essai est expiré et pas d'abonnement actif
-    // Note : on NE vérifie plus currentCopro.status === "active" car ce champ
-    // est toujours "active" à la création — isSubscribed couvre déjà trial + abonnement.
-    if (!isSubscribed) {
-      if (!inBlocked) router.replace("/(blocked)");
-      return;
-    }
+    // Sans essai ni abonnement, la résidence s'ouvre en lecture seule (bandeau, créations
+    // bloquées) ; l'écran d'abonnement (blocked) reste accessible au syndic pour payer.
+    if (!isSubscribed && inBlocked) return;
     if (!inApp && !inModal && !inCreateCopro && !inLegal && !inOnboarding) {
       router.replace("/(app)");
     }

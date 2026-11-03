@@ -18,7 +18,7 @@ import {
 import { db } from "@/lib/firebase";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { useCoPro, READ_ONLY_MESSAGE, isCoproReadOnly } from "@/context/CoProContext";
 import { wa, wConfirm } from "@/shared/dialogs";
 import HelpModal, { HelpButton } from "@/components/HelpModal";
 import { HELP } from "@/shared/help";
@@ -220,6 +220,7 @@ export default function DemandesDevisScreen() {
 
   // Create ticket
   const handleCreate = useCallback(async () => {
+    if (isCoproReadOnly()) { wa("Lecture seule", READ_ONLY_MESSAGE); return; }
     if (!currentCopro?.id || !user) return;
     if (!form.title.trim()) { wa("Erreur", "Titre requis."); return; }
     setSaving(true);

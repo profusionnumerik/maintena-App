@@ -21,7 +21,7 @@ import React, {
 } from "react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
-import { useCoPro } from "@/context/CoProContext";
+import { READ_ONLY_MESSAGE, useCoPro } from "@/context/CoProContext";
 import { Intervention } from "@/shared/types";
 
 interface InterventionsContextValue {
@@ -116,7 +116,7 @@ export function InterventionsProvider({
   children: React.ReactNode;
 }) {
   const { user, employerUid, fromEntretienCode } = useAuth();
-  const { currentCopro, currentRole, categoryFilter, isSubscribed, copros } = useCoPro();
+  const { currentCopro, currentRole, categoryFilter, isSubscribed, isReadOnly, copros } = useCoPro();
   const [allInterventions, setAllInterventions] = useState<Intervention[]>([]);
   const [multiCoproInterventions, setMultiCoproInterventions] = useState<Intervention[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -127,7 +127,8 @@ export function InterventionsProvider({
   // Listener standard — toujours actif pour la copro courante (admin + prestataire mono-résidence)
   useEffect(() => {
     if (hasMultipleCopros) return;
-    const canLoad = currentCopro && (currentCopro.status === "active" || isSubscribed);
+    // Lecture seule (essai terminé) : les interventions restent consultables.
+    const canLoad = !!currentCopro;
     if (!canLoad) {
       setAllInterventions([]);
       setIsLoading(false);
@@ -230,6 +231,7 @@ export function InterventionsProvider({
       >
     ): Promise<string> => {
       if (!user || !currentCopro) throw new Error("Not ready");
+      if (isReadOnly) throw new Error(READ_ONLY_MESSAGE);
 
       const payload: Record<string, any> = {
         title: data.title,
@@ -285,7 +287,7 @@ export function InterventionsProvider({
 
       return ref.id;
     },
-    [user, currentCopro]
+    [user, currentCopro, isReadOnly]
   );
 
   const updateIntervention = useCallback(

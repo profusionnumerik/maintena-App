@@ -54,10 +54,10 @@ export default function JoinCoPro() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
       // Tentative 1 : code de copropriété
-      const copro = await joinCoPro(trimmed);
+      await joinCoPro(trimmed);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const isActive = copro.subscriptionStatus === "active" || copro.status === "active";
-      router.replace(isActive ? "/(app)" : "/(blocked)");
+      // Résidence sans abonnement : elle s'ouvre en lecture seule (bandeau dans l'app).
+      router.replace("/(app)");
     } catch {
       // Tentative 2 : code salarie_invites (email invite)
       const idToken = await user?.getIdToken().catch(() => null);
